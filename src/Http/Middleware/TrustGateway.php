@@ -17,6 +17,10 @@ class TrustGateway
 
     public function handle(Request $request, Closure $next): Response
     {
+        if (config('microservice.debug')) {
+            return $next($request);
+        }
+
         $signature = $request->header('X-Signature');
         $timestamp = $request->header('X-Timestamp');
 

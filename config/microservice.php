@@ -16,6 +16,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Debug Mode
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, the TrustGateway middleware will skip HMAC signature
+    | verification, allowing direct requests to the service.
+    | Must be disabled in production.
+    |
+    */
+
+    'debug' => env('SERVICE_DEBUG', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Service Secret
     |--------------------------------------------------------------------------
     |
