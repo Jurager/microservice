@@ -1,0 +1,56 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Jurager\Microservice\Commands;
+
+use Illuminate\Console\Command;
+use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\Registry\ManifestRegistry;
+
+class RegisterManifestCommand extends Command
+{
+    protected $signature = 'microservice:register';
+
+    protected $description = 'Register the service route manifest';
+
+    public function handle(ManifestRegistry $registry, ServiceClient $client): int
+    {
+        $manifest = $registry->build();
+
+        $this->components->info("Registering manifest for service [{$manifest['service']}]...");
+
+        $gateway = config('microservice.manifest.gateway');
+
+        if ($gateway) {
+            try {
+                $response = $client->service($gateway)
+                    ->post('/microservice/manifest', $manifest)
+                    ->send();
+
+                if ($response->failed()) {
+                    $this->components->error("Failed to push manifest to gateway [$gateway]: {$response->status()}");
+                    return self::FAILURE;
+                }
+            } catch (ServiceUnavailableException $e) {
+                $this->components->error("Gateway [$gateway] is unavailable.");
+                return self::FAILURE;
+            }
+        } else {
+            $registry->store($manifest);
+        }
+
+        $routes = $manifest['routes'];
+
+        $this->components->info(count($routes) . ' route(s) registered.');
+
+        $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
+            $route['method'],
+            $route['uri'],
+            $route['name'] ?? '-',
+        ], $routes));
+
+        return self::SUCCESS;
+    }
+}
