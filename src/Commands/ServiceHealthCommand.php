@@ -23,6 +23,12 @@ class ServiceHealthCommand extends Command
             return self::SUCCESS;
         }
 
+        $serviceName = config('microservice.name');
+
+        if (config('microservice.manifest.gateway')) {
+            $this->components->warn("Showing outgoing request health from [$serviceName] perspective only.");
+        }
+
         $rows = [];
 
         foreach ($health as $service => $instances) {

@@ -23,6 +23,14 @@ class RegisterManifestCommand extends Command
 
         $gateway = config('microservice.manifest.gateway');
 
+        $serviceName = $manifest['service'];
+
+        if ($gateway === $serviceName || (!$gateway && config("microservice.services.$serviceName"))) {
+            $this->components->error("Cannot register manifest: service [$serviceName] appears to be a gateway.");
+
+            return self::FAILURE;
+        }
+
         if ($gateway) {
             try {
                 $response = $client->service($gateway)
@@ -35,6 +43,11 @@ class RegisterManifestCommand extends Command
                 }
             } catch (ServiceUnavailableException $e) {
                 $this->components->error("Gateway [$gateway] is unavailable.");
+
+                if ($e->getPrevious()) {
+                    $this->components->bulletList([$e->getPrevious()->getMessage()]);
+                }
+
                 return self::FAILURE;
             }
         } else {
