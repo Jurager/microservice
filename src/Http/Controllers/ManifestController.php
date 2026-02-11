@@ -25,7 +25,7 @@ class ManifestController extends Controller
         $registry->store($request->all());
 
         if (app()->routesAreCached()) {
-            Artisan::call('route:clear');
+            Artisan::call('route:cache');
         }
 
         return response()->json(['status' => 'registered']);

@@ -17,7 +17,7 @@ class RouteRegistry
      */
     public function getAllManifests(): array
     {
-        $keys = $this->scanKeys($this->redisPrefix() . 'manifest:*');
+        $keys = $this->matchKeys($this->redisPrefix() . 'manifest:*');
 
         if (empty($keys)) {
             return [];
@@ -115,22 +115,8 @@ class RouteRegistry
     /**
      * @return string[]
      */
-    protected function scanKeys(string $pattern): array
+    protected function matchKeys(string $pattern): array
     {
-        $keys = [];
-        $cursor = '0';
-
-        do {
-            $result = $this->redis()->scan($cursor, ['match' => $pattern, 'count' => 100]);
-
-            if ($result === false) {
-                break;
-            }
-
-            [$cursor, $found] = $result;
-            array_push($keys, ...$found);
-        } while ((string) $cursor !== '0');
-
-        return $keys;
+        return $this->redis()->keys($pattern) ?: [];
     }
 }
