@@ -39,10 +39,11 @@ class ManifestRegistry
             return;
         }
 
-        $key = $this->redisPrefix() . "manifest:$service";
+        $prefix = $this->redisPrefix();
         $ttl = config('microservice.manifest.ttl', 300);
 
-        $this->redis()->setex($key, $ttl, json_encode($manifest));
+        $this->redis()->setex($prefix . "manifest:$service", $ttl, json_encode($manifest));
+        $this->redis()->sadd($prefix . 'manifests', $service);
     }
 
     /**

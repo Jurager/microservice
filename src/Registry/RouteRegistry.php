@@ -17,16 +17,14 @@ class RouteRegistry
      */
     public function getAllManifests(): array
     {
-        $keys = $this->matchKeys($this->redisPrefix() . 'manifest:*');
+        $prefix = $this->redisPrefix();
+        $services = $this->redis()->smembers($prefix . 'manifests') ?: [];
 
-        if (empty($keys)) {
-            return [];
-        }
-
-        $values = $this->redis()->mget($keys);
         $manifests = [];
 
-        foreach ($values as $raw) {
+        foreach ($services as $service) {
+            $raw = $this->redis()->get($prefix . "manifest:$service");
+
             if ($raw === null || $raw === false) {
                 continue;
             }
@@ -112,11 +110,4 @@ class RouteRegistry
         return (bool) preg_match('#^' . $regex . '$#', $uri);
     }
 
-    /**
-     * @return string[]
-     */
-    protected function matchKeys(string $pattern): array
-    {
-        return $this->redis()->keys($pattern) ?: [];
-    }
 }
