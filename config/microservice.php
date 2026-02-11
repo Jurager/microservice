@@ -143,6 +143,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Proxy Settings
+    |--------------------------------------------------------------------------
+    |
+    | Headers listed here will be stripped from proxied microservice
+    | responses to prevent conflicts with the gateway's own headers
+    | (e.g. CORS or security headers set by nginx).
+    |
+    */
+
+    'proxy' => [
+        'strip_headers' => [
+            'Access-Control-Allow-Origin',
+            'Access-Control-Allow-Methods',
+            'Access-Control-Allow-Headers',
+            'Access-Control-Allow-Credentials',
+            'Access-Control-Expose-Headers',
+            'Access-Control-Max-Age',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Default Request Settings
     |--------------------------------------------------------------------------
     */

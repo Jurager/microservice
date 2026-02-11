@@ -57,7 +57,10 @@ class ProxyController extends Controller
 
     protected function filterHeaders(array $headers): array
     {
-        $exclude = ['transfer-encoding', 'connection'];
+        $strip = config('microservice.proxy.strip_headers', []);
+
+        $exclude = array_map('strtolower', array_merge(['transfer-encoding', 'connection'], $strip));
+
         $mapped = [];
 
         foreach ($headers as $name => $values) {
