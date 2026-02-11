@@ -101,6 +101,7 @@ return [
     */
 
     'health' => [
+        'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
         'failure_threshold' => 3,
         'recovery_timeout' => 30,
     ],

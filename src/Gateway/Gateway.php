@@ -47,15 +47,10 @@ class Gateway
                 $uri = ltrim($routeData['uri'], '/');
                 $key = $routeData['method'] . ' ' . $routeData['uri'];
 
-                if (isset($servicePrefixes[$service])) {
-                    $prefix = trim($servicePrefixes[$service], '/');
+                $prefix = trim($servicePrefixes[$service] ?? $service, '/');
 
-                    if ($prefix !== '') {
-                        $pos = strpos($uri, '/');
-                        $uri = $pos !== false
-                            ? substr($uri, 0, $pos) . '/' . $prefix . substr($uri, $pos)
-                            : $uri . '/' . $prefix;
-                    }
+                if ($prefix !== '') {
+                    $uri = $prefix . '/' . $uri;
                 }
 
                 $action = $overrideMap[$service][$key] ?? [$controller, 'handle'];

@@ -8,4 +8,6 @@ use Jurager\Microservice\Http\Middleware\TrustService;
 Route::post('/microservice/manifest', [ManifestController::class, 'store'])
     ->middleware(TrustService::class);
 
-Route::get('/microservice/health', HealthController::class);
+if ($endpoint = config('microservice.health.endpoint')) {
+    Route::get($endpoint, HealthController::class);
+}
