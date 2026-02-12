@@ -43,17 +43,8 @@ class MicroserviceServiceProvider extends ServiceProvider
 
     protected function configureTrustedProxies(): void
     {
-        if (! $gateway = config('microservice.manifest.gateway')) {
-            return;
-        }
-
-        $hosts = array_values(array_unique(array_filter(array_map(
-            static fn ($url) => is_string($url) ? parse_url($url, PHP_URL_HOST) : null,
-            (array) config("microservice.services.{$gateway}.base_urls", [])
-        ))));
-
-        if ($hosts !== []) {
-            TrustProxies::at($hosts);
+        if (config('microservice.manifest.gateway')) {
+            TrustProxies::at('*');
         }
     }
 }

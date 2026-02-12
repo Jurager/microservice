@@ -38,12 +38,9 @@ class TrustProxiesConfigTest extends TestCase
         });
     }
 
-    public function test_trusts_gateway_base_urls(): void
+    public function test_trusts_proxies_when_gateway_is_configured(): void
     {
         config()->set('microservice.manifest.gateway', 'gateway');
-        config()->set('microservice.services.gateway', [
-            'base_urls' => ['http://127.0.0.1:8000', 'http://10.0.0.2:8000'],
-        ]);
 
         $this->app->getProvider(\Jurager\Microservice\MicroserviceServiceProvider::class)->boot();
 
@@ -62,21 +59,6 @@ class TrustProxiesConfigTest extends TestCase
     public function test_does_not_configure_proxies_when_no_gateway(): void
     {
         config()->set('microservice.manifest.gateway', null);
-
-        $this->app->getProvider(\Jurager\Microservice\MicroserviceServiceProvider::class)->boot();
-
-        $response = $this->get('/test/url-check', [
-            'X-Forwarded-Host' => 'api.example.com',
-        ]);
-
-        $response->assertOk();
-        $this->assertNotSame('api.example.com', $response->json('host'));
-    }
-
-    public function test_does_not_configure_proxies_when_gateway_has_no_base_urls(): void
-    {
-        config()->set('microservice.manifest.gateway', 'gateway');
-        config()->set('microservice.services.gateway', []);
 
         $this->app->getProvider(\Jurager\Microservice\MicroserviceServiceProvider::class)->boot();
 

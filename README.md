@@ -458,7 +458,7 @@ Gateway::routes(controller: App\Http\Controllers\MyProxyController::class);
 
 #### URL rewriting via TrustProxies
 
-When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` headers to the backend service. The package automatically configures Laravel's `TrustProxies` middleware to trust the gateway hosts extracted from the `manifest.gateway` service's `base_urls`. No additional configuration is needed — if `manifest.gateway` is set, TrustProxies is configured automatically.
+When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` headers to the backend service. When `manifest.gateway` is set, the package automatically configures Laravel's `TrustProxies` middleware to trust the calling proxy. No additional configuration is needed on the backend side.
 
 **Example:** gateway at `https://api.example.com` proxies to PIM at `http://pim:8000` with prefix `pim`:
 
