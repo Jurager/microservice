@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Jurager\Microservice\Gateway\Gateway;
-use Jurager\Microservice\Http\Controllers\ProxyController;
 use Jurager\Microservice\Registry\RouteRegistry;
 use Jurager\Microservice\Tests\TestCase;
 use Illuminate\Support\Facades\Route;
@@ -48,8 +47,8 @@ class GatewayTest extends TestCase
 
         Gateway::routes();
 
-        $this->assertNotNull($this->findRouteByUri('api/products', 'GET'));
-        $this->assertNotNull($this->findRouteByUri('api/products', 'POST'));
+        $this->assertNotNull($this->findRouteByUri('pim/api/products', 'GET'));
+        $this->assertNotNull($this->findRouteByUri('pim/api/products', 'POST'));
     }
 
     public function test_routes_filters_by_service_names(): void
@@ -66,8 +65,8 @@ class GatewayTest extends TestCase
 
         Gateway::routes(services: ['pim']);
 
-        $this->assertNotNull($this->findRouteByUri('api/products', 'GET'));
-        $this->assertNull($this->findRouteByUri('api/orders', 'GET'));
+        $this->assertNotNull($this->findRouteByUri('pim/api/products', 'GET'));
+        $this->assertNull($this->findRouteByUri('oms/api/orders', 'GET'));
     }
 
     public function test_routes_applies_service_prefix(): void
@@ -76,7 +75,7 @@ class GatewayTest extends TestCase
 
         Gateway::routes(fn ($r) => $r->service('pim')->prefix('catalog'));
 
-        $route = $this->findRouteByUri('api/catalog/products', 'GET');
+        $route = $this->findRouteByUri('catalog/api/products', 'GET');
 
         $this->assertNotNull($route);
     }
@@ -97,7 +96,7 @@ class GatewayTest extends TestCase
 
         Gateway::routes();
 
-        $route = $this->findRouteByUri('api/products', 'GET');
+        $route = $this->findRouteByUri('pim/api/products', 'GET');
         $this->assertNotNull($route);
 
         $action = $route->getAction();
@@ -115,7 +114,7 @@ class GatewayTest extends TestCase
         Gateway::routes(fn ($r) => $r->service('pim')
             ->get('/api/products', [GatewayFakeController::class, 'index']));
 
-        $route = $this->findRouteByUri('api/products', 'GET');
+        $route = $this->findRouteByUri('pim/api/products', 'GET');
         $this->assertNotNull($route);
 
         $this->assertStringContainsString('GatewayFakeController', $route->getAction('controller'));
@@ -129,7 +128,7 @@ class GatewayTest extends TestCase
 
         Gateway::routes(controller: GatewayFakeController::class);
 
-        $route = $this->findRouteByUri('api/products', 'GET');
+        $route = $this->findRouteByUri('pim/api/products', 'GET');
         $this->assertNotNull($route);
 
         $this->assertStringContainsString('GatewayFakeController', $route->getAction('controller'));
@@ -148,7 +147,7 @@ class GatewayTest extends TestCase
         $route = Route::getRoutes()->getByName('products.index');
 
         $this->assertNotNull($route);
-        $this->assertSame('api/products', $route->uri());
+        $this->assertSame('pim/api/products', $route->uri());
     }
 
     public function test_routes_applies_combined_service_and_route_middleware(): void
@@ -158,15 +157,16 @@ class GatewayTest extends TestCase
             ['method' => 'POST', 'uri' => '/api/products', 'name' => 'products.store'],
         ])]);
 
-        Gateway::routes(fn ($r) => $r
+        Gateway::routes(
+            fn ($r) => $r
             ->service('pim')
             ->middleware(['auth:api'])
             ->post('/api/products')
             ->middleware(['throttle:10'])
         );
 
-        $getRoute = $this->findRouteByUri('api/products', 'GET');
-        $postRoute = $this->findRouteByUri('api/products', 'POST');
+        $getRoute = $this->findRouteByUri('pim/api/products', 'GET');
+        $postRoute = $this->findRouteByUri('pim/api/products', 'POST');
 
         $this->assertNotNull($getRoute);
         $this->assertNotNull($postRoute);
@@ -189,7 +189,7 @@ class GatewayTest extends TestCase
 
         Gateway::routes();
 
-        $route = $this->findRouteByUri('api/products', 'GET');
+        $route = $this->findRouteByUri('pim/api/products', 'GET');
 
         $this->assertNotNull($route);
         $this->assertNull($route->getName());
@@ -206,7 +206,7 @@ class GatewayTest extends TestCase
 
         Gateway::routes(fn ($r) => $r->service('pim')->prefix('v2'));
 
-        $route = $this->findRouteByUri('api/v2', 'GET');
+        $route = $this->findRouteByUri('v2/api', 'GET');
 
         $this->assertNotNull($route);
     }

@@ -13,7 +13,8 @@ class TrustGateway
 {
     public function __construct(
         protected readonly HmacSigner $signer
-    ) {}
+    ) {
+    }
 
     public function handle(Request $request, Closure $next): Response
     {

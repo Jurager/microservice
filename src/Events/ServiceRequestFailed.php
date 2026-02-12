@@ -17,5 +17,6 @@ class ServiceRequestFailed
         public readonly string $path,
         public readonly int $statusCode,
         public readonly string $message,
-    ) {}
+    ) {
+    }
 }

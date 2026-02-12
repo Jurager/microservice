@@ -13,7 +13,8 @@ class ServiceResponse
 
     public function __construct(
         protected readonly ResponseInterface $response,
-    ) {}
+    ) {
+    }
 
     public function status(): int
     {

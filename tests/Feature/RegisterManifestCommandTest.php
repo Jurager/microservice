@@ -19,6 +19,7 @@ class RegisterManifestCommandTest extends TestCase
     {
         $redis = Mockery::mock(Connection::class);
         $redis->shouldReceive('setex')->once();
+        $redis->shouldReceive('sadd')->once();
 
         $registry = Mockery::mock(ManifestRegistry::class)->makePartial()
             ->shouldAllowMockingProtectedMethods();

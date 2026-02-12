@@ -23,17 +23,33 @@ class PendingServiceRequest
     public function __construct(
         protected readonly ServiceClient $client,
         protected readonly string $service,
-    ) {}
+    ) {
+    }
 
-    public function get(string $path): static { return $this->withMethod('GET', $path); }
+    public function get(string $path): static
+    {
+        return $this->withMethod('GET', $path);
+    }
 
-    public function post(string $path, ?array $body = null): static { return $this->withMethod('POST', $path, $body); }
+    public function post(string $path, ?array $body = null): static
+    {
+        return $this->withMethod('POST', $path, $body);
+    }
 
-    public function put(string $path, ?array $body = null): static { return $this->withMethod('PUT', $path, $body); }
+    public function put(string $path, ?array $body = null): static
+    {
+        return $this->withMethod('PUT', $path, $body);
+    }
 
-    public function patch(string $path, ?array $body = null): static { return $this->withMethod('PATCH', $path, $body); }
+    public function patch(string $path, ?array $body = null): static
+    {
+        return $this->withMethod('PATCH', $path, $body);
+    }
 
-    public function delete(string $path): static { return $this->withMethod('DELETE', $path); }
+    public function delete(string $path): static
+    {
+        return $this->withMethod('DELETE', $path);
+    }
 
     public function withMethod(string $method, string $path, ?array $body = null): static
     {

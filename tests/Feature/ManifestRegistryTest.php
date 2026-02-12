@@ -81,6 +81,8 @@ class ManifestRegistryTest extends TestCase
             return str_contains($key, 'manifest:pim') && $ttl === 300;
         });
 
+        $this->redis->shouldReceive('sadd')->once();
+
         $this->registry->store($manifest);
     }
 
