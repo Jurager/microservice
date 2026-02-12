@@ -403,13 +403,13 @@ Gateway::routes(function (GatewayRoutes $routes) {
 });
 ```
 
-The prefix is inserted after the first URI segment (`api`):
+By default, each service is prefixed with its name. Custom prefix overrides the default:
 
 | Service | Manifest URI | Gateway URI |
 |---|---|---|
-| pim | `/api/products` | `/api/catalog/products` |
-| pim | `/api/products/{product}` | `/api/catalog/products/{product}` |
-| oms | `/api/orders` | `/api/orders/orders` |
+| pim (default) | `/api/products` | `/pim/api/products` |
+| pim (prefix: `catalog`) | `/api/products` | `/catalog/api/products` |
+| oms (prefix: `orders`) | `/api/orders` | `/orders/api/orders` |
 
 The `ProxyController` forwards the **original path** (without prefix) to the service.
 
@@ -445,6 +445,7 @@ The default `ProxyController` proxies each request to the target service via `Se
 
 - Forwards HTTP method, path, JSON body and query parameters
 - Signs the request with HMAC automatically
+- Sends `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` and `X-Forwarded-Prefix` headers to the backend
 - Returns the service response with original status code and headers
 - Filters out `Transfer-Encoding` and `Connection` headers
 - Benefits from failover, retry and health tracking
@@ -454,6 +455,22 @@ To replace the default controller for all routes:
 ```php
 Gateway::routes(controller: App\Http\Controllers\MyProxyController::class);
 ```
+
+#### URL rewriting via TrustProxies
+
+When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` headers to the backend service. Laravel's built-in `TrustProxies` middleware (enabled by default since Laravel 11) reads these headers, so the backend automatically generates URLs pointing to the gateway instead of itself.
+
+**Example:** gateway at `https://api.example.com` proxies to PIM at `http://pim:8000` with prefix `pim`:
+
+| Header | Value |
+|---|---|
+| `X-Forwarded-Host` | `api.example.com` |
+| `X-Forwarded-Proto` | `https` |
+| `X-Forwarded-Prefix` | `/pim` |
+
+With these headers, all URL generation on the backend (`url()`, `route()`, pagination links, etc.) will produce `https://api.example.com/pim/...` instead of `http://pim:8000/...`.
+
+**No additional configuration is required** on the backend side for Laravel 11+. The `TrustProxies` middleware is registered globally and trusts all proxies by default. If your backend uses an older Laravel version or a custom `TrustProxies` setup, ensure that the gateway IP is in the trusted proxies list and `X-Forwarded-Prefix` is included in the trusted headers.
 
 ### Route caching
 
