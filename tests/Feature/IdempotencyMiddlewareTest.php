@@ -131,7 +131,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => 'req-corrupt'])
             ->assertStatus(500)
-            ->assertJson(['message' => 'Invalid cache state']);
+            ->assertJson(['message' => 'Invalid cache state.']);
     }
 
     public function test_returns_500_for_cached_data_missing_required_keys(): void
@@ -144,7 +144,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => 'req-incomplete'])
             ->assertStatus(500)
-            ->assertJson(['message' => 'Invalid cache state']);
+            ->assertJson(['message' => 'Invalid cache state.']);
     }
 
     public function test_lock_released_on_exception_in_handler(): void

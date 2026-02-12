@@ -7,6 +7,8 @@ namespace Jurager\Microservice\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Jurager\Microservice\Exceptions\DuplicateRequestException;
+use Jurager\Microservice\Exceptions\InvalidCacheStateException;
 use Symfony\Component\HttpFoundation\Response;
 
 class Idempotency
@@ -30,7 +32,7 @@ class Idempotency
         $lockTimeout = config('microservice.idempotency.lock_timeout', 10);
 
         if (!$this->redis()->set($lockKey, 'processing', 'EX', $lockTimeout, 'NX')) {
-            return response()->json(['message' => 'Request is already being processed.'], 409);
+            throw new DuplicateRequestException();
         }
 
         try {
@@ -65,7 +67,7 @@ class Idempotency
         $data = json_decode($cached, true);
 
         if (!is_array($data) || !isset($data['content'], $data['status'])) {
-            return response()->json(['message' => 'Invalid cache state'], 500);
+            throw new InvalidCacheStateException();
         }
 
         return response($data['content'], $data['status'])

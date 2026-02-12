@@ -6,6 +6,8 @@ namespace Jurager\Microservice\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Jurager\Microservice\Exceptions\InvalidSignatureException;
+use Jurager\Microservice\Exceptions\MissingSignatureException;
 use Jurager\Microservice\Support\HmacSigner;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -26,11 +28,11 @@ class TrustGateway
         $timestamp = $request->header('X-Timestamp');
 
         if ($signature === null || $timestamp === null) {
-            return response()->json(['error' => 'Missing signature headers.'], 401);
+            throw new MissingSignatureException();
         }
 
         if (!$this->signer->verify($request, $signature, $timestamp)) {
-            return response()->json(['error' => 'Invalid signature or timestamp.'], 401);
+            throw new InvalidSignatureException();
         }
 
         return $next($request);

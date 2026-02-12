@@ -28,6 +28,15 @@ class ProxyController extends Controller
 
         $pending = $client->service($service)->withMethod($request->method(), $path, $body);
 
+        $prefix = $request->route()->getAction('_service_prefix') ?? '';
+
+        $pending->withHeaders([
+            'X-Forwarded-Host' => $request->getHttpHost(),
+            'X-Forwarded-Proto' => $request->getScheme(),
+            'X-Forwarded-Port' => (string) $request->getPort(),
+            'X-Forwarded-Prefix' => $prefix !== '' ? '/' . trim($prefix, '/') : '',
+        ]);
+
         if ($query = $request->query()) {
             $pending->withQuery($query);
         }

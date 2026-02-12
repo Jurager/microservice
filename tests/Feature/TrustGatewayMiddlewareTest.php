@@ -41,7 +41,7 @@ class TrustGatewayMiddlewareTest extends TestCase
     {
         $this->postJson('/test/endpoint')
             ->assertStatus(401)
-            ->assertJson(['error' => 'Missing signature headers.']);
+            ->assertJson(['message' => 'Missing signature headers.']);
     }
 
     public function test_rejects_invalid_signature(): void
@@ -51,7 +51,7 @@ class TrustGatewayMiddlewareTest extends TestCase
             'X-Timestamp' => (string) time(),
         ])
             ->assertStatus(401)
-            ->assertJson(['error' => 'Invalid signature or timestamp.']);
+            ->assertJson(['message' => 'Invalid signature or timestamp.']);
     }
 
     public function test_rejects_expired_timestamp(): void

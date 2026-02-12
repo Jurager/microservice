@@ -42,7 +42,7 @@ class TrustServiceMiddlewareTest extends TestCase
             'X-Signature' => $signer->sign('POST', '/test/service-endpoint', $timestamp, $body),
         ])
             ->assertStatus(401)
-            ->assertJson(['error' => 'Missing service name header.']);
+            ->assertJson(['message' => 'Missing service name header.']);
     }
 
     public function test_rejects_invalid_signature_with_service_name(): void

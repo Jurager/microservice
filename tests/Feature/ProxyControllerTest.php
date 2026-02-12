@@ -41,7 +41,19 @@ class ProxyControllerTest extends TestCase
                             'path' => $path,
                             'body' => $body,
                             'query' => [],
+                            'headers' => [],
                         ];
+
+                        return $pending;
+                    }
+                );
+
+                $pending->shouldReceive('withHeaders')->andReturnUsing(
+                    function ($headers) use ($test, $pending) {
+                        $test->capturedRequest->headers = array_merge(
+                            (array) ($test->capturedRequest->headers ?? []),
+                            $headers,
+                        );
 
                         return $pending;
                     }
@@ -71,18 +83,21 @@ class ProxyControllerTest extends TestCase
         $route->setAction(array_merge($route->getAction(), [
             '_service' => 'oms',
             '_service_uri' => '/api/orders',
+            '_service_prefix' => 'oms',
         ]));
 
         $route = $router->post('/api/orders', [ProxyController::class, 'handle']);
         $route->setAction(array_merge($route->getAction(), [
             '_service' => 'oms',
             '_service_uri' => '/api/orders',
+            '_service_prefix' => 'oms',
         ]));
 
         $route = $router->get('/api/products/{product}', [ProxyController::class, 'handle']);
         $route->setAction(array_merge($route->getAction(), [
             '_service' => 'pim',
             '_service_uri' => '/api/products/{product}',
+            '_service_prefix' => 'pim',
         ]));
 
         $route = $router->get('/api/fallback', [ProxyController::class, 'handle']);
@@ -94,6 +109,7 @@ class ProxyControllerTest extends TestCase
         $route->setAction(array_merge($route->getAction(), [
             '_service' => 'oms',
             '_service_uri' => '/api/raw-body',
+            '_service_prefix' => 'oms',
         ]));
     }
 
@@ -176,5 +192,29 @@ class ProxyControllerTest extends TestCase
 
         $this->assertSame('POST', $this->capturedRequest->method);
         $this->assertNull($this->capturedRequest->body);
+    }
+
+    public function test_forwards_proxy_headers_to_backend(): void
+    {
+        $this->getJson('/api/orders');
+
+        $this->assertArrayHasKey('X-Forwarded-Host', $this->capturedRequest->headers);
+        $this->assertArrayHasKey('X-Forwarded-Proto', $this->capturedRequest->headers);
+        $this->assertArrayHasKey('X-Forwarded-Port', $this->capturedRequest->headers);
+        $this->assertArrayHasKey('X-Forwarded-Prefix', $this->capturedRequest->headers);
+    }
+
+    public function test_forwards_prefix_header_from_route_metadata(): void
+    {
+        $this->getJson('/api/orders');
+
+        $this->assertSame('/oms', $this->capturedRequest->headers['X-Forwarded-Prefix']);
+    }
+
+    public function test_forwards_empty_prefix_when_not_set(): void
+    {
+        $this->getJson('/api/fallback');
+
+        $this->assertSame('', $this->capturedRequest->headers['X-Forwarded-Prefix']);
     }
 }

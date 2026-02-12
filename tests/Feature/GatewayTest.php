@@ -102,6 +102,7 @@ class GatewayTest extends TestCase
         $action = $route->getAction();
         $this->assertSame('pim', $action['_service']);
         $this->assertSame('/api/products', $action['_service_uri']);
+        $this->assertSame('pim', $action['_service_prefix']);
         $this->assertSame(['products.view'], $action['permissions']);
     }
 

@@ -63,6 +63,7 @@ class Gateway
                     ...$route->getAction(),
                     '_service' => $service,
                     '_service_uri' => $serviceUri,
+                    '_service_prefix' => $prefix,
                     ...$metadata,
                 ]);
 
