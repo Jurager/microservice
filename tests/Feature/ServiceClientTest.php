@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
-use GuzzleHttp\Psr7\Response;
-use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Event;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\ServiceRequestFailed;

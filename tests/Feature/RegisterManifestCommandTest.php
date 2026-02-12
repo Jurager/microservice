@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use GuzzleHttp\Psr7\Response;
 use Illuminate\Redis\Connections\Connection;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Client\ServiceResponse;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Tests\TestCase;
-use GuzzleHttp\Psr7\Response;
 use Mockery;
 
 class RegisterManifestCommandTest extends TestCase

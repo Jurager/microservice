@@ -12,7 +12,7 @@ class HealthRegistry
 
     protected function healthKey(string $service, string $url): string
     {
-        return $this->redisPrefix() . "health:$service:" . md5($url);
+        return $this->redisPrefix()."health:$service:".md5($url);
     }
 
     /**

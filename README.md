@@ -458,7 +458,7 @@ Gateway::routes(controller: App\Http\Controllers\MyProxyController::class);
 
 #### URL rewriting via TrustProxies
 
-When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` headers to the backend service. Laravel's built-in `TrustProxies` middleware (enabled by default since Laravel 11) reads these headers, so the backend automatically generates URLs pointing to the gateway instead of itself.
+When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` headers to the backend service. The package automatically configures Laravel's `TrustProxies` middleware to trust the gateway hosts extracted from the `manifest.gateway` service's `base_urls`. No additional configuration is needed — if `manifest.gateway` is set, TrustProxies is configured automatically.
 
 **Example:** gateway at `https://api.example.com` proxies to PIM at `http://pim:8000` with prefix `pim`:
 
@@ -469,8 +469,6 @@ When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` head
 | `X-Forwarded-Prefix` | `/pim` |
 
 With these headers, all URL generation on the backend (`url()`, `route()`, pagination links, etc.) will produce `https://api.example.com/pim/...` instead of `http://pim:8000/...`.
-
-**No additional configuration is required** on the backend side for Laravel 11+. The `TrustProxies` middleware is registered globally and trusts all proxies by default. If your backend uses an older Laravel version or a custom `TrustProxies` setup, ensure that the gateway IP is in the trusted proxies list and `X-Forwarded-Prefix` is included in the trusted headers.
 
 ### Route caching
 

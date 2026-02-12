@@ -25,7 +25,7 @@ class RegisterManifestCommand extends Command
 
         $serviceName = $manifest['service'];
 
-        if ($gateway === $serviceName || (!$gateway && config("microservice.services.$serviceName"))) {
+        if ($gateway === $serviceName || (! $gateway && config("microservice.services.$serviceName"))) {
             $this->components->error("Cannot register manifest: service [$serviceName] appears to be a gateway.");
 
             return self::FAILURE;
@@ -39,6 +39,7 @@ class RegisterManifestCommand extends Command
 
                 if ($response->failed()) {
                     $this->components->error("Failed to push manifest to gateway [$gateway]: {$response->status()}");
+
                     return self::FAILURE;
                 }
             } catch (ServiceUnavailableException $e) {
@@ -56,7 +57,7 @@ class RegisterManifestCommand extends Command
 
         $routes = $manifest['routes'];
 
-        $this->components->info(count($routes) . ' route(s) registered.');
+        $this->components->info(count($routes).' route(s) registered.');
 
         $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
             $route['method'],

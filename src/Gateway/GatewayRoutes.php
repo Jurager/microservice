@@ -73,9 +73,9 @@ class GatewayRoutes
 
     protected function add(string $method, string $uri, array|Closure|null $action): static
     {
-        $uri = '/' . ltrim($uri, '/');
+        $uri = '/'.ltrim($uri, '/');
 
-        $this->lastRouteKey = $method . ' ' . $uri;
+        $this->lastRouteKey = $method.' '.$uri;
 
         if ($action !== null) {
             $this->overrides[$this->currentService][$this->lastRouteKey] = $action;

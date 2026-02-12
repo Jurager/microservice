@@ -48,6 +48,7 @@ class ServiceClient
             try {
                 if ($response = $this->tryInstance($request, $service, $baseUrl)) {
                     $this->registry->markSuccess($service, $baseUrl);
+
                     return $response;
                 }
             } catch (\Exception $e) {
@@ -112,7 +113,7 @@ class ServiceClient
     {
         $method = $request->getMethod();
         $path = $request->getPath();
-        $url = rtrim($baseUrl, '/') . '/' . ltrim($path, '/');
+        $url = rtrim($baseUrl, '/').'/'.ltrim($path, '/');
         $timeout = $request->getTimeout()
             ?? config("microservice.services.{$request->getService()}.timeout")
             ?? config('microservice.defaults.timeout', 5);

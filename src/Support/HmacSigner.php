@@ -10,7 +10,7 @@ class HmacSigner
 {
     public function sign(string $method, string $path, string $timestamp, ?string $body = null): string
     {
-        $payload = strtoupper($method) . "\n" . '/' . ltrim($path, '/') . "\n$timestamp\n" . ($body ?? '');
+        $payload = strtoupper($method)."\n".'/'.ltrim($path, '/')."\n$timestamp\n".($body ?? '');
 
         return hash_hmac(
             config('microservice.algorithm', 'sha256'),
@@ -29,7 +29,7 @@ class HmacSigner
 
         $expected = $this->sign(
             $request->method(),
-            '/' . ltrim($request->path(), '/'),
+            '/'.ltrim($request->path(), '/'),
             $timestamp,
             $request->getContent()
         );

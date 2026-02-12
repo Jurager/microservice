@@ -17,7 +17,7 @@ class ProxyController extends Controller
         $path = $this->resolveProxyPath($request);
         $body = null;
 
-        if (!$request->isMethodSafe()) {
+        if (! $request->isMethodSafe()) {
             $content = $request->getContent();
 
             if ($content !== '') {
@@ -34,7 +34,7 @@ class ProxyController extends Controller
             'X-Forwarded-Host' => $request->getHttpHost(),
             'X-Forwarded-Proto' => $request->getScheme(),
             'X-Forwarded-Port' => (string) $request->getPort(),
-            'X-Forwarded-Prefix' => $prefix !== '' ? '/' . trim($prefix, '/') : '',
+            'X-Forwarded-Prefix' => $prefix !== '' ? '/'.trim($prefix, '/') : '',
         ]);
 
         if ($query = $request->query()) {
@@ -58,7 +58,7 @@ class ProxyController extends Controller
         $path = $serviceUri;
 
         foreach ($request->route()->parameters() as $key => $value) {
-            $path = str_replace('{' . $key . '}', (string) $value, $path);
+            $path = str_replace('{'.$key.'}', (string) $value, $path);
         }
 
         return $path;
@@ -73,7 +73,7 @@ class ProxyController extends Controller
         $mapped = [];
 
         foreach ($headers as $name => $values) {
-            if (!in_array(strtolower($name), $exclude, true)) {
+            if (! in_array(strtolower($name), $exclude, true)) {
                 $mapped[$name] = implode(', ', (array) $values);
             }
         }

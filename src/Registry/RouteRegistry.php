@@ -18,12 +18,12 @@ class RouteRegistry
     public function getAllManifests(): array
     {
         $prefix = $this->redisPrefix();
-        $services = $this->redis()->smembers($prefix . 'manifests') ?: [];
+        $services = $this->redis()->smembers($prefix.'manifests') ?: [];
 
         $manifests = [];
 
         foreach ($services as $service) {
-            $raw = $this->redis()->get($prefix . "manifest:$service");
+            $raw = $this->redis()->get($prefix."manifest:$service");
 
             if ($raw === null || $raw === false) {
                 continue;
@@ -70,7 +70,7 @@ class RouteRegistry
     public function resolve(string $method, string $uri): ?array
     {
         $method = strtoupper($method);
-        $uri = '/' . ltrim($uri, '/');
+        $uri = '/'.ltrim($uri, '/');
 
         foreach ($this->getAllManifests() as $manifest) {
             foreach ($manifest['routes'] ?? [] as $route) {
@@ -107,7 +107,6 @@ class RouteRegistry
         $quoted = preg_quote($temp, '#');
         $regex = str_replace(preg_quote($placeholder, '#'), '[^/]+', $quoted);
 
-        return (bool) preg_match('#^' . $regex . '$#', $uri);
+        return (bool) preg_match('#^'.$regex.'$#', $uri);
     }
-
 }

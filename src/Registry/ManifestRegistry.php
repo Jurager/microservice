@@ -42,8 +42,8 @@ class ManifestRegistry
         $prefix = $this->redisPrefix();
         $ttl = config('microservice.manifest.ttl', 300);
 
-        $this->redis()->setex($prefix . "manifest:$service", $ttl, json_encode($manifest));
-        $this->redis()->sadd($prefix . 'manifests', $service);
+        $this->redis()->setex($prefix."manifest:$service", $ttl, json_encode($manifest));
+        $this->redis()->sadd($prefix.'manifests', $service);
     }
 
     /**
@@ -57,7 +57,7 @@ class ManifestRegistry
         foreach (Route::getRoutes() as $route) {
             $uri = $route->uri();
 
-            if ($prefix && $uri !== $prefix && !str_starts_with($uri, $prefix . '/')) {
+            if ($prefix && $uri !== $prefix && ! str_starts_with($uri, $prefix.'/')) {
                 continue;
             }
 
@@ -73,7 +73,7 @@ class ManifestRegistry
 
                 $routes[] = array_filter([
                     'method' => $method,
-                    'uri' => '/' . ltrim($uri, '/'),
+                    'uri' => '/'.ltrim($uri, '/'),
                     'name' => $route->getName(),
                     ...$metadata,
                 ], static fn ($value) => $value !== null);

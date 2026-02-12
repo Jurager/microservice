@@ -17,21 +17,21 @@ class Idempotency
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->isMethodSafe() || !$request->hasHeader('X-Request-Id')) {
+        if ($request->isMethodSafe() || ! $request->hasHeader('X-Request-Id')) {
             return $next($request);
         }
 
         $requestId = $request->header('X-Request-Id');
-        $cacheKey = $this->redisPrefix() . "idempotency:$requestId";
+        $cacheKey = $this->redisPrefix()."idempotency:$requestId";
 
         if ($cached = $this->redis()->get($cacheKey)) {
             return $this->buildCachedResponse($cached);
         }
 
-        $lockKey = $cacheKey . ':lock';
+        $lockKey = $cacheKey.':lock';
         $lockTimeout = config('microservice.idempotency.lock_timeout', 10);
 
-        if (!$this->redis()->set($lockKey, 'processing', 'EX', $lockTimeout, 'NX')) {
+        if (! $this->redis()->set($lockKey, 'processing', 'EX', $lockTimeout, 'NX')) {
             throw new DuplicateRequestException();
         }
 
@@ -66,7 +66,7 @@ class Idempotency
     {
         $data = json_decode($cached, true);
 
-        if (!is_array($data) || !isset($data['content'], $data['status'])) {
+        if (! is_array($data) || ! isset($data['content'], $data['status'])) {
             throw new InvalidCacheStateException();
         }
 

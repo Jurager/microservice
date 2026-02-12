@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use GuzzleHttp\Psr7\Response;
 use Jurager\Microservice\Client\PendingServiceRequest;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Client\ServiceResponse;
 use Jurager\Microservice\Http\Controllers\ProxyController;
 use Jurager\Microservice\Tests\TestCase;
-use GuzzleHttp\Psr7\Response;
 use Mockery;
 
 class ProxyControllerTest extends TestCase

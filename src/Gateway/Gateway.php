@@ -38,19 +38,19 @@ class Gateway
         foreach ($registry->getAllManifests() as $manifest) {
             $service = $manifest['service'];
 
-            if ($services !== null && !in_array($service, $services, true)) {
+            if ($services !== null && ! in_array($service, $services, true)) {
                 continue;
             }
 
             foreach ($manifest['routes'] ?? [] as $routeData) {
                 $serviceUri = $routeData['uri'];
                 $uri = ltrim($routeData['uri'], '/');
-                $key = $routeData['method'] . ' ' . $routeData['uri'];
+                $key = $routeData['method'].' '.$routeData['uri'];
 
                 $prefix = trim($servicePrefixes[$service] ?? $service, '/');
 
                 if ($prefix !== '') {
-                    $uri = $prefix . '/' . $uri;
+                    $uri = $prefix.'/'.$uri;
                 }
 
                 $action = $overrideMap[$service][$key] ?? [$controller, 'handle'];
@@ -67,7 +67,7 @@ class Gateway
                     ...$metadata,
                 ]);
 
-                if (!empty($routeData['name'])) {
+                if (! empty($routeData['name'])) {
                     $route->name($routeData['name']);
                 }
 
@@ -76,7 +76,7 @@ class Gateway
                     ...($routeMiddleware[$service][$key] ?? []),
                 ];
 
-                if (!empty($middleware)) {
+                if (! empty($middleware)) {
                     $route->middleware($middleware);
                 }
             }

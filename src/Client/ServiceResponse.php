@@ -28,7 +28,7 @@ class ServiceResponse
 
     public function failed(): bool
     {
-        return !$this->ok();
+        return ! $this->ok();
     }
 
     public function body(): string

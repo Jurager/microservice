@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Gateway\Gateway;
 use Jurager\Microservice\Registry\RouteRegistry;
 use Jurager\Microservice\Tests\TestCase;
-use Illuminate\Support\Facades\Route;
 use Mockery;
 
 class GatewayTest extends TestCase
@@ -160,10 +160,10 @@ class GatewayTest extends TestCase
 
         Gateway::routes(
             fn ($r) => $r
-            ->service('pim')
-            ->middleware(['auth:api'])
-            ->post('/api/products')
-            ->middleware(['throttle:10'])
+                ->service('pim')
+                ->middleware(['auth:api'])
+                ->post('/api/products')
+                ->middleware(['throttle:10'])
         );
 
         $getRoute = $this->findRouteByUri('pim/api/products', 'GET');

@@ -31,7 +31,7 @@ class TrustGateway
             throw new MissingSignatureException();
         }
 
-        if (!$this->signer->verify($request, $signature, $timestamp)) {
+        if (! $this->signer->verify($request, $signature, $timestamp)) {
             throw new InvalidSignatureException();
         }
 
