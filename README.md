@@ -26,6 +26,7 @@ Features:
 - [Gateway and Discovery](#gateway-and-discovery)
 - [Operations](#operations)
 - [Testing](#testing)
+- [License](#license)
 
 ## Requirements
 
@@ -517,3 +518,7 @@ composer test
 ```
 
 The package uses [Orchestra Testbench](https://github.com/orchestral/testbench). Redis interaction is mocked in tests, so local Redis is not required for test execution.
+
+## License
+
+This package is open-sourced software licensed under the [MIT license](LICENSE.md).
