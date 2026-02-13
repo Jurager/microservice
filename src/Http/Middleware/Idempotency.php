@@ -10,6 +10,7 @@ use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Events\IdempotentRequestDetected;
 use Jurager\Microservice\Exceptions\DuplicateRequestException;
 use Jurager\Microservice\Exceptions\InvalidCacheStateException;
+use Jurager\Microservice\Exceptions\InvalidRequestIdException;
 use Symfony\Component\HttpFoundation\Response;
 
 class Idempotency
@@ -26,10 +27,7 @@ class Idempotency
 
         // Validate that X-Request-Id is a valid UUID v4
         if (! $this->isValidUuidV4($requestId)) {
-            return response()->json([
-                'error' => 'Invalid X-Request-Id',
-                'message' => 'X-Request-Id must be a valid UUID v4',
-            ], 400);
+            throw new InvalidRequestIdException("X-Request-Id must be a valid UUID v4. Received: $requestId");
         }
 
         $cacheKey = $this->redisPrefix()."idempotency:$requestId";

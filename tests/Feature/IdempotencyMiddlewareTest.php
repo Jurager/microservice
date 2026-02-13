@@ -208,8 +208,7 @@ class IdempotencyMiddlewareTest extends TestCase
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => 'not-a-uuid'])
             ->assertStatus(400)
             ->assertJson([
-                'error' => 'Invalid X-Request-Id',
-                'message' => 'X-Request-Id must be a valid UUID v4',
+                'message' => 'X-Request-Id must be a valid UUID v4. Received: not-a-uuid',
             ]);
     }
 
@@ -218,10 +217,11 @@ class IdempotencyMiddlewareTest extends TestCase
         $this->redis->shouldNotReceive('get');
 
         // UUID v1 format (time-based)
-        $this->postJson('/test/idempotent', [], ['X-Request-Id' => '550e8400-e29b-11d4-a716-446655440000'])
+        $invalidUuid = '550e8400-e29b-11d4-a716-446655440000';
+        $this->postJson('/test/idempotent', [], ['X-Request-Id' => $invalidUuid])
             ->assertStatus(400)
             ->assertJson([
-                'error' => 'Invalid X-Request-Id',
+                'message' => "X-Request-Id must be a valid UUID v4. Received: $invalidUuid",
             ]);
     }
 }

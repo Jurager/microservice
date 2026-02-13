@@ -217,6 +217,9 @@ try {
 |---|---|
 | `ServiceUnavailableException` | All instances exhausted after retries, or service not configured |
 | `ServiceRequestException` | Thrown by `->throw()` when response is non-2xx |
+| `InvalidRequestIdException` | `X-Request-Id` is not a valid UUID v4 (Idempotency middleware) |
+| `DuplicateRequestException` | Concurrent request with the same `X-Request-Id` is already processing (returns `409 Conflict`) |
+| `InvalidCacheStateException` | Cached response data is corrupted (returns `500 Internal Server Error`) |
 
 ### Failover and retry
 
