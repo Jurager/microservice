@@ -5,90 +5,105 @@
 [![PHP Version Require](https://poser.pugx.org/jurager/microservice/require/php)](https://packagist.org/packages/jurager/microservice)
 [![License](https://poser.pugx.org/jurager/microservice/license)](https://packagist.org/packages/jurager/microservice)
 
-Laravel package for inter-service communication in microservice architecture. Provides HTTP transport with failover, HMAC signing, route discovery via Redis, and idempotency.
+A Laravel package for secure and resilient HTTP communication between microservices.
 
+Features:
 
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Schema](#schema)
+- HMAC-signed requests for internal service authentication
+- Automatic retries and failover across multiple instances
+- Redis-based health tracking to avoid unhealthy nodes
+- Route discovery for gateway proxying
+- Idempotency support for non-safe requests (POST, PUT, PATCH)
+- Built for production environments where reliability and consistency matter.
+
+> [!NOTE]
+> The documentation for this package is currently being written. For now, please refer to this readme for information on the functionality and usage of the package.
+
+- [Quick Start](#quick-start)
 - [Configuration](#configuration)
-  - [Service identity](#service-identity)
-  - [Services registry](#services-registry)
-  - [Defaults](#defaults)
-- [Client](#client)
-  - [Sending requests](#sending-requests)
-  - [Request builder](#request-builder)
-  - [ServiceResponse](#serviceresponse)
-  - [Error handling](#error-handling)
-  - [Failover and retry](#failover-and-retry)
-- [Security](#security)
-  - [HMAC signature](#hmac-signature)
-  - [TrustGateway middleware](#trustgateway-middleware)
-  - [TrustService middleware](#trustservice-middleware)
-- [Idempotency](#idempotency)
-- [Route Discovery](#route-discovery)
-  - [Microservice setup](#microservice-setup)
-  - [Receiving manifests (gateway)](#receiving-manifests-gateway)
-  - [Gateway — registering routes](#gateway--registering-routes)
-  - [Customizing gateway routes](#customizing-gateway-routes)
-  - [ProxyController](#proxycontroller)
-  - [Route caching](#route-caching)
-  - [Manual route resolution](#manual-route-resolution)
-  - [Permission checking (jurager/teams)](#permission-checking-juragerteams)
-- [Health Tracking](#health-tracking)
-- [Events](#events)
-- [Artisan Commands](#artisan-commands)
-- [Redis Keys](#redis-keys)
+- [Client API](#client-api)
+- [Security and Idempotency](#security-and-idempotency)
+- [Gateway and Discovery](#gateway-and-discovery)
+- [Operations](#operations)
 - [Testing](#testing)
 
 ## Requirements
 
-- PHP >= 8.2 
-- Laravel 11.x or higher
+- PHP 8.2+
+- Laravel 11+
 - Redis
 - Guzzle 7+
 
-## Installation
+## Quick Start
+
+Install the package:
 
 ```bash
 composer require jurager/microservice
 ```
 
-Publish the configuration file:
+Publish config:
 
 ```bash
 php artisan vendor:publish --tag=microservice-config
 ```
 
-## Schema
+Generate secret:
 
-![Schema](schema.png "Title")
+```bash
+openssl rand -base64 32
+```
 
-Each service can run **multiple instances** (`base_urls` in config). The client distributes requests across instances with automatic failover and health tracking.
+Set env vars (minimum):
 
-**Flow:**
+```dotenv
+SERVICE_NAME=oms
+SERVICE_SECRET=base64-generated-secret
+SERVICE_REDIS_CONNECTION=default
+```
 
-1. Each microservice registers its routes in Redis via `microservice:register`
-2. The gateway reads manifests and creates Laravel routes via `Gateway::routes()`
-3. Incoming requests are proxied to the target service by `ProxyController`
-4. Services communicate directly via `ServiceClient` (HMAC-signed, verified by `TrustService`)
-5. Unhealthy instances are excluded from rotation; the client fails over to the next available instance
+Define target services in `config/microservice.php`:
+
+```php
+'services' => [
+    'pim' => [
+        'base_urls' => ['http://pim-1:8000', 'http://pim-2:8000'],
+    ],
+],
+```
+
+Send your first request:
+
+```php
+use Jurager\Microservice\Client\ServiceClient;
+
+$response = app(ServiceClient::class)
+    ->service('pim')
+    ->get('/api/products/42')
+    ->send()
+    ->throw();
+
+$product = $response->json('data');
+```
 
 ## Configuration
 
-`config/microservice.php`:
+Main file: `config/microservice.php`.
 
-### Service identity
+### Core options
 
 ```php
-'name'   => env('SERVICE_NAME', 'app'),       // unique service identifier
-'secret' => env('SERVICE_SECRET', ''),         // shared HMAC secret (openssl rand -base64 32)
-
-'algorithm'           => 'sha256',             // HMAC hash algorithm
-'timestamp_tolerance' => 60,                   // max age of signed request in seconds
+'name' => env('SERVICE_NAME', 'app'),
+'debug' => env('SERVICE_DEBUG', false),
+'secret' => env('SERVICE_SECRET', ''),
+'algorithm' => 'sha256',
+'timestamp_tolerance' => 60,
 ```
 
-All services in the cluster **must use the same `secret`**.
+- `name`: unique service name
+- `debug`: skips signature verification in `TrustGateway` (use only locally)
+- `secret`: shared secret for all services in the cluster
+- `timestamp_tolerance`: max signature age in seconds
 
 ### Services registry
 
@@ -96,166 +111,142 @@ All services in the cluster **must use the same `secret`**.
 'services' => [
     'oms' => [
         'base_urls' => ['http://oms-1:8000', 'http://oms-2:8000'],
-        'timeout'   => 5,     // optional, overrides defaults.timeout
-        'retries'   => 2,     // optional, overrides defaults.retries
+        'timeout' => 5,
+        'retries' => 2,
     ],
 ],
 ```
 
-Multiple `base_urls` enable failover — the client tries each instance in order until one responds.
+- `base_urls`: service instances used for failover
+- per-service `timeout` and `retries` override defaults
 
-### Defaults
+### Defaults and Redis
 
 ```php
 'defaults' => [
-    'timeout'     => 5,     // request timeout in seconds
-    'retries'     => 2,     // retry attempts per instance
-    'retry_delay' => 100,   // delay between retries in milliseconds
+    'timeout' => 5,
+    'retries' => 2,
+    'retry_delay' => 100,
 ],
 
 'redis' => [
     'connection' => env('SERVICE_REDIS_CONNECTION', 'default'),
-    'prefix'     => 'microservice:',
-],
-
-'health' => [
-    'failure_threshold' => 3,    // failures before marking instance unhealthy
-    'recovery_timeout'  => 30,   // seconds before retrying unhealthy instance
-],
-
-'manifest' => [
-    'ttl'     => 300,                                 // manifest TTL in Redis (seconds)
-    'prefix'  => 'api',                               // only routes with this URI prefix are registered
-    'gateway' => env('MANIFEST_GATEWAY_SERVICE'),     // gateway service name, or null for local Redis
-],
-
-'idempotency' => [
-    'ttl'          => 60,   // cached response TTL in seconds
-    'lock_timeout' => 10,   // distributed lock TTL in seconds
+    'prefix' => 'microservice:',
 ],
 ```
 
-## Client
-
-### Sending requests
+### Health
 
 ```php
-use Jurager\Microservice\Client\ServiceClient;
+'health' => [
+    'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
+    'failure_threshold' => 3,
+    'recovery_timeout' => 30,
+],
+```
 
-$client = app(ServiceClient::class);
+### Manifest (Route Discovery)
 
-// GET
-$response = $client->service('oms')->get('/api/orders/123')->send();
-$order = $response->json('data');
+```php
+'manifest' => [
+    'ttl' => 300,
+    'prefix' => 'api',
+    'gateway' => env('MANIFEST_GATEWAY_SERVICE'),
+],
+```
 
-// POST with body and custom headers
-$response = $client->service('oms')
-    ->post('/api/orders', ['product_id' => 1, 'quantity' => 5])
-    ->withHeaders(['X-Locale' => 'en'])
-    ->timeout(10)
-    ->send();
+### Idempotency settings
 
-// PUT, PATCH, DELETE
-$client->service('wms')->put('/api/stock/42', ['quantity' => 100])->send();
-$client->service('wms')->patch('/api/stock/42', ['quantity' => 50])->send();
-$client->service('oms')->delete('/api/orders/123')->send();
+```php
+'idempotency' => [
+    'ttl' => 86400,
+    'lock_timeout' => 10,
+],
+```
+
+## Client API
+
+### Basic methods
+
+```php
+$client = app(\Jurager\Microservice\Client\ServiceClient::class);
+
+$client->service('oms')->get('/api/orders/1')->send();
+$client->service('oms')->post('/api/orders', ['sku' => 'A1'])->send();
+$client->service('oms')->put('/api/orders/1', ['status' => 'paid'])->send();
+$client->service('oms')->patch('/api/orders/1', ['status' => 'done'])->send();
+$client->service('oms')->delete('/api/orders/1')->send();
 ```
 
 ### Request builder
 
-| Method | Description |
+| Method | Purpose |
 |---|---|
-| `get(path)` | GET request |
-| `post(path, body?)` | POST request with optional body |
-| `put(path, body?)` | PUT request with optional body |
-| `patch(path, body?)` | PATCH request with optional body |
-| `delete(path)` | DELETE request |
-| `withHeaders(array)` | Merge additional headers (e.g. `X-Locale`, `X-Request-Id`) |
-| `withQuery(array)` | Merge query parameters |
-| `withBody(array)` | Override request body |
-| `timeout(seconds)` | Override timeout for this request |
-| `retries(count)` | Override retry count for this request |
-| `send()` | Execute and return `ServiceResponse` |
+| `withHeaders(array)` | add headers |
+| `withQuery(array)` | add query params |
+| `withBody(array)` | replace body |
+| `timeout(int)` | override timeout |
+| `retries(int)` | override retries |
+| `send()` | execute request |
 
-**Priority** for `timeout` / `retries`: explicit method call > per-service config > `defaults`.
+Priority for `timeout` and `retries`:
+1. request override (`timeout()`, `retries()`)
+2. per-service config
+3. `defaults`
 
 ### ServiceResponse
 
 ```php
-$response->status();           // 200
-$response->ok();               // true for 2xx
-$response->failed();           // true for non-2xx
-$response->json();             // full decoded body as array
-$response->json('data.id');    // dot-notation access via data_get()
-$response->json('key', 'def'); // with default value
-$response->body();             // raw string
-$response->header('X-Total');  // single header value or null
-$response->headers();          // all headers as array
-$response->throw();            // throws ServiceRequestException if failed, returns $this otherwise
-$response->toPsrResponse();   // underlying PSR-7 ResponseInterface
+$response->status();
+$response->ok();
+$response->failed();
+$response->json();
+$response->json('data.id');
+$response->json('data.id', null);
+$response->body();
+$response->header('X-Total');
+$response->headers();
+$response->toPsrResponse();
+$response->throw();
 ```
 
-### Error handling
+### Exceptions
 
-```php
-use Jurager\Microservice\Exceptions\ServiceUnavailableException;
-use Jurager\Microservice\Exceptions\ServiceRequestException;
-
-try {
-    $response = $client->service('oms')->get('/api/orders/123')->send()->throw();
-} catch (ServiceUnavailableException $e) {
-    // All instances failed or no instances configured
-    Log::error("Service unavailable: {$e->service}");
-} catch (ServiceRequestException $e) {
-    // Non-2xx response (thrown by ->throw())
-    $status = $e->response->status();
-    $body = $e->response->json();
-}
-```
-
-| Exception | When |
+| Exception | Meaning |
 |---|---|
-| `ServiceUnavailableException` | All instances exhausted after retries, or service not configured |
-| `ServiceRequestException` | Thrown by `->throw()` when response is non-2xx |
-| `InvalidRequestIdException` | `X-Request-Id` is not a valid UUID v4 (Idempotency middleware) |
-| `DuplicateRequestException` | Concurrent request with the same `X-Request-Id` is already processing (returns `409 Conflict`) |
-| `InvalidCacheStateException` | Cached response data is corrupted (returns `500 Internal Server Error`) |
+| `ServiceUnavailableException` | no healthy/working instance left |
+| `ServiceRequestException` | non-2xx response after `->throw()` |
+| `InvalidRequestIdException` | invalid `X-Request-Id` in idempotency middleware |
+| `DuplicateRequestException` | same request id is being processed now |
+| `InvalidCacheStateException` | cached idempotency payload is corrupted |
 
-### Failover and retry
+### Retry and failover behavior
 
-The client iterates through `base_urls` from the service config. For each instance it retries up to `retries` times with `retry_delay` between attempts.
+- 5xx and network errors: retry, then switch to next instance
+- 4xx: returned immediately (no retry)
+- if all healthy instances fail, client tries full instance list once more
+- if all attempts fail, throws `ServiceUnavailableException`
 
-- **5xx / connection errors** — retry, then failover to the next instance
-- **4xx responses** — returned immediately, no retry
-- If all healthy instances fail, the client falls back to the **full instance list** as a last resort
-- If all instances are exhausted, `ServiceUnavailableException` is thrown
-
-## Security
+## Security and Idempotency
 
 ### HMAC signature
 
-All outgoing requests via `ServiceClient` are signed automatically. Headers added to every request:
+Every `ServiceClient` request includes:
+- `X-Signature`
+- `X-Timestamp`
+- `X-Service-Name`
+- `X-Request-Id`
 
-| Header | Description |
-|---|---|
-| `X-Signature` | HMAC signature |
-| `X-Timestamp` | Unix timestamp |
-| `X-Service-Name` | Sender service name (from `microservice.name`) |
-| `X-Request-Id` | Unique request ID (auto-generated UUID, or custom via `withHeaders`) |
-| `Content-Type` | `application/json` |
+Signature format:
 
-Signature payload:
-
+```text
+$payload   = "{METHOD}\n{PATH}\n{TIMESTAMP}\n{BODY}"
+$signature = hash_hmac('sha256', payload, SERVICE_SECRET)
 ```
-payload   = "{METHOD}\n{PATH}\n{TIMESTAMP}\n{BODY}"
-signature = hash_hmac('sha256', payload, SERVICE_SECRET)
-```
-
-Body is encoded with `JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES`, or empty string if absent. Verification uses timing-safe `hash_equals()`. Requests older than `timestamp_tolerance` seconds are rejected.
 
 ### TrustGateway middleware
 
-Verifies HMAC signature on incoming requests. Apply to routes that receive requests from the gateway:
+Use for routes that accept calls from gateway:
 
 ```php
 use Jurager\Microservice\Http\Middleware\TrustGateway;
@@ -265,11 +256,12 @@ Route::middleware(TrustGateway::class)->group(function () {
 });
 ```
 
-Required headers: `X-Signature`, `X-Timestamp`. Returns `401` if missing or invalid.
+Requires `X-Signature` and `X-Timestamp`, otherwise returns `401`.
 
 ### TrustService middleware
 
-Extends `TrustGateway` — additionally requires `X-Service-Name` header. Use for direct service-to-service routes:
+`TrustService` extends `TrustGateway` and also requires `X-Service-Name`.
+Use it for direct internal service-to-service routes.
 
 ```php
 use Jurager\Microservice\Http\Middleware\TrustService;
@@ -279,52 +271,25 @@ Route::middleware(TrustService::class)->group(function () {
 });
 ```
 
-## Idempotency
+### Idempotency
 
-The `Idempotency` middleware caches successful (2xx) responses by `X-Request-Id` header. Repeated requests with the same ID return the cached response without executing the handler.
+`Idempotency` middleware caches successful non-safe responses (`POST`, `PUT`, `PATCH`, `DELETE`) by `X-Request-Id`.
 
-**Automatic on Gateway** — `Gateway::routes()` automatically applies `Idempotency` middleware to all proxied routes:
+Rules:
+- Request id must be UUID v4, otherwise `400`
+- Same id while first request is in progress returns `409`
+- Only successful (`2xx`) responses are cached
+- Cached response contains `X-Idempotency-Cache-Hit: true`
+- Cached headers exclude `date` and `set-cookie`
 
-```php
-use Jurager\Microservice\Gateway\Gateway;
+### Client-side usage
 
-Route::middleware(['auth:sanctum'])->group(function () {
-    Gateway::routes(); // Idempotency is applied automatically
-});
-```
-
-**Manual on Backend** — for service-level caching:
-
-```php
-use Jurager\Microservice\Http\Middleware\Idempotency;
-
-Route::middleware([TrustService::class, Idempotency::class])->group(function () {
-    Route::post('/api/orders', [OrderController::class, 'store']);
-});
-```
-
-**Behavior:**
-
-- Only non-safe methods (`POST`, `PUT`, `PATCH`, `DELETE`) with an `X-Request-Id` header are processed
-- Safe methods (`GET`, `HEAD`, `OPTIONS`) and requests without `X-Request-Id` pass through
-- **`X-Request-Id` must be a valid UUID v4** — other formats are rejected with `400 Bad Request`
-- Cached responses are stored for **24 hours** by default, ensuring consistent responses for retries
-- A distributed lock prevents concurrent processing of the same request — returns `409 Conflict`
-- Only successful (2xx) responses are cached; failed responses are not
-- Cached responses include the `X-Idempotency-Cache-Hit: true` header
-- Response headers `date` and `set-cookie` are excluded from cache
-
-Configuration: `microservice.idempotency.ttl` (default: 86400 seconds = 24 hours) and `microservice.idempotency.lock_timeout` (lock TTL).
-
-### How to use idempotency from client side
-
-**Important:** Clients **MUST provide their own `X-Request-Id`** (UUID v4). Requests without `X-Request-Id` will bypass idempotency.
+Always generate and reuse the same request id on retries:
 
 ```php
 use Illuminate\Support\Str;
 
-// Generate a unique UUID v4 for this request
-$requestId = Str::uuid()->toString(); // e.g., "550e8400-e29b-41d4-a716-446655440000"
+$requestId = Str::uuid()->toString();
 
 $response = $client->service('oms')
     ->post('/api/orders', ['product_id' => 1])
@@ -332,46 +297,31 @@ $response = $client->service('oms')
     ->send();
 ```
 
-**Safe retry pattern** — if the request fails due to network issues:
+### Automatic and manual usage
+
+`Gateway::routes()` adds idempotency middleware automatically to proxied routes.
+
+For backend routes, add it manually:
 
 ```php
-use Illuminate\Support\Str;
+use Jurager\Microservice\Http\Middleware\Idempotency;
+use Jurager\Microservice\Http\Middleware\TrustService;
 
-$requestId = Str::uuid()->toString();
-
-try {
-    $response = $client->service('oms')
-        ->post('/api/orders', ['product_id' => 1])
-        ->withHeaders(['X-Request-Id' => $requestId])
-        ->send();
-} catch (ServiceUnavailableException $e) {
-    // Network failure - retry with the SAME request ID
-    sleep(1);
-
-    $response = $client->service('oms')
-        ->post('/api/orders', ['product_id' => 1])
-        ->withHeaders(['X-Request-Id' => $requestId])  // Same UUID!
-        ->send();
-
-    // Check if the response is from cache (first request actually succeeded)
-    if ($response->header('X-Idempotency-Cache-Hit') === 'true') {
-        // The order was already created by the first request
-        Log::info("Order created on first attempt (retrieved from cache)");
-    }
-}
+Route::middleware([TrustService::class, Idempotency::class])->group(function () {
+    Route::post('/api/orders', [OrderController::class, 'store']);
+});
 ```
 
-**Why 24 hours?** This design guarantees response consistency even when the initial request may have failed on the client side but succeeded on the server. Clients can safely retry within 24 hours and receive the identical response.
+## Gateway and Discovery
 
-**Detecting cached responses:** Check for the `X-Idempotency-Cache-Hit: true` header to identify responses served from cache.
+### How it works
 
-## Route Discovery
-
-Services register their routes in Redis for automatic gateway discovery. This eliminates route duplication — routes are defined once in the microservice and automatically appear on the gateway.
+1. Service runs `microservice:register`.
+2. Manifest is stored in Redis (or pushed to gateway endpoint).
+3. Gateway calls `Gateway::routes()` to materialize routes.
+4. Requests are proxied via `ProxyController` to target service.
 
 ### Microservice setup
-
-1. Configure the gateway as a service and set `manifest.gateway`:
 
 ```php
 // config/microservice.php
@@ -382,26 +332,12 @@ Services register their routes in Redis for automatic gateway discovery. This el
 ],
 
 'manifest' => [
-    'gateway' => 'gateway',   // or env('MANIFEST_GATEWAY_SERVICE')
-    'prefix'  => 'api',       // only routes starting with 'api' are registered
+    'gateway' => 'gateway',
+    'prefix' => 'api',
 ],
 ```
 
-2. Attach metadata to routes (optional):
-
-```php
-$route = Route::get('/products', [ProductController::class, 'index'])
-    ->name('products.index');
-
-$route->setAction(array_merge($route->getAction(), [
-    'permissions' => ['products.view'],
-    'rate_limit'  => 60,
-]));
-```
-
-Any keys not in the [excluded list](#excluded-action-keys) are forwarded to the gateway as route metadata.
-
-3. Register on deploy and keep alive with the scheduler (manifest TTL = 300s by default):
+Register manifest on deploy and schedule refresh:
 
 ```bash
 php artisan microservice:register
@@ -414,26 +350,9 @@ php artisan microservice:register
 })
 ```
 
-When the service stops and stops re-registering, the manifest expires from Redis and the gateway stops routing to it.
-
-#### Excluded action keys
-
-The following Laravel internal keys are automatically excluded from manifest metadata:
-
-`uses`, `controller`, `middleware`, `as`, `prefix`, `namespace`, `where`, `domain`, `excluded_middleware`, `withoutMiddleware`
-
-### Receiving manifests (gateway)
-
-The package auto-registers `POST /microservice/manifest`, protected by `TrustService` middleware. When a microservice runs `microservice:register` with `manifest.gateway` set, the manifest is pushed to this endpoint and stored in the gateway's Redis. No additional setup needed.
-
-If `manifest.gateway` is `null`, the manifest is stored in local Redis (useful for single-node setups or testing).
-
-### Gateway — registering routes
-
-`Gateway::routes()` reads manifests from Redis and registers them as real Laravel routes. Each route is proxied to the corresponding service by `ProxyController`.
+### Gateway setup
 
 ```php
-// gateway/routes/api.php
 use Jurager\Microservice\Gateway\Gateway;
 
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -441,25 +360,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
 });
 ```
 
-All metadata from `setAction()` (permissions, rate_limit, etc.) is available on the gateway:
-
-```php
-$request->route()->getAction('permissions'); // ['products.view']
-$request->route()->getAction('rate_limit');  // 60
-$request->route()->getAction('_service');    // 'pim'
-```
-
-#### Filter by service
+Filter by services:
 
 ```php
 Gateway::routes(services: ['pim', 'oms']);
 ```
 
-#### Route prefixes
+### Route prefixes
 
-If services have overlapping URIs (e.g., both PIM and OMS expose `/api/products`), add a prefix per service:
+By default, each proxied route is prefixed by service name.
 
 ```php
+use Jurager\Microservice\Gateway\Gateway;
 use Jurager\Microservice\Gateway\GatewayRoutes;
 
 Gateway::routes(function (GatewayRoutes $routes) {
@@ -468,280 +380,135 @@ Gateway::routes(function (GatewayRoutes $routes) {
 });
 ```
 
-By default, each service is prefixed with its name. Custom prefix overrides the default:
-
-| Service | Manifest URI | Gateway URI |
-|---|---|---|
-| pim (default) | `/api/products` | `/pim/api/products` |
-| pim (prefix: `catalog`) | `/api/products` | `/catalog/api/products` |
-| oms (prefix: `orders`) | `/api/orders` | `/orders/api/orders` |
-
-The `ProxyController` forwards the **original path** (without prefix) to the service.
-
-### Customizing gateway routes
+### Override specific proxied routes
 
 ```php
-use Jurager\Microservice\Gateway\GatewayRoutes;
-
 Gateway::routes(function (GatewayRoutes $routes) {
-    // Middleware for all routes of a service
-    $routes->service('pim')->middleware(['analytics']);
-
-    // Middleware for a specific route (ProxyController stays)
     $routes->service('oms')
-        ->post('/api/orders')->middleware(['audit']);
+        ->post('/api/orders')
+        ->middleware(['audit']);
 
-    // Override controller for a specific route
     $routes->service('pim')
         ->get('/api/products/{product}', [ProductController::class, 'show']);
-
-    // Override controller + middleware
-    $routes->service('pim')
-        ->post('/api/products/import', [ImportController::class, 'store'])
-        ->middleware(['queue']);
 });
 ```
 
-All routes (including overridden) receive manifest metadata via `$request->route()->getAction()`.
+### Route metadata
 
-### ProxyController
+Attach metadata on service routes:
 
-The default `ProxyController` proxies each request to the target service via `ServiceClient`:
+```php
+$route = Route::get('/products', [ProductController::class, 'index'])->name('products.index');
 
-- Forwards HTTP method, path, JSON body and query parameters
-- Signs the request with HMAC automatically
-- Sends `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port` and `X-Forwarded-Prefix` headers to the backend
-- Returns the service response with original status code and headers
-- Filters out `Transfer-Encoding` and `Connection` headers
-- Benefits from failover, retry and health tracking
+$route->setAction(array_merge($route->getAction(), [
+    'permissions' => ['products.view'],
+    'rate_limit' => 60,
+]));
+```
 
-To replace the default controller for all routes:
+Read it on gateway route:
+
+```php
+$request->route()->getAction('permissions');
+$request->route()->getAction('rate_limit');
+$request->route()->getAction('_service');
+```
+
+### Manifest receiver
+
+Gateway automatically exposes `POST /microservice/manifest` with `TrustService` middleware.
+
+- if `manifest.gateway` is set: service pushes manifest to gateway
+- if `manifest.gateway` is `null`: service stores manifest in local Redis
+
+### Proxy behavior
+
+Default `ProxyController`:
+- Forwards method, path, query and JSON body
+- Signs outgoing request
+- Forwards `X-Forwarded-*` headers
+- Preserves service status and headers
+- Strips `Transfer-Encoding` and `Connection`
+
+Override proxy controller for all routes:
 
 ```php
 Gateway::routes(controller: App\Http\Controllers\MyProxyController::class);
 ```
 
-#### URL rewriting via TrustProxies
+### TrustProxies integration
 
-When the gateway proxies a request, `ProxyController` sends `X-Forwarded-*` headers to the backend service. When `manifest.gateway` is set, the package automatically configures Laravel's `TrustProxies` middleware to trust the calling proxy. No additional configuration is needed on the backend side.
+When `manifest.gateway` is configured, package auto-configures trusted proxies so URL generation on backend uses gateway origin (`host/proto/prefix`) instead of internal service URL.
 
-**Example:** gateway at `https://api.example.com` proxies to PIM at `http://pim:8000` with prefix `pim`:
+### Route cache
 
-| Header | Value |
-|---|---|
-| `X-Forwarded-Host` | `api.example.com` |
-| `X-Forwarded-Proto` | `https` |
-| `X-Forwarded-Prefix` | `/pim` |
-
-With these headers, all URL generation on the backend (`url()`, `route()`, pagination links, etc.) will produce `https://api.example.com/pim/...` instead of `http://pim:8000/...`.
-
-### Route caching
-
-`Gateway::routes()` reads manifests from Redis on every request. For production, use Laravel's route cache:
+For production, rebuild route cache after manifest updates:
 
 ```bash
 php artisan route:cache
 ```
 
-Routes are serialized to a file — no Redis calls at runtime. When a service pushes a new manifest via `POST /microservice/manifest`, the route cache is cleared automatically. Rebuild after all services have registered:
-
-```bash
-php artisan route:cache
-```
+When gateway receives a new manifest, current route cache is cleared automatically.
 
 ### Manual route resolution
-
-For cases where you don't use `Gateway::routes()`:
 
 ```php
 use Jurager\Microservice\Registry\RouteRegistry;
 
 $registry = app(RouteRegistry::class);
 
-// Find which service handles a specific endpoint
 $match = $registry->resolve('GET', '/api/products/123');
-// ['service' => 'pim', 'method' => 'GET', 'uri' => '/api/products/{product}', 'permissions' => [...]]
-
-// Get all registered routes across all services
 $routes = $registry->getAllRoutes();
-// [['service' => 'pim', 'method' => 'GET', 'uri' => '/api/products', 'name' => 'products.index'], ...]
-
-// Get all manifests keyed by service name
 $manifests = $registry->getAllManifests();
 ```
 
-### Permission checking (jurager/teams)
+## Operations
 
-Create a middleware on the gateway that reads `permissions` from route metadata:
+### Health Tracking
 
-```php
-// gateway/app/Http/Middleware/CheckPermissions.php
+`HealthRegistry` stores failure counters per service instance in Redis.
 
-class CheckPermissions
-{
-    public function handle(Request $request, Closure $next)
-    {
-        $permissions = $request->route()->getAction('permissions');
+- Instance becomes unhealthy after `failure_threshold`
+- After `recovery_timeout`, instance is retried
+- Successful request resets instance health state
 
-        if (!empty($permissions)) {
-            $team = $request->user()->currentTeam;
-
-            if (!$request->user()->hasTeamPermission($team, $permissions)) {
-                abort(403);
-            }
-        }
-
-        return $next($request);
-    }
-}
-```
-
-```php
-// gateway/routes/api.php
-Route::middleware(['auth:sanctum', CheckPermissions::class])->group(function () {
-    Gateway::routes();
-});
-```
-
-## Health Tracking
-
-The `HealthRegistry` tracks instance failures in Redis. An instance is marked unhealthy after `failure_threshold` consecutive failures. After `recovery_timeout` seconds, the instance is given another chance.
-
-| Action | Effect |
-|---|---|
-| `markFailure(service, url)` | Increments failure counter, stored with TTL = `recovery_timeout * 2` |
-| `markSuccess(service, url)` | Deletes the health key entirely (full reset) |
-
-Health is evaluated per-instance:
-- **Below threshold** — instance is healthy, included in rotation
-- **At/above threshold, within recovery timeout** — instance is excluded
-- **At/above threshold, beyond recovery timeout** — instance gets another chance
+Command:
 
 ```bash
 php artisan microservice:health
 ```
 
-```
-+----------+--------------------+----------+---------------------+-----------+
-| Service  | URL                | Failures | Last Failure        | Status    |
-+----------+--------------------+----------+---------------------+-----------+
-| oms      | http://oms-1:8000  | 0        | -                   | healthy   |
-| oms      | http://oms-2:8000  | 5        | 2025-01-15 14:30:00 | unhealthy |
-+----------+--------------------+----------+---------------------+-----------+
-```
+### Events
 
-## Events
+| Event | Trigger |
+|---|---|
+| `ServiceRequestFailed` | each failed attempt before failover |
+| `ServiceBecameUnavailable` | all instances exhausted |
+| `ServiceHealthChanged` | health status changed |
+| `HealthCheckFailed` | failure counter increased |
+| `RoutesRegistered` | service manifest registered |
+| `ManifestReceived` | gateway accepted manifest |
+| `IdempotentRequestDetected` | response served from idempotency cache |
 
-The package dispatches several events that you can listen to for monitoring, logging, or triggering custom logic.
+Register listeners in `EventServiceProvider` or use attribute discovery.
 
-| Event | When | Properties |
-|---|---|---|
-| `ServiceRequestFailed` | Every failed attempt (5xx, connection error) before failover | `$service`, `$url`, `$method`, `$path`, `$statusCode`, `$message` |
-| `ServiceBecameUnavailable` | All instances of a service are exhausted and unavailable | `$service`, `$attemptedUrls`, `$lastError` |
-| `ServiceHealthChanged` | An instance's health status changes (healthy ↔ unhealthy) | `$service`, `$url`, `$isHealthy`, `$failureCount`, `$previousStatus` |
-| `HealthCheckFailed` | An instance fails a health check (increments failure counter) | `$service`, `$url`, `$failureCount`, `$reason` |
-| `RoutesRegistered` | Service successfully registers its routes (manifest pushed/stored) | `$service`, `$routes`, `$gateway` |
-| `ManifestReceived` | Gateway receives a manifest from a microservice | `$service`, `$manifest`, `$routeCount` |
-| `IdempotentRequestDetected` | A duplicate request is detected and served from cache | `$requestId`, `$method`, `$path`, `$cachedStatusCode` |
-
-### Example Listeners
-
-```php
-// app/Listeners/LogServiceFailure.php
-use Jurager\Microservice\Events\ServiceRequestFailed;
-
-class LogServiceFailure
-{
-    public function handle(ServiceRequestFailed $event): void
-    {
-        Log::warning("Service request failed", [
-            'service' => $event->service,
-            'url'     => $event->url,
-            'method'  => $event->method,
-            'path'    => $event->path,
-            'status'  => $event->statusCode,
-            'message' => $event->message,
-        ]);
-    }
-}
-```
-
-```php
-// app/Listeners/AlertOnServiceDown.php
-use Jurager\Microservice\Events\ServiceBecameUnavailable;
-
-class AlertOnServiceDown
-{
-    public function handle(ServiceBecameUnavailable $event): void
-    {
-        // Send alert to Slack, PagerDuty, etc.
-        Log::critical("Service completely unavailable", [
-            'service' => $event->service,
-            'urls'    => $event->attemptedUrls,
-            'error'   => $event->lastError,
-        ]);
-    }
-}
-```
-
-```php
-// app/Listeners/TrackHealthChanges.php
-use Jurager\Microservice\Events\ServiceHealthChanged;
-
-class TrackHealthChanges
-{
-    public function handle(ServiceHealthChanged $event): void
-    {
-        $status = $event->isHealthy ? 'recovered' : 'degraded';
-
-        Log::info("Service health changed: $status", [
-            'service'  => $event->service,
-            'url'      => $event->url,
-            'failures' => $event->failureCount,
-            'previous' => $event->previousStatus,
-        ]);
-    }
-}
-```
-
-```php
-// app/Listeners/ClearCacheOnManifestUpdate.php
-use Jurager\Microservice\Events\ManifestReceived;
-
-class ClearCacheOnManifestUpdate
-{
-    public function handle(ManifestReceived $event): void
-    {
-        // Clear application cache, warm up route cache, etc.
-        Cache::tags(['routes', $event->service])->flush();
-
-        Log::info("Manifest updated", [
-            'service' => $event->service,
-            'routes'  => $event->routeCount,
-        ]);
-    }
-}
-```
-
-Register in `EventServiceProvider` or use attribute-based discovery.
-
-## Artisan Commands
+### Artisan Commands
 
 | Command | Description |
 |---|---|
-| `microservice:register` | Build and register the service route manifest. Pushes to gateway if `manifest.gateway` is set, otherwise stores in local Redis. Displays registered routes in a table. |
-| `microservice:health` | Display health status of all configured service instances with failure counts and status. |
+| `microservice:register` | build + register route manifest |
+| `microservice:health` | show current health state of instances |
 
-## Redis Keys
+### Redis Keys
 
 All keys are prefixed with `microservice.redis.prefix` (default `microservice:`).
 
 | Key Pattern | Purpose | TTL |
 |---|---|---|
-| `{prefix}health:{service}:{md5(url)}` | Instance failure counter and last failure timestamp | `recovery_timeout * 2` |
-| `{prefix}manifest:{service}` | Service route manifest (JSON) | `manifest.ttl` (300s) |
-| `{prefix}idempotency:{request_id}` | Cached response (status, headers, content) | `idempotency.ttl` (60s) |
-| `{prefix}idempotency:{request_id}:lock` | Distributed processing lock | `idempotency.lock_timeout` (10s) |
+| `{prefix}health:{service}:{md5(url)}` | instance failure state | `recovery_timeout * 2` |
+| `{prefix}manifest:{service}` | route manifest JSON | `manifest.ttl` |
+| `{prefix}idempotency:{request_id}` | cached response | `idempotency.ttl` |
+| `{prefix}idempotency:{request_id}:lock` | in-flight lock | `idempotency.lock_timeout` |
 
 ## Testing
 
@@ -749,4 +516,4 @@ All keys are prefixed with `microservice.redis.prefix` (default `microservice:`)
 composer test
 ```
 
-The package uses [Orchestra Testbench](https://github.com/orchestral/testbench) for testing. Redis interactions are mocked via Mockery — no running Redis instance required for tests.
+The package uses [Orchestra Testbench](https://github.com/orchestral/testbench). Redis interaction is mocked in tests, so local Redis is not required for test execution.
