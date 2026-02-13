@@ -8,6 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Artisan;
+use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Registry\ManifestRegistry;
 
 class ManifestController extends Controller
@@ -22,7 +23,14 @@ class ManifestController extends Controller
             'timestamp' => 'required|string',
         ]);
 
-        $registry->store($request->all());
+        $manifest = $request->all();
+        $registry->store($manifest);
+
+        ManifestReceived::dispatch(
+            $manifest['service'],
+            $manifest,
+            count($manifest['routes'])
+        );
 
         if (app()->routesAreCached()) {
             Artisan::call('route:cache');

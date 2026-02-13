@@ -7,7 +7,7 @@ namespace Jurager\Microservice\Client;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\RequestException;
-use Illuminate\Support\Str;
+use Jurager\Microservice\Events\ServiceBecameUnavailable;
 use Jurager\Microservice\Events\ServiceRequestFailed;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\HealthRegistry;
@@ -55,6 +55,12 @@ class ServiceClient
                 $lastException = $e;
             }
         }
+
+        ServiceBecameUnavailable::dispatch(
+            $service,
+            $instances,
+            $lastException?->getMessage() ?? 'All instances exhausted'
+        );
 
         throw new ServiceUnavailableException($service, previous: $lastException);
     }
@@ -148,7 +154,6 @@ class ServiceClient
             ...$customHeaders,
             'Content-Type' => 'application/json',
             'X-Service-Name' => config('microservice.name'),
-            'X-Request-Id' => $customHeaders['X-Request-Id'] ?? Str::uuid()->toString(),
             'X-Timestamp' => $timestamp,
             'X-Signature' => $this->signer->sign($method, $path, $timestamp, $body ?? ''),
         ];

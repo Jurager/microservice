@@ -50,7 +50,7 @@ class MicroserviceServiceProviderTest extends TestCase
         $commands = array_keys(\Illuminate\Support\Facades\Artisan::all());
 
         $this->assertContains('microservice:register', $commands);
-        $this->assertContains('service:health', $commands);
+        $this->assertContains('microservice:health', $commands);
     }
 
     public function test_manifest_route_is_registered(): void

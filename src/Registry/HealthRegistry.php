@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Registry;
 
 use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Jurager\Microservice\Events\HealthCheckFailed;
+use Jurager\Microservice\Events\ServiceHealthChanged;
 
 class HealthRegistry
 {
@@ -46,15 +48,53 @@ class HealthRegistry
         $raw = $this->redis()->get($key);
         $data = $raw ? json_decode($raw, true) : ['failures' => 0, 'last_failure' => 0];
 
+        $previousFailures = $data['failures'] ?? 0;
+        $wasHealthy = $this->isHealthy($data);
+
         $data['failures']++;
         $data['last_failure'] = time();
 
         $this->redis()->setex($key, $ttl, json_encode($data));
+
+        $isHealthy = $this->isHealthy($data);
+
+        // Dispatch event if health status changed
+        if ($wasHealthy !== $isHealthy) {
+            ServiceHealthChanged::dispatch(
+                $service,
+                $url,
+                $isHealthy,
+                $data['failures'],
+                $wasHealthy ? 'healthy' : 'unhealthy'
+            );
+        }
+
+        // Dispatch health check failed event
+        HealthCheckFailed::dispatch(
+            $service,
+            $url,
+            $data['failures'],
+            "Instance failed health check (failures: {$data['failures']})"
+        );
     }
 
     public function markSuccess(string $service, string $url): void
     {
+        $data = $this->getInstanceHealth($service, $url);
+        $wasHealthy = $this->isHealthy($data);
+
         $this->redis()->del($this->healthKey($service, $url));
+
+        // Dispatch event if service recovered from unhealthy state
+        if ($data !== null && ! $wasHealthy) {
+            ServiceHealthChanged::dispatch(
+                $service,
+                $url,
+                true,
+                0,
+                'unhealthy'
+            );
+        }
     }
 
     /**

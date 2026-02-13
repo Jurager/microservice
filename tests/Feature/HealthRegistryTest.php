@@ -76,6 +76,7 @@ class HealthRegistryTest extends TestCase
 
     public function test_mark_success_deletes_health_key(): void
     {
+        $this->redis->shouldReceive('get')->once()->andReturn(null);
         $this->redis->shouldReceive('del')->once();
 
         $this->registry->markSuccess('oms', 'http://oms:8000');

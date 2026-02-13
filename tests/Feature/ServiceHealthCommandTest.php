@@ -32,7 +32,7 @@ class ServiceHealthCommandTest extends TestCase
 
         $this->app->instance(HealthRegistry::class, $registry);
 
-        $this->artisan('service:health')
+        $this->artisan('microservice:health')
             ->assertSuccessful();
     }
 
@@ -43,7 +43,7 @@ class ServiceHealthCommandTest extends TestCase
 
         $this->app->instance(HealthRegistry::class, $registry);
 
-        $this->artisan('service:health')
+        $this->artisan('microservice:health')
             ->assertSuccessful();
     }
 }

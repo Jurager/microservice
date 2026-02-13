@@ -132,12 +132,15 @@ return [
     |--------------------------------------------------------------------------
     |
     | TTL in seconds for caching responses by X-Request-Id.
+    | Standard is 24 hours (86400 seconds) to ensure clients can safely retry
+    | failed requests within a day and receive the same response.
+    |
     | lock_timeout: Maximum time (in seconds) a request can hold the processing lock.
     |
     */
 
     'idempotency' => [
-        'ttl' => 60,
+        'ttl' => 86400, // 24 hours
         'lock_timeout' => 10,
     ],
 

@@ -292,13 +292,63 @@ Route::middleware(Idempotency::class)->group(function () {
 
 - Only non-safe methods (`POST`, `PUT`, `PATCH`, `DELETE`) with an `X-Request-Id` header are processed
 - Safe methods (`GET`, `HEAD`, `OPTIONS`) and requests without `X-Request-Id` pass through
-- `ServiceClient` generates `X-Request-Id` automatically on every outgoing request
+- **`X-Request-Id` must be a valid UUID v4** — other formats are rejected with `400 Bad Request`
+- Cached responses are stored for **24 hours** by default, ensuring consistent responses for retries
 - A distributed lock prevents concurrent processing of the same request — returns `409 Conflict`
 - Only successful (2xx) responses are cached; failed responses are not
 - Cached responses include the `X-Idempotency-Cache-Hit: true` header
 - Response headers `date` and `set-cookie` are excluded from cache
 
-Configuration: `microservice.idempotency.ttl` (cache TTL) and `microservice.idempotency.lock_timeout` (lock TTL).
+Configuration: `microservice.idempotency.ttl` (default: 86400 seconds = 24 hours) and `microservice.idempotency.lock_timeout` (lock TTL).
+
+### How to use idempotency from client side
+
+**Important:** Clients **MUST provide their own `X-Request-Id`** (UUID v4). Requests without `X-Request-Id` will bypass idempotency.
+
+```php
+use Illuminate\Support\Str;
+
+// Generate a unique UUID v4 for this request
+$requestId = Str::uuid()->toString(); // e.g., "550e8400-e29b-41d4-a716-446655440000"
+
+$response = $client->service('oms')
+    ->post('/api/orders', ['product_id' => 1])
+    ->withHeaders(['X-Request-Id' => $requestId])
+    ->send();
+```
+
+**Safe retry pattern** — if the request fails due to network issues:
+
+```php
+use Illuminate\Support\Str;
+
+$requestId = Str::uuid()->toString();
+
+try {
+    $response = $client->service('oms')
+        ->post('/api/orders', ['product_id' => 1])
+        ->withHeaders(['X-Request-Id' => $requestId])
+        ->send();
+} catch (ServiceUnavailableException $e) {
+    // Network failure - retry with the SAME request ID
+    sleep(1);
+
+    $response = $client->service('oms')
+        ->post('/api/orders', ['product_id' => 1])
+        ->withHeaders(['X-Request-Id' => $requestId])  // Same UUID!
+        ->send();
+
+    // Check if the response is from cache (first request actually succeeded)
+    if ($response->header('X-Idempotency-Cache-Hit') === 'true') {
+        // The order was already created by the first request
+        Log::info("Order created on first attempt (retrieved from cache)");
+    }
+}
+```
+
+**Why 24 hours?** This design guarantees response consistency even when the initial request may have failed on the client side but succeeded on the server. Clients can safely retry within 24 hours and receive the identical response.
+
+**Detecting cached responses:** Check for the `X-Idempotency-Cache-Hit: true` header to identify responses served from cache.
 
 ## Route Discovery
 
@@ -553,7 +603,7 @@ Health is evaluated per-instance:
 - **At/above threshold, beyond recovery timeout** — instance gets another chance
 
 ```bash
-php artisan service:health
+php artisan microservice:health
 ```
 
 ```
@@ -567,9 +617,19 @@ php artisan service:health
 
 ## Events
 
+The package dispatches several events that you can listen to for monitoring, logging, or triggering custom logic.
+
 | Event | When | Properties |
 |---|---|---|
 | `ServiceRequestFailed` | Every failed attempt (5xx, connection error) before failover | `$service`, `$url`, `$method`, `$path`, `$statusCode`, `$message` |
+| `ServiceBecameUnavailable` | All instances of a service are exhausted and unavailable | `$service`, `$attemptedUrls`, `$lastError` |
+| `ServiceHealthChanged` | An instance's health status changes (healthy ↔ unhealthy) | `$service`, `$url`, `$isHealthy`, `$failureCount`, `$previousStatus` |
+| `HealthCheckFailed` | An instance fails a health check (increments failure counter) | `$service`, `$url`, `$failureCount`, `$reason` |
+| `RoutesRegistered` | Service successfully registers its routes (manifest pushed/stored) | `$service`, `$routes`, `$gateway` |
+| `ManifestReceived` | Gateway receives a manifest from a microservice | `$service`, `$manifest`, `$routeCount` |
+| `IdempotentRequestDetected` | A duplicate request is detected and served from cache | `$requestId`, `$method`, `$path`, `$cachedStatusCode` |
+
+### Example Listeners
 
 ```php
 // app/Listeners/LogServiceFailure.php
@@ -591,6 +651,63 @@ class LogServiceFailure
 }
 ```
 
+```php
+// app/Listeners/AlertOnServiceDown.php
+use Jurager\Microservice\Events\ServiceBecameUnavailable;
+
+class AlertOnServiceDown
+{
+    public function handle(ServiceBecameUnavailable $event): void
+    {
+        // Send alert to Slack, PagerDuty, etc.
+        Log::critical("Service completely unavailable", [
+            'service' => $event->service,
+            'urls'    => $event->attemptedUrls,
+            'error'   => $event->lastError,
+        ]);
+    }
+}
+```
+
+```php
+// app/Listeners/TrackHealthChanges.php
+use Jurager\Microservice\Events\ServiceHealthChanged;
+
+class TrackHealthChanges
+{
+    public function handle(ServiceHealthChanged $event): void
+    {
+        $status = $event->isHealthy ? 'recovered' : 'degraded';
+
+        Log::info("Service health changed: $status", [
+            'service'  => $event->service,
+            'url'      => $event->url,
+            'failures' => $event->failureCount,
+            'previous' => $event->previousStatus,
+        ]);
+    }
+}
+```
+
+```php
+// app/Listeners/ClearCacheOnManifestUpdate.php
+use Jurager\Microservice\Events\ManifestReceived;
+
+class ClearCacheOnManifestUpdate
+{
+    public function handle(ManifestReceived $event): void
+    {
+        // Clear application cache, warm up route cache, etc.
+        Cache::tags(['routes', $event->service])->flush();
+
+        Log::info("Manifest updated", [
+            'service' => $event->service,
+            'routes'  => $event->routeCount,
+        ]);
+    }
+}
+```
+
 Register in `EventServiceProvider` or use attribute-based discovery.
 
 ## Artisan Commands
@@ -598,7 +715,7 @@ Register in `EventServiceProvider` or use attribute-based discovery.
 | Command | Description |
 |---|---|
 | `microservice:register` | Build and register the service route manifest. Pushes to gateway if `manifest.gateway` is set, otherwise stores in local Redis. Displays registered routes in a table. |
-| `service:health` | Display health status of all configured service instances with failure counts and status. |
+| `microservice:health` | Display health status of all configured service instances with failure counts and status. |
 
 ## Redis Keys
 

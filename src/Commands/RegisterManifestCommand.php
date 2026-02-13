@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Commands;
 
 use Illuminate\Console\Command;
 use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Events\RoutesRegistered;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
 
@@ -56,6 +57,8 @@ class RegisterManifestCommand extends Command
         }
 
         $routes = $manifest['routes'];
+
+        RoutesRegistered::dispatch($serviceName, $routes, $gateway);
 
         $this->components->info(count($routes).' route(s) registered.');
 

@@ -9,7 +9,7 @@ use Jurager\Microservice\Registry\HealthRegistry;
 
 class ServiceHealthCommand extends Command
 {
-    protected $signature = 'service:health';
+    protected $signature = 'microservice:health';
 
     protected $description = 'Display health status of all configured service instances';
 

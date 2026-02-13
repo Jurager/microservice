@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Jurager\Microservice\Events\IdempotentRequestDetected;
 use Jurager\Microservice\Exceptions\DuplicateRequestException;
 use Jurager\Microservice\Exceptions\InvalidCacheStateException;
 use Symfony\Component\HttpFoundation\Response;
@@ -22,10 +23,19 @@ class Idempotency
         }
 
         $requestId = $request->header('X-Request-Id');
+
+        // Validate that X-Request-Id is a valid UUID v4
+        if (! $this->isValidUuidV4($requestId)) {
+            return response()->json([
+                'error' => 'Invalid X-Request-Id',
+                'message' => 'X-Request-Id must be a valid UUID v4',
+            ], 400);
+        }
+
         $cacheKey = $this->redisPrefix()."idempotency:$requestId";
 
         if ($cached = $this->redis()->get($cacheKey)) {
-            return $this->buildCachedResponse($cached);
+            return $this->buildCachedResponse($cached, $requestId, $request);
         }
 
         $lockKey = $cacheKey.':lock';
@@ -62,7 +72,7 @@ class Idempotency
         $this->redis()->setex($key, $ttl, json_encode($data));
     }
 
-    protected function buildCachedResponse(string $cached): Response
+    protected function buildCachedResponse(string $cached, string $requestId, Request $request): Response
     {
         $data = json_decode($cached, true);
 
@@ -70,8 +80,22 @@ class Idempotency
             throw new InvalidCacheStateException();
         }
 
+        IdempotentRequestDetected::dispatch(
+            $requestId,
+            $request->method(),
+            $request->path(),
+            $data['status']
+        );
+
         return response($data['content'], $data['status'])
             ->withHeaders($data['headers'] ?? [])
             ->header('X-Idempotency-Cache-Hit', 'true');
+    }
+
+    protected function isValidUuidV4(string $uuid): bool
+    {
+        $pattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+
+        return preg_match($pattern, $uuid) === 1;
     }
 }

@@ -78,9 +78,25 @@ class ServiceClientTest extends TestCase
         $this->assertTrue($request->hasHeader('X-Signature'));
         $this->assertTrue($request->hasHeader('X-Timestamp'));
         $this->assertTrue($request->hasHeader('X-Service-Name'));
-        $this->assertTrue($request->hasHeader('X-Request-Id'));
         $this->assertSame('application/json', $request->getHeaderLine('Content-Type'));
         $this->assertSame('test-service', $request->getHeaderLine('X-Service-Name'));
+    }
+
+    public function test_forwards_custom_request_id(): void
+    {
+        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+
+        $client = $this->createClient([new Response(200)]);
+
+        $requestId = '550e8400-e29b-41d4-a716-446655440000';
+        $client->service('oms')
+            ->get('/api/orders')
+            ->withHeaders(['X-Request-Id' => $requestId])
+            ->send();
+
+        $request = $this->history[0]['request'];
+        $this->assertTrue($request->hasHeader('X-Request-Id'));
+        $this->assertSame($requestId, $request->getHeaderLine('X-Request-Id'));
     }
 
     public function test_4xx_response_returned_without_retry(): void
