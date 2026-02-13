@@ -280,10 +280,22 @@ Route::middleware(TrustService::class)->group(function () {
 
 The `Idempotency` middleware caches successful (2xx) responses by `X-Request-Id` header. Repeated requests with the same ID return the cached response without executing the handler.
 
+**Automatic on Gateway** — `Gateway::routes()` automatically applies `Idempotency` middleware to all proxied routes:
+
+```php
+use Jurager\Microservice\Gateway\Gateway;
+
+Route::middleware(['auth:sanctum'])->group(function () {
+    Gateway::routes(); // Idempotency is applied automatically
+});
+```
+
+**Manual on Backend** — for service-level caching:
+
 ```php
 use Jurager\Microservice\Http\Middleware\Idempotency;
 
-Route::middleware(Idempotency::class)->group(function () {
+Route::middleware([TrustService::class, Idempotency::class])->group(function () {
     Route::post('/api/orders', [OrderController::class, 'store']);
 });
 ```

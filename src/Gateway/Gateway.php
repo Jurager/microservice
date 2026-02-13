@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Gateway;
 use Closure;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Http\Controllers\ProxyController;
+use Jurager\Microservice\Http\Middleware\Idempotency;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Registry\RouteRegistry;
 
@@ -72,6 +73,7 @@ class Gateway
                 }
 
                 $middleware = [
+                    Idempotency::class,
                     ...($serviceMiddleware[$service] ?? []),
                     ...($routeMiddleware[$service][$key] ?? []),
                 ];
