@@ -16,8 +16,7 @@ Features:
 - Idempotency support for non-safe requests (POST, PUT, PATCH)
 - Built for production environments where reliability and consistency matter.
 
-> [!NOTE]
-> The documentation for this package is currently being written. For now, please refer to this readme for information on the functionality and usage of the package.
+Documentation: see `docs/index.md`.
 
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
