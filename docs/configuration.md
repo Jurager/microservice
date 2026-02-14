@@ -58,6 +58,8 @@ Redis is used for health state, manifests, and idempotency.
 
 ## Health
 
+Health tracking determines when an instance is considered unhealthy and when it can be retried.
+
 ```php
 'health' => [
     'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
@@ -71,6 +73,8 @@ Redis is used for health state, manifests, and idempotency.
 - `recovery_timeout` controls when to retry an unhealthy instance.
 
 ## Manifest (Discovery)
+
+The manifest is a list of service routes used by the gateway to build proxy routes.
 
 ```php
 'manifest' => [
@@ -90,7 +94,12 @@ Redis is used for health state, manifests, and idempotency.
 > [!NOTE]
 > `HEAD` routes are excluded from the manifest.
 
+> [!NOTE]
+> Only routes with the configured `manifest.prefix` are included.
+
 ## Idempotency
+
+Idempotency prevents duplicate processing for non-safe requests by caching successful responses.
 
 ```php
 'idempotency' => [
@@ -100,6 +109,8 @@ Redis is used for health state, manifests, and idempotency.
 ```
 
 ## Proxy
+
+Proxy settings control how gateway responses are normalized. These headers are removed to avoid conflicts.
 
 ```php
 'proxy' => [
@@ -113,5 +124,3 @@ Redis is used for health state, manifests, and idempotency.
     ],
 ],
 ```
-
-These headers are removed from proxied responses to avoid conflicts.

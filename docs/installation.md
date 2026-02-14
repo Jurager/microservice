@@ -34,4 +34,4 @@ openssl rand -base64 32
 > All services in the cluster must use the same `SERVICE_SECRET`. If they differ, signatures will fail.
 
 > [!NOTE]
-> Redis is required for health tracking, manifests, and idempotency.
+> Redis is required. Manifests, health state, and idempotency are stored there.

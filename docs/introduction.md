@@ -2,6 +2,12 @@
 
 Jurager/Microservice is a Laravel package for secure, resilient HTTP communication between microservices.
 
+It solves three common problems in service-to-service communication:
+
+- **Trust**: verify who is calling via HMAC signatures.
+- **Reliability**: retries, failover, and health tracking across instances.
+- **Discovery**: a manifest-driven gateway that can proxy routes without manual config.
+
 ## Core Ideas
 
 - **Signed requests** using HMAC headers.
@@ -22,3 +28,6 @@ Jurager/Microservice is a Laravel package for secure, resilient HTTP communicati
 - Laravel 11+ (Laravel 12 supported)
 - Redis
 - Guzzle 7+
+
+> [!NOTE]
+> Redis is required. Manifests, health state, and idempotency are stored there.
