@@ -9,13 +9,12 @@ A Laravel package for secure and resilient HTTP communication between microservi
 
 Features:
 
-- HMAC-signed requests for internal service authentication
-- Automatic retries and failover across multiple instances
-- Redis-based health tracking to avoid unhealthy nodes
-- Route discovery for gateway proxying
-- Idempotency support for non-safe requests (POST, PUT, PATCH)
-- Built for production environments where reliability and consistency matter.
-
++ HMAC-signed requests for internal service authentication
++ Automatic retries and failover across multiple instances
++ Redis-based health tracking to avoid unhealthy nodes
++ Route discovery for gateway proxying
++ Idempotency support for non-safe requests (POST, PUT, PATCH)
++ Built for production environments where reliability and consistency matter.
 
 
 - [Requirements](#requirements)
