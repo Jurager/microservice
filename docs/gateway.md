@@ -1,5 +1,6 @@
 ---
 title: Gateway
+weight: 60
 ---
 
 # Gateway and Discovery

@@ -1,5 +1,6 @@
 ---
 title: Security
+weight: 50
 ---
 
 # Security and Idempotency
