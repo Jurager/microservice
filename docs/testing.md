@@ -3,7 +3,7 @@ title: Testing
 weight: 80
 ---
 
-## Testing
+# Testing
 
 ```bash
 composer test

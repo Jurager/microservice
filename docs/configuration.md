@@ -3,7 +3,7 @@ title: Configuration
 weight: 30
 ---
 
-## Configuration
+# Configuration
 
 Configuration is stored in `config/microservice.php`.
 

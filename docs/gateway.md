@@ -3,7 +3,7 @@ title: Gateway
 weight: 60
 ---
 
-## Gateway and Discovery
+# Gateway and Discovery
 
 Gateway mode uses manifests to proxy routes to services.
 

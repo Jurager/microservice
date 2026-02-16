@@ -3,7 +3,7 @@ title: Client
 weight: 40
 ---
 
-## Client API
+# Client API
 
 Use `ServiceClient` to send signed requests with retries and failover.
 

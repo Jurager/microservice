@@ -3,7 +3,7 @@ title: Security
 weight: 50
 ---
 
-## Security and Idempotency
+# Security and Idempotency
 
 ## HMAC Signing
 
