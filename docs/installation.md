@@ -1,3 +1,7 @@
+---
+title: Installation
+---
+
 # Installation
 
 Install the package with Composer and publish the configuration.

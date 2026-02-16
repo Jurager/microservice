@@ -1,3 +1,7 @@
+---
+title: Client
+---
+
 # Client API
 
 Use `ServiceClient` to send signed requests with retries and failover.

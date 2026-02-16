@@ -1,3 +1,7 @@
+---
+title: Introduction
+---
+
 # Introduction
 
 Jurager/Microservice is a Laravel package for secure, resilient HTTP communication between microservices.

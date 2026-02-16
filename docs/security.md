@@ -1,3 +1,7 @@
+---
+title: Security
+---
+
 # Security and Idempotency
 
 ## HMAC Signing

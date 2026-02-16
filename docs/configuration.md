@@ -1,3 +1,7 @@
+---
+title: Configuration
+---
+
 # Configuration
 
 Configuration is stored in `config/microservice.php`.

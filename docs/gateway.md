@@ -1,3 +1,7 @@
+---
+title: Gateway
+---
+
 # Gateway and Discovery
 
 Gateway mode uses manifests to proxy routes to services.
