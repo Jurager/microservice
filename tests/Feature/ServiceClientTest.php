@@ -307,7 +307,7 @@ class ServiceClientTest extends TestCase
         }
     }
 
-    public function test_propagate_exception_throws_service_request_exception_on_5xx(): void
+    public function test_propagate_exception_returns_5xx_response_directly(): void
     {
         $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
         $this->app['config']->set('microservice.defaults.retries', 0);
@@ -317,14 +317,11 @@ class ServiceClientTest extends TestCase
             new Response(503, [], '{"message":"Service Unavailable","error":"database_down"}'),
         ]);
 
-        try {
-            $client->service('oms')->get('/api/orders')->send();
-            $this->fail('Expected exception was not thrown');
-        } catch (ServiceRequestException $e) {
-            $this->assertSame(503, $e->response->status());
-            $this->assertSame('Service Unavailable', $e->response->json('message'));
-            $this->assertSame('database_down', $e->response->json('error'));
-        }
+        $response = $client->service('oms')->get('/api/orders')->send();
+
+        $this->assertSame(503, $response->status());
+        $this->assertSame('Service Unavailable', $response->json('message'));
+        $this->assertSame('database_down', $response->json('error'));
     }
 
     public function test_propagate_exception_disabled_wraps_5xx_in_unavailable(): void

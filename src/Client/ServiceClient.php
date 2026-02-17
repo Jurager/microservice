@@ -64,6 +64,10 @@ class ServiceClient
         );
 
         if ($lastException !== null && config('microservice.defaults.propagate_exception', false)) {
+            if ($lastException instanceof ServiceRequestException) {
+                return $lastException->response;
+            }
+
             throw $lastException;
         }
 

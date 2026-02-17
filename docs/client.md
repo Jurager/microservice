@@ -83,16 +83,7 @@ SERVICE_PROPAGATE_EXCEPTION=true
 
 When enabled:
 
-- **5xx response** — `ServiceRequestException` is thrown with the original microservice response. You can access the full response body, status, and JSON:
-
-  ```php
-  try {
-      $client->service('oms')->get('/api/orders')->send();
-  } catch (\Jurager\Microservice\Exceptions\ServiceRequestException $e) {
-      $message = $e->response->json('message');
-      $status  = $e->response->status();
-  }
-  ```
+- **5xx response** — `send()` returns the original microservice `ServiceResponse` (status 5xx, original headers and body) instead of throwing. The proxy controller forwards it to the client unchanged, so the frontend receives the exact error from the microservice.
 
 - **Connection failure** — the underlying `ConnectException` is re-thrown, preserving the network error message.
 
