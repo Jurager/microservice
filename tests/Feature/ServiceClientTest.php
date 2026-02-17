@@ -14,6 +14,7 @@ use GuzzleHttp\Psr7\Response;
 use Illuminate\Support\Facades\Event;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\ServiceRequestFailed;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\HealthRegistry;
 use Jurager\Microservice\Tests\TestCase;
@@ -303,6 +304,90 @@ class ServiceClientTest extends TestCase
             $client->service('oms')->get('/api/orders')->send();
         } catch (ServiceUnavailableException) {
             // Expected
+        }
+    }
+
+    public function test_propagate_exception_throws_service_request_exception_on_5xx(): void
+    {
+        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.defaults.retries', 0);
+        $this->app['config']->set('microservice.defaults.propagate_exception', true);
+
+        $client = $this->createClient([
+            new Response(503, [], '{"message":"Service Unavailable","error":"database_down"}'),
+        ]);
+
+        try {
+            $client->service('oms')->get('/api/orders')->send();
+            $this->fail('Expected exception was not thrown');
+        } catch (ServiceRequestException $e) {
+            $this->assertSame(503, $e->response->status());
+            $this->assertSame('Service Unavailable', $e->response->json('message'));
+            $this->assertSame('database_down', $e->response->json('error'));
+        }
+    }
+
+    public function test_propagate_exception_disabled_wraps_5xx_in_unavailable(): void
+    {
+        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.defaults.retries', 0);
+        $this->app['config']->set('microservice.defaults.propagate_exception', false);
+
+        $client = $this->createClient([
+            new Response(500, [], '{"message":"Internal Server Error"}'),
+        ]);
+
+        $this->expectException(ServiceUnavailableException::class);
+
+        $client->service('oms')->get('/api/orders')->send();
+    }
+
+    public function test_propagate_exception_rethrows_original_exception(): void
+    {
+        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.defaults.retries', 0);
+        $this->app['config']->set('microservice.defaults.propagate_exception', true);
+
+        $original = new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders'));
+
+        $client = $this->createClient([$original]);
+
+        $this->expectException(ConnectException::class);
+        $this->expectExceptionMessage('Connection refused');
+
+        $client->service('oms')->get('/api/orders')->send();
+    }
+
+    public function test_propagate_exception_disabled_wraps_in_unavailable(): void
+    {
+        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.defaults.retries', 0);
+        $this->app['config']->set('microservice.defaults.propagate_exception', false);
+
+        $client = $this->createClient([
+            new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders')),
+        ]);
+
+        $this->expectException(ServiceUnavailableException::class);
+
+        $client->service('oms')->get('/api/orders')->send();
+    }
+
+    public function test_propagate_exception_preserves_original_message(): void
+    {
+        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.defaults.retries', 0);
+        $this->app['config']->set('microservice.defaults.propagate_exception', true);
+
+        $client = $this->createClient([
+            new ConnectException('Custom error: timeout after 5s', new Request('GET', 'http://oms:8000/api/orders')),
+        ]);
+
+        try {
+            $client->service('oms')->get('/api/orders')->send();
+            $this->fail('Expected exception was not thrown');
+        } catch (ConnectException $e) {
+            $this->assertStringContainsString('Custom error: timeout after 5s', $e->getMessage());
         }
     }
 

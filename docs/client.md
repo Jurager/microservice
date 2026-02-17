@@ -73,7 +73,28 @@ $response->throw();
 - 5xx and network errors: retry on the same instance, then move to the next instance.
 - 4xx: returned immediately (no retry).
 - If all healthy instances fail, the client retries the full list once more.
-- If all attempts fail, `ServiceUnavailableException` is thrown.
+- If all attempts fail, `ServiceUnavailableException` is thrown by default.
+
+To propagate the original exception instead, enable `propagate_exception` in config or via env:
+
+```dotenv
+SERVICE_PROPAGATE_EXCEPTION=true
+```
+
+When enabled:
+
+- **5xx response** — `ServiceRequestException` is thrown with the original microservice response. You can access the full response body, status, and JSON:
+
+  ```php
+  try {
+      $client->service('oms')->get('/api/orders')->send();
+  } catch (\Jurager\Microservice\Exceptions\ServiceRequestException $e) {
+      $message = $e->response->json('message');
+      $status  = $e->response->status();
+  }
+  ```
+
+- **Connection failure** — the underlying `ConnectException` is re-thrown, preserving the network error message.
 
 > [!NOTE]
 > Requests are always JSON and signed with `X-Service-Name`, `X-Timestamp`, and `X-Signature`.

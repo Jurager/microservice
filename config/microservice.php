@@ -176,5 +176,19 @@ return [
         'timeout' => 5,
         'retries' => 2,
         'retry_delay' => 100, // ms
+
+        /*
+        |--------------------------------------------------------------------------
+        | Propagate Original Exception
+        |--------------------------------------------------------------------------
+        |
+        | When enabled, if all retry attempts fail and an underlying exception
+        | was captured (e.g. a ConnectException or RequestException), it will be
+        | re-thrown as-is instead of being wrapped in ServiceUnavailableException.
+        | Useful when you want the original error message to reach the client.
+        |
+        */
+
+        'propagate_exception' => env('SERVICE_PROPAGATE_EXCEPTION', false),
     ],
 ];

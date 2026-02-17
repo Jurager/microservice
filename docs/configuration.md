@@ -47,8 +47,11 @@ Configuration is stored in `config/microservice.php`.
     'timeout' => 5,
     'retries' => 2,
     'retry_delay' => 100, // ms
+    'propagate_exception' => env('SERVICE_PROPAGATE_EXCEPTION', false),
 ],
 ```
+
+- `propagate_exception` — when `true`, the original exception (e.g. `ConnectException`) is re-thrown after all retries are exhausted instead of being wrapped in `ServiceUnavailableException`. Useful when you want the raw error message to reach the client. Can be set via `SERVICE_PROPAGATE_EXCEPTION=true`.
 
 ## Redis
 

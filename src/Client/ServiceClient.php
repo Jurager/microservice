@@ -9,6 +9,7 @@ use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\RequestException;
 use Jurager\Microservice\Events\ServiceBecameUnavailable;
 use Jurager\Microservice\Events\ServiceRequestFailed;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\HealthRegistry;
 use Jurager\Microservice\Support\HmacSigner;
@@ -62,6 +63,10 @@ class ServiceClient
             $lastException?->getMessage() ?? 'All instances exhausted'
         );
 
+        if ($lastException !== null && config('microservice.defaults.propagate_exception', false)) {
+            throw $lastException;
+        }
+
         throw new ServiceUnavailableException($service, previous: $lastException);
     }
 
@@ -85,7 +90,7 @@ class ServiceClient
                     $this->handleFailure($service, $baseUrl, $request, $response->status(), 'Server error');
 
                     if ($attempt === $retries) {
-                        return null;
+                        throw new ServiceRequestException($response);
                     }
 
                     continue;
@@ -96,7 +101,7 @@ class ServiceClient
                 $this->handleFailure($service, $baseUrl, $request, 0, $e->getMessage());
 
                 if ($attempt === $retries) {
-                    return null;
+                    throw $e;
                 }
             } catch (RequestException $e) {
                 $status = $e->hasResponse() ? $e->getResponse()->getStatusCode() : 0;
@@ -107,7 +112,7 @@ class ServiceClient
                 }
 
                 if ($attempt === $retries) {
-                    return null;
+                    throw $e;
                 }
             }
         }
