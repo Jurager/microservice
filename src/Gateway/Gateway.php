@@ -69,7 +69,7 @@ class Gateway
                 ]);
 
                 if (! empty($routeData['name'])) {
-                    $route->name($routeData['name']);
+                    $route->name($service.'.'.$routeData['name']);
                 }
 
                 $middleware = [
