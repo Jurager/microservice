@@ -21,8 +21,12 @@ class ProxyController extends Controller
             $content = $request->getContent();
 
             if ($content !== '') {
-                $decoded = json_decode($content, true);
-                $body = is_array($decoded) ? $decoded : null;
+                try {
+                    $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+                    $body = is_array($decoded) ? $decoded : null;
+                } catch (\JsonException) {
+                    $body = null;
+                }
             }
         }
 
@@ -58,7 +62,9 @@ class ProxyController extends Controller
         $path = $serviceUri;
 
         foreach ($request->route()->parameters() as $key => $value) {
-            $path = str_replace('{'.$key.'}', (string) $value, $path);
+            // Use regex to match exact parameter tokens (including optional {param?})
+            // and avoid partial matches inside longer parameter names.
+            $path = preg_replace('/\{'.preg_quote($key, '/').'(?:\?)?\}/', (string) $value, $path);
         }
 
         return $path;

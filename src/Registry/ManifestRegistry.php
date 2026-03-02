@@ -22,8 +22,10 @@ class ManifestRegistry
     public function build(): array
     {
         return [
-            'service' => config('microservice.name'),
-            'routes' => $this->collectRoutes(),
+            'service'   => config('microservice.name'),
+            'base_urls' => config('microservice.manifest.base_urls', []),
+            'timeout'   => config('microservice.manifest.timeout'),
+            'routes'    => $this->collectRoutes(),
             'timestamp' => now()->toIso8601String(),
         ];
     }
@@ -41,6 +43,8 @@ class ManifestRegistry
 
         $prefix = $this->redisPrefix();
         $ttl = config('microservice.manifest.ttl', 300);
+
+        $manifest['synced_at'] = now()->toIso8601String();
 
         $this->redis()->setex($prefix."manifest:$service", $ttl, json_encode($manifest));
         $this->redis()->sadd($prefix.'manifests', $service);

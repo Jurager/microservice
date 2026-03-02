@@ -5,27 +5,41 @@ weight: 10
 
 # Introduction
 
-Jurager/Microservice is a Laravel package for secure, resilient HTTP communication between microservices.
+Jurager/Microservice is a Laravel package for secure HTTP communication between microservices with manifest-driven gateway routing.
 
-It solves three common problems in service-to-service communication:
+It solves three core problems in service-to-service communication:
 
 - **Trust**: verify who is calling via HMAC signatures.
-- **Reliability**: retries, failover, and health tracking across instances.
-- **Discovery**: a manifest-driven gateway that can proxy routes without manual config.
+- **Discovery**: services expose their routes; gateways pull and proxy them automatically.
+- **Idempotency**: safe retries for non-safe requests via `X-Request-Id`.
 
 ## Core Ideas
 
-- **Signed requests** using HMAC headers.
-- **Retries and failover** across multiple service instances.
-- **Health tracking** to avoid unhealthy nodes.
-- **Route discovery** for gateway proxying.
-- **Idempotency** for non-safe requests.
+- **Signed requests** — every inter-service call includes `X-Signature`, `X-Timestamp`, and `X-Service-Name`.
+- **Pull-based manifest sync** — gateways periodically pull route manifests from services and build proxy routes dynamically. No push, no shared registry.
+- **DNS-aware discovery** — service URLs are resolved via a configurable pattern, ready for Docker Compose today and Kubernetes tomorrow.
+- **Idempotency** — duplicate POST/PUT/PATCH/DELETE requests are deduplicated via `X-Request-Id`.
+
+## Architecture Overview
+
+```
+Microservice (e.g. oms)             Gateway (e.g. gateway-admin)
+─────────────────────────           ─────────────────────────────
+GET /microservice/manifest   ←───   microservice:sync (scheduler)
+                                           │
+                                    stores in local Redis
+                                           │
+                                    Gateway::routes() reads Redis
+                                    and registers proxy routes
+```
+
+Retries, failover, and instance health tracking are intentionally delegated to the infrastructure layer (Kubernetes, load balancer, service mesh).
 
 ## When To Use
 
 - You run multiple Laravel services that call each other.
-- You need consistent signing and retry behavior.
-- You want a gateway that discovers service routes.
+- You need a gateway that discovers and proxies service routes without manual route configuration.
+- You want consistent HMAC signing and idempotency across all internal traffic.
 
 ## Requirements
 
@@ -35,4 +49,4 @@ It solves three common problems in service-to-service communication:
 - Guzzle 7+
 
 > [!NOTE]
-> Redis is required. Manifests, health state, and idempotency are stored there.
+> Redis is required per service. Manifests and idempotency state are stored there. Gateways use their own Redis instance.

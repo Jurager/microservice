@@ -40,6 +40,11 @@ class Idempotency
         $lockTimeout = config('microservice.idempotency.lock_timeout', 10);
 
         if (! $this->redis()->set($lockKey, 'processing', 'EX', $lockTimeout, 'NX')) {
+            // Another process holds the lock — check if it already cached the response.
+            if ($cached = $this->redis()->get($cacheKey)) {
+                return $this->buildCachedResponse($cached, $requestId, $request);
+            }
+
             throw new DuplicateRequestException();
         }
 

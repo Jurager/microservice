@@ -5,60 +5,28 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Commands;
 
 use Illuminate\Console\Command;
-use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\RoutesRegistered;
-use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
 
 class RegisterManifestCommand extends Command
 {
     protected $signature = 'microservice:register';
 
-    protected $description = 'Register the service route manifest';
+    protected $description = 'Register the service route manifest in the shared Redis';
 
-    public function handle(ManifestRegistry $registry, ServiceClient $client): int
+    public function handle(ManifestRegistry $registry): int
     {
         $manifest = $registry->build();
 
-        $this->components->info("Registering manifest for service [{$manifest['service']}]...");
-
-        $gateway = config('microservice.manifest.gateway');
-
         $serviceName = $manifest['service'];
 
-        if ($gateway === $serviceName || (! $gateway && config("microservice.services.$serviceName"))) {
-            $this->components->error("Cannot register manifest: service [$serviceName] appears to be a gateway.");
+        $this->components->info("Registering manifest for service [$serviceName]...");
 
-            return self::FAILURE;
-        }
-
-        if ($gateway) {
-            try {
-                $response = $client->service($gateway)
-                    ->post('/microservice/manifest', $manifest)
-                    ->send();
-
-                if ($response->failed()) {
-                    $this->components->error("Failed to push manifest to gateway [$gateway]: {$response->status()}");
-
-                    return self::FAILURE;
-                }
-            } catch (ServiceUnavailableException $e) {
-                $this->components->error("Gateway [$gateway] is unavailable.");
-
-                if ($e->getPrevious()) {
-                    $this->components->bulletList([$e->getPrevious()->getMessage()]);
-                }
-
-                return self::FAILURE;
-            }
-        } else {
-            $registry->store($manifest);
-        }
+        $registry->store($manifest);
 
         $routes = $manifest['routes'];
 
-        RoutesRegistered::dispatch($serviceName, $routes, $gateway);
+        RoutesRegistered::dispatch($serviceName, $routes);
 
         $this->components->info(count($routes).' route(s) registered.');
 

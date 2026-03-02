@@ -17,41 +17,13 @@ Configuration is stored in `config/microservice.php`.
 'timestamp_tolerance' => 60,
 ```
 
-- `name` is the service identifier used in signatures and manifests.
-- `debug` disables signature verification in `TrustGateway` (local only).
-- `secret` is shared across all services.
-- `timestamp_tolerance` controls max request age in seconds.
+- `name` — unique service identifier used in signatures and manifests.
+- `debug` — disables signature verification in `TrustGateway`. Local development only.
+- `secret` — shared HMAC secret. Must be identical on all services.
+- `timestamp_tolerance` — maximum allowed request age in seconds.
 
 > [!WARNING]
 > Never enable `debug` in production.
-
-## Services Registry
-
-```php
-'services' => [
-    'oms' => [
-        'base_urls' => ['http://oms-1:8000', 'http://oms-2:8000'],
-        'timeout' => 5,
-        'retries' => 2,
-    ],
-],
-```
-
-- `base_urls` is required for any service you want to call.
-- `timeout` and `retries` override defaults per service.
-
-## Defaults
-
-```php
-'defaults' => [
-    'timeout' => 5,
-    'retries' => 2,
-    'retry_delay' => 100, // ms
-    'propagate_exception' => env('SERVICE_PROPAGATE_EXCEPTION', false),
-],
-```
-
-- `propagate_exception` — when `true`, the original exception (e.g. `ConnectException`) is re-thrown after all retries are exhausted instead of being wrapped in `ServiceUnavailableException`. Useful when you want the raw error message to reach the client. Can be set via `SERVICE_PROPAGATE_EXCEPTION=true`.
 
 ## Redis
 
@@ -62,63 +34,88 @@ Configuration is stored in `config/microservice.php`.
 ],
 ```
 
-Redis is used for health state, manifests, and idempotency.
+Each service uses its own Redis connection. The gateway uses a separate Redis instance shared across its pods.
 
-## Health
-
-Health tracking determines when an instance is considered unhealthy and when it can be retried.
+## Service Discovery
 
 ```php
-'health' => [
-    'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
-    'failure_threshold' => 3,
-    'recovery_timeout' => 30,
+'discovery' => [
+    'pattern' => env('SERVICE_DISCOVERY_PATTERN'),
 ],
 ```
 
-- `endpoint` adds a health route if set.
-- `failure_threshold` marks an instance unhealthy.
-- `recovery_timeout` controls when to retry an unhealthy instance.
+When `pattern` is set, service base URLs are resolved by substituting `{service}` in the pattern. This is the recommended approach.
 
-## Manifest (Discovery)
+```env
+# Docker Compose
+SERVICE_DISCOVERY_PATTERN=http://{service}:8000
 
-The manifest is a list of service routes used by the gateway to build proxy routes.
+# Kubernetes
+SERVICE_DISCOVERY_PATTERN=http://{service}.default.svc.cluster.local
+```
+
+When `pattern` is `null`, the base URL is read from the service manifest stored in the gateway's local Redis (populated via `microservice:sync`).
+
+> [!NOTE]
+> DNS-based discovery delegates all routing and load balancing to the infrastructure. No URL configuration is needed per service.
+
+## Manifest
+
+Settings that every service publishes about itself:
 
 ```php
 'manifest' => [
-    'ttl' => 300,
-    'prefix' => 'api',
-    'gateway' => env('MANIFEST_GATEWAY_SERVICE'),
+    'base_urls' => [env('APP_URL', 'http://localhost')],
+    'timeout'   => env('SERVICE_TIMEOUT', 5),
+    'ttl'       => 300,
+    'prefix'    => 'api',
+
+    // Gateway-only: services to pull manifests from
+    'services'  => [],
 ],
 ```
 
-- Only routes with the given prefix are included.
-- If `gateway` is set, manifests are pushed to that service.
-- If `gateway` is `null`, manifests are stored in Redis.
-
-> [!NOTE]
-> When `manifest.gateway` is set, the package trusts all proxies for correct URL generation.
+- `base_urls` — reachable addresses of this service. Included in the manifest so gateways know where to proxy.
+- `timeout` — default HTTP timeout in seconds for callers of this service. Published in the manifest.
+- `ttl` — how long the manifest lives in the gateway's Redis before expiring (seconds).
+- `prefix` — only routes matching this URI prefix are included in the manifest.
+- `services` — **gateway-only**. List of service names to pull manifests from via `microservice:sync`.
 
 > [!NOTE]
 > `HEAD` routes are excluded from the manifest.
 
 > [!NOTE]
-> Only routes with the configured `manifest.prefix` are included.
+> Only routes matching `manifest.prefix` are included.
 
-## Idempotency
-
-Idempotency prevents duplicate processing for non-safe requests by caching successful responses.
+## Health Endpoint
 
 ```php
-'idempotency' => [
-    'ttl' => 86400,
-    'lock_timeout' => 10,
+'health' => [
+    'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
 ],
 ```
 
-## Proxy
+**Gateway-only.** When set, exposes a health route at the given URI showing sync status for all configured services.
 
-Proxy settings control how gateway responses are normalized. These headers are removed to avoid conflicts.
+```env
+SERVICE_HEALTH_ENDPOINT=/microservice/health
+```
+
+> [!NOTE]
+> The health endpoint is public by default. Protect it at the route level if needed.
+
+## Idempotency
+
+```php
+'idempotency' => [
+    'ttl' => 86400,        // 24 hours
+    'lock_timeout' => 10,  // seconds
+],
+```
+
+Caches successful responses by `X-Request-Id` to prevent duplicate processing.
+
+## Proxy
 
 ```php
 'proxy' => [
@@ -132,3 +129,15 @@ Proxy settings control how gateway responses are normalized. These headers are r
     ],
 ],
 ```
+
+Headers removed from proxied responses to prevent conflicts with gateway-level CORS headers.
+
+## Defaults
+
+```php
+'defaults' => [
+    'timeout' => 5,
+],
+```
+
+Default HTTP timeout used when neither the request nor the service manifest specifies one.

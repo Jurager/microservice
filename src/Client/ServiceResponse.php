@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Client;
 
-use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Psr\Http\Message\ResponseInterface;
 
 class ServiceResponse
@@ -81,7 +80,7 @@ class ServiceResponse
     public function throw(): static
     {
         if ($this->failed()) {
-            throw new ServiceRequestException($this);
+            throw new \RuntimeException("Service request failed with status {$this->status()}.");
         }
 
         return $this;

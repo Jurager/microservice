@@ -5,21 +5,18 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Client;
 
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\ConnectException;
-use GuzzleHttp\Exception\RequestException;
-use Jurager\Microservice\Events\ServiceBecameUnavailable;
-use Jurager\Microservice\Events\ServiceRequestFailed;
-use Jurager\Microservice\Exceptions\ServiceRequestException;
+use GuzzleHttp\Exception\GuzzleException;
+use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
-use Jurager\Microservice\Registry\HealthRegistry;
 use Jurager\Microservice\Support\HmacSigner;
 
 class ServiceClient
 {
+    use InteractsWithRedis;
+
     protected Client $httpClient;
 
     public function __construct(
-        protected readonly HealthRegistry $registry,
         protected readonly HmacSigner $signer,
     ) {
         $this->httpClient = new Client();
@@ -33,105 +30,52 @@ class ServiceClient
     public function send(PendingServiceRequest $request): ServiceResponse
     {
         $service = $request->getService();
-        $instances = $this->registry->getHealthyInstances($service);
+        $baseUrl = $this->resolveBaseUrl($service);
 
-        if (empty($instances)) {
-            $instances = $this->registry->getInstances($service);
+        try {
+            return $this->executeRequest($request, $baseUrl);
+        } catch (GuzzleException $e) {
+            throw new ServiceUnavailableException($service, previous: $e);
         }
-
-        if (empty($instances)) {
-            throw new ServiceUnavailableException($service, "No instances configured for service [$service].");
-        }
-
-        $lastException = null;
-
-        foreach ($instances as $baseUrl) {
-            try {
-                if ($response = $this->tryInstance($request, $service, $baseUrl)) {
-                    $this->registry->markSuccess($service, $baseUrl);
-
-                    return $response;
-                }
-            } catch (\Exception $e) {
-                $lastException = $e;
-            }
-        }
-
-        ServiceBecameUnavailable::dispatch(
-            $service,
-            $instances,
-            $lastException?->getMessage() ?? 'All instances exhausted'
-        );
-
-        if ($lastException !== null && config('microservice.defaults.propagate_exception', false)) {
-            if ($lastException instanceof ServiceRequestException) {
-                return $lastException->response;
-            }
-
-            throw $lastException;
-        }
-
-        throw new ServiceUnavailableException($service, previous: $lastException);
     }
 
-    protected function tryInstance(PendingServiceRequest $request, string $service, string $baseUrl): ?ServiceResponse
+    /**
+     * Resolve the base URL for a service.
+     *
+     * Resolution order:
+     *   1. DNS pattern (SERVICE_DISCOVERY_PATTERN) — e.g. Kubernetes
+     *   2. Manifest stored in shared Redis
+     */
+    protected function resolveBaseUrl(string $service): string
     {
-        $retries = $request->getRetries()
-            ?? config("microservice.services.$service.retries")
-            ?? config('microservice.defaults.retries', 2);
+        $pattern = config('microservice.discovery.pattern');
 
-        $retryDelay = config('microservice.defaults.retry_delay', 100);
+        if ($pattern) {
+            return str_replace('{service}', $service, $pattern);
+        }
 
-        for ($attempt = 0; $attempt <= $retries; $attempt++) {
-            if ($attempt > 0) {
-                usleep($retryDelay * 1000);
-            }
+        $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
 
-            try {
-                $response = $this->executeRequest($request, $baseUrl);
+        if ($raw) {
+            $manifest = json_decode($raw, true);
+            $url = $manifest['base_urls'][0] ?? null;
 
-                if ($response->status() >= 500) {
-                    $this->handleFailure($service, $baseUrl, $request, $response->status(), 'Server error');
-
-                    if ($attempt === $retries) {
-                        throw new ServiceRequestException($response);
-                    }
-
-                    continue;
-                }
-
-                return $response;
-            } catch (ConnectException $e) {
-                $this->handleFailure($service, $baseUrl, $request, 0, $e->getMessage());
-
-                if ($attempt === $retries) {
-                    throw $e;
-                }
-            } catch (RequestException $e) {
-                $status = $e->hasResponse() ? $e->getResponse()->getStatusCode() : 0;
-                $this->handleFailure($service, $baseUrl, $request, $status, $e->getMessage());
-
-                if ($status >= 400 && $status < 500) {
-                    return new ServiceResponse($e->getResponse());
-                }
-
-                if ($attempt === $retries) {
-                    throw $e;
-                }
+            if ($url) {
+                return $url;
             }
         }
 
-        return null;
+        throw new ServiceUnavailableException($service, "Cannot resolve base URL for service [$service]. Make sure the service has registered its manifest.");
     }
 
     protected function executeRequest(PendingServiceRequest $request, string $baseUrl): ServiceResponse
     {
+        $service = $request->getService();
         $method = $request->getMethod();
         $path = $request->getPath();
         $url = rtrim($baseUrl, '/').'/'.ltrim($path, '/');
-        $timeout = $request->getTimeout()
-            ?? config("microservice.services.{$request->getService()}.timeout")
-            ?? config('microservice.defaults.timeout', 5);
+
+        $timeout = $request->getTimeout() ?? $this->resolveTimeout($service);
 
         $body = $request->getBody();
         $bodyString = $body !== null
@@ -155,6 +99,24 @@ class ServiceClient
         return new ServiceResponse($this->httpClient->request($method, $url, $options));
     }
 
+    /**
+     * Resolve timeout for a service: per-request → manifest → default.
+     */
+    protected function resolveTimeout(string $service): int
+    {
+        $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
+
+        if ($raw) {
+            $manifest = json_decode($raw, true);
+
+            if (isset($manifest['timeout'])) {
+                return (int) $manifest['timeout'];
+            }
+        }
+
+        return config('microservice.defaults.timeout', 5);
+    }
+
     protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = []): array
     {
         $timestamp = (string) time();
@@ -166,12 +128,5 @@ class ServiceClient
             'X-Timestamp' => $timestamp,
             'X-Signature' => $this->signer->sign($method, $path, $timestamp, $body ?? ''),
         ];
-    }
-
-    protected function handleFailure(string $service, string $url, PendingServiceRequest $request, int $statusCode, string $message): void
-    {
-        $this->registry->markFailure($service, $url);
-
-        ServiceRequestFailed::dispatch($service, $url, $request->getMethod(), $request->getPath(), $statusCode, $message);
     }
 }

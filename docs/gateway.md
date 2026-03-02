@@ -5,26 +5,72 @@ weight: 60
 
 # Gateway and Discovery
 
-Gateway mode uses manifests to proxy routes to services.
+Gateway mode uses pull-based manifest sync to proxy routes to services. The gateway periodically fetches route manifests from each configured service and registers them as proxy routes.
 
-## Register Manifest
+## How It Works
 
-Each service builds and registers its manifest:
+```
+microservice:sync (scheduler on gateway)
+  → GET http://oms/microservice/manifest    → store in Redis
+  → GET http://pim/microservice/manifest    → store in Redis
+  → GET http://agm/microservice/manifest    → store in Redis
 
-```bash
-php artisan microservice:register
+Gateway::routes()
+  → reads all manifests from Redis
+  → registers proxy routes pointing to ProxyController
 ```
 
-If `manifest.gateway` is set, the manifest is pushed to that service at `POST /microservice/manifest`.
-If `manifest.gateway` is `null`, the manifest is stored in Redis.
+## Configuring Services to Sync
 
-> [!WARNING]
-> Do not run `microservice:register` on the gateway service.
+On the gateway, list the services to pull from:
+
+```php
+// config/microservice.php
+'manifest' => [
+    'services' => ['oms', 'pim', 'agm'],
+],
+```
+
+The gateway uses `SERVICE_DISCOVERY_PATTERN` or manifest `base_urls` to locate each service.
+
+## Running the Sync
+
+Manually:
+
+```bash
+php artisan microservice:sync
+```
+
+Sync specific services only:
+
+```bash
+php artisan microservice:sync oms pim
+```
+
+Schedule it in `routes/console.php` or `app/Console/Kernel.php`:
+
+```php
+$schedule->command('microservice:sync')->everyFiveMinutes();
+```
 
 > [!NOTE]
-> The command refuses to register a manifest if the current service appears to be the gateway.
+> The sync interval should be shorter than `manifest.ttl` (default 300 seconds) to prevent manifests from expiring between syncs.
+
+## Manifest Endpoint
+
+Each service automatically exposes:
+
+```
+GET /microservice/manifest
+```
+
+Protected by `TrustService` middleware — only signed requests are accepted.
+
+This endpoint returns the service manifest: its routes, base URLs, and timeout.
 
 ## Gateway Routes
+
+Register proxy routes in your gateway's route file:
 
 ```php
 use Jurager\Microservice\Gateway\Gateway;
@@ -34,7 +80,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 });
 ```
 
-Filter by services:
+Filter by specific services:
 
 ```php
 Gateway::routes(services: ['pim', 'oms']);
@@ -52,7 +98,7 @@ Gateway::routes(function (GatewayRoutes $routes) {
 });
 ```
 
-Override a specific route:
+Override a specific route with custom middleware:
 
 ```php
 Gateway::routes(function (GatewayRoutes $routes) {
@@ -64,36 +110,74 @@ Gateway::routes(function (GatewayRoutes $routes) {
 
 ## Route Metadata
 
-Manifest routes include custom metadata from your service routes. You can access it on gateway routes:
+Routes can carry custom metadata defined in the microservice. It is included in the manifest and available on the gateway:
 
 ```php
-$request->route()->getAction('permissions');
-$request->route()->getAction('_service');
+// microservice route definition
+Route::post('/api/orders', OrderController::class)
+    ->name('orders.store')
+    ->defaults('permissions', ['orders.write']);
+
+// on the gateway
+$request->route()->getAction('permissions'); // ['orders.write']
+$request->route()->getAction('_service');    // 'oms'
 ```
 
-## Manifest Endpoint
+## Health Endpoint
 
-The gateway exposes:
+Set `SERVICE_HEALTH_ENDPOINT` on the gateway to expose a sync status page:
 
-- `POST /microservice/manifest` (protected by `TrustService`)
+```env
+SERVICE_HEALTH_ENDPOINT=/microservice/health
+```
 
-If route caching is enabled, the gateway rebuilds cache after a manifest is received.
+Example response:
+
+```json
+{
+  "gateway": "gateway-admin",
+  "services": {
+    "oms": {
+      "status": "ok",
+      "synced_at": "2026-03-02T10:00:00+00:00",
+      "expires_in": 243,
+      "routes_count": 12,
+      "base_urls": ["http://oms:8000"],
+      "timeout": 5
+    },
+    "pim": {
+      "status": "missing",
+      "synced_at": null,
+      "routes_count": 0,
+      "base_urls": [],
+      "timeout": null
+    }
+  }
+}
+```
+
+Service statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `ok` | Manifest is present and fresh |
+| `stale` | Manifest exists but less than 50% TTL remains — sync may be lagging |
+| `missing` | Service is configured but no manifest found in Redis |
 
 > [!NOTE]
-> Gateway routes automatically include the `Idempotency` middleware.
+> The health endpoint is public by default. Protect it at the route level if needed.
 
 ## Proxy Behavior
 
 `ProxyController` forwards:
 
-- Method, path, query, and JSON body
-- `X-Forwarded-*` headers
+- Method, path, query string, and JSON body
+- `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`, `X-Forwarded-Prefix`
 
-It preserves status and headers, but strips `Transfer-Encoding`, `Connection`, and headers from `microservice.proxy.strip_headers`.
+It preserves status code and response headers, but strips `Transfer-Encoding`, `Connection`, and any headers listed in `microservice.proxy.strip_headers`.
 
 > [!NOTE]
 > Only JSON request bodies are forwarded. Non-JSON bodies are ignored.
 
-## Trusted Proxies
-
-When `manifest.gateway` is set on a service, the package trusts all proxies to generate correct URLs.
+> [!NOTE]
+> Gateway routes automatically include the `Idempotency` middleware.

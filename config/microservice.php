@@ -62,25 +62,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Services Registry
-    |--------------------------------------------------------------------------
-    |
-    | Known services and their instances. Each service can have multiple
-    | base URLs for failover. Per-service timeout and retries override defaults.
-    |
-    | Example:
-    |   'oms' => [
-    |       'base_urls' => ['http://oms-1:8000', 'http://oms-2:8000'],
-    |       'timeout'   => 5,
-    |       'retries'   => 2,
-    |   ],
-    |
-    */
-
-    'services' => [],
-
-    /*
-    |--------------------------------------------------------------------------
     | Redis Configuration
     |--------------------------------------------------------------------------
     */
@@ -92,18 +73,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Health Tracking
+    | Service Discovery
     |--------------------------------------------------------------------------
     |
-    | Controls when a service instance is marked as unhealthy
-    | and how long before it's retried.
+    | When 'pattern' is set, service base URLs are resolved by substituting
+    | {service} in the pattern. Suitable for environments with predictable
+    | DNS naming (e.g. Kubernetes).
+    |
+    | Example for Kubernetes:
+    |   'pattern' => 'http://{service}.default.svc.cluster.local'
+    |
+    | When null, base URLs are resolved from the service manifest stored
+    | in the gateway's local Redis (populated via microservice:sync).
     |
     */
 
-    'health' => [
-        'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
-        'failure_threshold' => 3,
-        'recovery_timeout' => 30,
+    'discovery' => [
+        'pattern' => env('SERVICE_DISCOVERY_PATTERN'),
     ],
 
     /*
@@ -111,19 +97,48 @@ return [
     | Manifest Registration
     |--------------------------------------------------------------------------
     |
-    | When enabled, the service can register its route manifest
-    | for auto-discovery by the gateway.
+    | Configuration published by this service into the shared Redis so that
+    | the gateway and other services can discover it.
     |
-    | If 'gateway' is set, the manifest is pushed via HTTP to the
-    | gateway service (must be registered in 'services' above).
-    | If null, the manifest is stored in local Redis.
+    | base_urls  — reachable addresses of this service instance.
+    | timeout    — default HTTP timeout (seconds) for callers of this service.
+    | ttl        — how long the manifest lives in Redis before expiring (seconds).
+    | prefix     — only routes matching this URI prefix are included.
     |
     */
 
     'manifest' => [
-        'ttl' => 300,
-        'prefix' => 'api',
-        'gateway' => env('MANIFEST_GATEWAY_SERVICE'),
+        /*
+        | Settings published by this service so gateways can discover it.
+        */
+        'base_urls' => [env('APP_URL', 'http://localhost')],
+        'timeout'   => env('SERVICE_TIMEOUT', 5),
+        'ttl'       => 300,
+        'prefix'    => 'api',
+
+        /*
+        | Gateway-only: list of service names to pull manifests from.
+        | Used by the microservice:sync command and the health endpoint.
+        |
+        | Example: ['oms', 'pim', 'agm']
+        */
+        'services'  => [],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Health Endpoint
+    |--------------------------------------------------------------------------
+    |
+    | Gateway-only. When set, exposes a health endpoint at the given URI
+    | showing sync status for all configured services.
+    |
+    | Example: '/microservice/health'
+    |
+    */
+
+    'health' => [
+        'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
     ],
 
     /*
@@ -174,21 +189,6 @@ return [
 
     'defaults' => [
         'timeout' => 5,
-        'retries' => 2,
-        'retry_delay' => 100, // ms
-
-        /*
-        |--------------------------------------------------------------------------
-        | Propagate Original Exception
-        |--------------------------------------------------------------------------
-        |
-        | When enabled, if all retry attempts fail and an underlying exception
-        | was captured (e.g. a ConnectException or RequestException), it will be
-        | re-thrown as-is instead of being wrapped in ServiceUnavailableException.
-        | Useful when you want the original error message to reach the client.
-        |
-        */
-
-        'propagate_exception' => env('SERVICE_PROPAGATE_EXCEPTION', false),
     ],
+
 ];

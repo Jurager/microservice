@@ -18,8 +18,6 @@ class PendingServiceRequest
 
     protected ?int $timeout = null;
 
-    protected ?int $retries = null;
-
     public function __construct(
         protected readonly ServiceClient $client,
         protected readonly string $service,
@@ -88,13 +86,6 @@ class PendingServiceRequest
         return $this;
     }
 
-    public function retries(int $retries): static
-    {
-        $this->retries = $retries;
-
-        return $this;
-    }
-
     /**
      * @throws \Jurager\Microservice\Exceptions\ServiceUnavailableException
      */
@@ -136,10 +127,5 @@ class PendingServiceRequest
     public function getTimeout(): ?int
     {
         return $this->timeout;
-    }
-
-    public function getRetries(): ?int
-    {
-        return $this->retries;
     }
 }

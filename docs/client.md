@@ -5,7 +5,7 @@ weight: 40
 
 # Client API
 
-Use `ServiceClient` to send signed requests with retries and failover.
+Use `ServiceClient` to send HMAC-signed HTTP requests to other services.
 
 ## Basic Usage
 
@@ -31,64 +31,74 @@ $client->service('oms')
     ->withHeaders(['X-Request-Id' => $id])
     ->withQuery(['debug' => 1])
     ->timeout(3)
-    ->retries(1)
     ->send();
 ```
 
 > [!NOTE]
-> Request bodies are JSON-encoded. Use arrays or JSON-serializable data.
+> Request bodies are JSON-encoded. Use arrays only.
 
-Available methods:
+Available builder methods:
 
-- `withHeaders(array)`
-- `withQuery(array)`
-- `withBody(array)`
-- `timeout(int)`
-- `retries(int)`
-- `send()`
+- `get(string $path)`
+- `post(string $path, ?array $body = null)`
+- `put(string $path, ?array $body = null)`
+- `patch(string $path, ?array $body = null)`
+- `delete(string $path)`
+- `withHeaders(array $headers)`
+- `withQuery(array $query)`
+- `withBody(array $body)`
+- `timeout(int $seconds)`
+- `send(): ServiceResponse`
 
-Priority for `timeout` and `retries`:
+Timeout resolution order:
 
-1. Request overrides
-2. Per-service config
-3. Defaults
+1. Per-request `->timeout(n)`
+2. `timeout` from the service manifest (published by the target service)
+3. `defaults.timeout` from config
+
+## URL Resolution
+
+`ServiceClient` resolves the target URL using:
+
+1. `SERVICE_DISCOVERY_PATTERN` — if set, substitutes `{service}` in the pattern.
+2. Service manifest in Redis — reads `base_urls[0]` from the manifest stored by `microservice:sync`.
+
+If neither resolves a URL, `ServiceUnavailableException` is thrown with a clear message.
+
+> [!NOTE]
+> Retries and failover are not handled by the package. Use Kubernetes liveness/readiness probes and load balancer retry policies.
 
 ## ServiceResponse
 
 ```php
-$response->status();
-$response->ok();
-$response->failed();
-$response->json();
-$response->json('data.id');
-$response->body();
+$response->status();         // HTTP status code
+$response->ok();             // true if 2xx
+$response->failed();         // true if 4xx or 5xx
+$response->json();           // decoded JSON body
+$response->json('data.id');  // dot-notation access
+$response->body();           // raw string body
 $response->header('X-Total');
 $response->headers();
-$response->toPsrResponse();
-$response->throw();
+$response->toPsrResponse();  // PSR-7 ResponseInterface
+$response->throw();          // throws RuntimeException if failed()
 ```
 
-## Retry and Failover
+## Errors
 
-- 5xx and network errors: retry on the same instance, then move to the next instance.
-- 4xx: returned immediately (no retry).
-- If all healthy instances fail, the client retries the full list once more.
-- If all attempts fail, `ServiceUnavailableException` is thrown by default.
+If the target service is unreachable or URL cannot be resolved, `ServiceUnavailableException` is thrown.
 
-To propagate the original exception instead, enable `propagate_exception` in config or via env:
+```php
+use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 
-```dotenv
-SERVICE_PROPAGATE_EXCEPTION=true
+try {
+    $response = $client->service('oms')->get('/api/orders')->send();
+} catch (ServiceUnavailableException $e) {
+    // service unreachable
+}
 ```
-
-When enabled:
-
-- **5xx response** — `send()` returns the original microservice `ServiceResponse` (status 5xx, original headers and body) instead of throwing. The proxy controller forwards it to the client unchanged, so the frontend receives the exact error from the microservice.
-
-- **Connection failure** — the underlying `ConnectException` is re-thrown, preserving the network error message.
 
 > [!NOTE]
 > Requests are always JSON and signed with `X-Service-Name`, `X-Timestamp`, and `X-Signature`.
 
 > [!NOTE]
-> The client does not generate `X-Request-Id`. Add it yourself if you need idempotency.
+> The client does not generate `X-Request-Id`. Add it yourself if you need idempotency on the receiving end.

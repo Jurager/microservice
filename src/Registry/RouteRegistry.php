@@ -87,9 +87,13 @@ class RouteRegistry
         return null;
     }
 
+    /** @var array<string, string> Compiled regex patterns keyed by route pattern. */
+    private static array $compiledPatterns = [];
+
     /**
      * Match a route pattern against a URI.
-     * Supports Laravel-style {parameter} placeholders.
+     * Supports Laravel-style {parameter} and {parameter?} placeholders.
+     * Compiled patterns are cached in-memory for the lifetime of the process.
      */
     protected function matchUri(string $pattern, string $uri): bool
     {
@@ -97,16 +101,22 @@ class RouteRegistry
             return true;
         }
 
-        $placeholder = '__PARAM__';
-        $temp = preg_replace('/\{[^}]+}/', $placeholder, $pattern);
+        if (! isset(self::$compiledPatterns[$pattern])) {
+            $placeholder = '__PARAM__';
+            $temp = preg_replace('/\{[^}]+\}/', $placeholder, $pattern);
 
-        if ($temp === null) {
-            return false;
+            if ($temp === null) {
+                self::$compiledPatterns[$pattern] = '';
+
+                return false;
+            }
+
+            $quoted = preg_quote($temp, '#');
+            self::$compiledPatterns[$pattern] = str_replace(preg_quote($placeholder, '#'), '[^/]+', $quoted);
         }
 
-        $quoted = preg_quote($temp, '#');
-        $regex = str_replace(preg_quote($placeholder, '#'), '[^/]+', $quoted);
+        $regex = self::$compiledPatterns[$pattern];
 
-        return (bool) preg_match('#^'.$regex.'$#', $uri);
+        return $regex !== '' && (bool) preg_match('#^'.$regex.'$#', $uri);
     }
 }

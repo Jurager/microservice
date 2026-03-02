@@ -5,21 +5,14 @@
 [![PHP Version Require](https://poser.pugx.org/jurager/microservice/require/php)](https://packagist.org/packages/jurager/microservice)
 [![License](https://poser.pugx.org/jurager/microservice/license)](https://packagist.org/packages/jurager/microservice)
 
-A Laravel package for secure and resilient HTTP communication between microservices.
+A Laravel package for secure HTTP communication between microservices.
 
 Features:
 
-+ HMAC-signed requests for internal service authentication
-+ Automatic retries and failover across multiple instances
-+ Redis-based health tracking to avoid unhealthy nodes
-+ Route discovery for gateway proxying
-+ Idempotency support for non-safe requests (POST, PUT, PATCH)
-+ Built for production environments where reliability and consistency matter.
-
-
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [License](#license)
+- HMAC-signed requests for internal service authentication
+- Service discovery via shared Redis manifests or DNS pattern (Kubernetes-ready)
+- Route manifest publishing and gateway proxying
+- Idempotency support for non-safe requests (POST, PUT, PATCH)
 
 ## Requirements
 
