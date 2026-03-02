@@ -31,11 +31,15 @@ class SyncManifestsCommand extends Command
         $failed = [];
 
         foreach ($services as $service) {
-            $this->components->task("Syncing [$service]", function () use ($service, $client, $registry, &$failed) {
+            $reason = null;
+            $synced = null;
+
+            $this->components->task("Syncing [$service]", function () use ($service, $client, $registry, &$failed, &$reason, &$synced) {
                 try {
                     $response = $client->service($service)->get('/microservice/manifest')->send();
 
                     if ($response->failed()) {
+                        $reason = "HTTP {$response->status()}";
                         $failed[] = $service;
 
                         return false;
@@ -44,6 +48,7 @@ class SyncManifestsCommand extends Command
                     $manifest = $response->json();
 
                     if (! is_array($manifest) || ! isset($manifest['service'], $manifest['routes'])) {
+                        $reason = 'Invalid manifest structure';
                         $failed[] = $service;
 
                         return false;
@@ -53,13 +58,34 @@ class SyncManifestsCommand extends Command
 
                     ManifestReceived::dispatch($service, $manifest, count($manifest['routes']));
 
+                    $synced = $manifest;
+
                     return true;
-                } catch (ServiceUnavailableException) {
+                } catch (ServiceUnavailableException $e) {
+                    $reason = $e->getMessage();
                     $failed[] = $service;
 
                     return false;
                 }
             });
+
+            if ($reason !== null) {
+                $this->components->bulletList([$reason]);
+            }
+
+            if ($synced !== null) {
+                $routes = $synced['routes'];
+
+                $this->components->info(count($routes).' route(s) registered for ['.$synced['service'].'].');
+
+                if (! empty($routes)) {
+                    $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
+                        $route['method'],
+                        $route['uri'],
+                        $route['name'] ?? '-',
+                    ], $routes));
+                }
+            }
         }
 
         if (! empty($failed)) {

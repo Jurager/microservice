@@ -114,7 +114,7 @@ return [
         'base_urls' => [env('APP_URL', 'http://localhost')],
         'timeout'   => env('SERVICE_TIMEOUT', 5),
         'ttl'       => 300,
-        'prefix'    => 'api',
+        'prefix'    => env('SERVICE_MANIFEST_PREFIX', 'api'),
 
         /*
         | Gateway-only: list of service names to pull manifests from.

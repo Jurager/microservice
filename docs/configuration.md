@@ -78,7 +78,7 @@ Settings that every service publishes about itself:
 - `base_urls` — reachable addresses of this service. Included in the manifest so gateways know where to proxy.
 - `timeout` — default HTTP timeout in seconds for callers of this service. Published in the manifest.
 - `ttl` — how long the manifest lives in the gateway's Redis before expiring (seconds).
-- `prefix` — only routes matching this URI prefix are included in the manifest.
+- `prefix` — only routes matching this URI prefix are included in the manifest. Override via `SERVICE_MANIFEST_PREFIX`.
 - `services` — **gateway-only**. List of service names to pull manifests from via `microservice:sync`.
 
 > [!NOTE]
