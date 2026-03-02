@@ -65,7 +65,7 @@ Settings that every service publishes about itself:
 
 ```php
 'manifest' => [
-    'base_urls' => [env('APP_URL', 'http://localhost')],
+    'base_url'  => env('APP_URL', 'http://localhost'),
     'timeout'   => env('SERVICE_TIMEOUT', 5),
     'ttl'       => 300,
     'prefix'    => 'api',
@@ -75,11 +75,12 @@ Settings that every service publishes about itself:
 ],
 ```
 
-- `base_urls` — reachable addresses of this service. Included in the manifest so gateways know where to proxy.
+- `base_url` — reachable address of this service. Included in the manifest so gateways know where to proxy.
 - `timeout` — default HTTP timeout in seconds for callers of this service. Published in the manifest.
 - `ttl` — how long the manifest lives in the gateway's Redis before expiring (seconds).
-- `prefix` — only routes matching this URI prefix are included in the manifest. Override via `SERVICE_MANIFEST_PREFIX`.
-- `services` — **gateway-only**. List of service names to pull manifests from via `microservice:sync`.
+- `prefix` — only routes matching these URI prefixes are included in the manifest. Accepts a comma-separated string (`v1,v2`) or an array. Empty value includes all routes. Override via `SERVICE_MANIFEST_PREFIX`.
+- `services` — **gateway-only**. Comma-separated list of service names to pull manifests from via `microservice:sync`. Override via `SERVICE_MANIFEST_SERVICES=oms,pim,agm`. Parsed into an array at boot time.
+- `sync_interval` — **gateway-only**. How often (in minutes) to automatically run `microservice:sync`. Defaults to `5`. Set to `0` to disable. Override via `SERVICE_MANIFEST_SYNC_INTERVAL`.
 
 > [!NOTE]
 > `HEAD` routes are excluded from the manifest.
@@ -91,7 +92,7 @@ Settings that every service publishes about itself:
 
 ```php
 'health' => [
-    'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
+    'endpoint' => env('SERVICE_HEALTH_ENDPOINT', '/microservice/health'),
 ],
 ```
 

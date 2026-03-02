@@ -24,16 +24,11 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('microservice.timestamp_tolerance', 60);
         $app['config']->set('microservice.redis.connection', 'default');
         $app['config']->set('microservice.redis.prefix', 'microservice:test:');
-        $app['config']->set('microservice.health.failure_threshold', 3);
-        $app['config']->set('microservice.health.recovery_timeout', 30);
         $app['config']->set('microservice.manifest.ttl', 300);
         $app['config']->set('microservice.manifest.prefix', 'api');
-        $app['config']->set('microservice.manifest.gateway', null);
+        $app['config']->set('microservice.manifest.services', []);
         $app['config']->set('microservice.idempotency.ttl', 60);
         $app['config']->set('microservice.idempotency.lock_timeout', 10);
         $app['config']->set('microservice.defaults.timeout', 5);
-        $app['config']->set('microservice.defaults.retries', 2);
-        $app['config']->set('microservice.defaults.retry_delay', 0);
-        $app['config']->set('microservice.services', []);
     }
 }

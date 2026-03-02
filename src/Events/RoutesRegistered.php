@@ -13,7 +13,6 @@ class RoutesRegistered
     public function __construct(
         public readonly string $service,
         public readonly array $routes,
-        public readonly ?string $gateway = null,
     ) {
     }
 }

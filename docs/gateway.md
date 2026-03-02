@@ -31,11 +31,11 @@ On the gateway, list the services to pull from:
 ],
 ```
 
-The gateway uses `SERVICE_DISCOVERY_PATTERN` or manifest `base_urls` to locate each service.
+The gateway uses `SERVICE_DISCOVERY_PATTERN` or manifest `base_url` to locate each service.
 
 ## Running the Sync
 
-Manually:
+Run manually:
 
 ```bash
 php artisan microservice:sync
@@ -47,7 +47,15 @@ Sync specific services only:
 php artisan microservice:sync oms pim
 ```
 
-Schedule it in `routes/console.php` or `app/Console/Kernel.php`:
+The gateway schedules `microservice:sync` automatically based on `manifest.sync_interval` (default: 5 minutes). No manual scheduling is needed.
+
+To override the interval:
+
+```env
+SERVICE_MANIFEST_SYNC_INTERVAL=5
+```
+
+Set to `0` to disable automatic scheduling and manage it yourself:
 
 ```php
 $schedule->command('microservice:sync')->everyFiveMinutes();
@@ -125,10 +133,10 @@ $request->route()->getAction('_service');    // 'oms'
 
 ## Health Endpoint
 
-Set `SERVICE_HEALTH_ENDPOINT` on the gateway to expose a sync status page:
+The health endpoint is enabled by default at `/microservice/health`. Override via `SERVICE_HEALTH_ENDPOINT`:
 
 ```env
-SERVICE_HEALTH_ENDPOINT=/microservice/health
+
 ```
 
 Example response:
@@ -142,14 +150,14 @@ Example response:
       "synced_at": "2026-03-02T10:00:00+00:00",
       "expires_in": 243,
       "routes_count": 12,
-      "base_urls": ["http://oms:8000"],
+      "base_url": "http://oms:8000",
       "timeout": 5
     },
     "pim": {
       "status": "missing",
       "synced_at": null,
       "routes_count": 0,
-      "base_urls": [],
+      "base_url": null,
       "timeout": null
     }
   }

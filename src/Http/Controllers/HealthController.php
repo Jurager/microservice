@@ -28,7 +28,7 @@ class HealthController extends Controller
                     'status' => 'missing',
                     'synced_at' => null,
                     'routes_count' => 0,
-                    'base_urls' => [],
+                    'base_url' => null,
                     'timeout' => null,
                 ];
 
@@ -50,7 +50,7 @@ class HealthController extends Controller
                 'synced_at' => $syncedAt,
                 'expires_in' => $remainingTtl > 0 ? $remainingTtl : null,
                 'routes_count' => count($manifest['routes'] ?? []),
-                'base_urls' => $manifest['base_urls'] ?? [],
+                'base_url' => $manifest['base_url'] ?? null,
                 'timeout' => $manifest['timeout'] ?? null,
             ];
         }

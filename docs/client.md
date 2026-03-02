@@ -61,7 +61,7 @@ Timeout resolution order:
 `ServiceClient` resolves the target URL using:
 
 1. `SERVICE_DISCOVERY_PATTERN` — if set, substitutes `{service}` in the pattern.
-2. Service manifest in Redis — reads `base_urls[0]` from the manifest stored by `microservice:sync`.
+2. Service manifest in Redis — reads `base_url` from the manifest stored by `microservice:sync`.
 
 If neither resolves a URL, `ServiceUnavailableException` is thrown with a clear message.
 

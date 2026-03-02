@@ -5,58 +5,47 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Redis\Connections\Connection;
+use Illuminate\Support\Facades\Event;
+use Jurager\Microservice\Events\RoutesRegistered;
 use Jurager\Microservice\Http\Middleware\TrustService;
-use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Tests\TestCase;
-use Mockery;
 
 class ManifestControllerTest extends TestCase
 {
-    private function validPayload(): array
+    public function test_returns_manifest_with_routes(): void
     {
-        return [
-            'service' => 'pim',
-            'routes' => [
-                ['method' => 'GET', 'uri' => '/api/products'],
-                ['method' => 'POST', 'uri' => '/api/products'],
-            ],
-            'timestamp' => now()->toIso8601String(),
-        ];
-    }
-
-    public function test_stores_valid_manifest(): void
-    {
-        $redis = Mockery::mock(Connection::class);
-        $redis->shouldReceive('setex')->once();
-        $redis->shouldReceive('sadd')->once();
-
-        $registry = Mockery::mock(ManifestRegistry::class)->makePartial()
-            ->shouldAllowMockingProtectedMethods();
-        $registry->shouldReceive('redis')->andReturn($redis);
-
-        $this->app->instance(ManifestRegistry::class, $registry);
-
         $this->withoutMiddleware(TrustService::class)
-            ->postJson('/microservice/manifest', $this->validPayload())
+            ->getJson('/microservice/manifest')
             ->assertOk()
-            ->assertJson(['status' => 'registered']);
+            ->assertJsonStructure(['service', 'routes', 'timestamp', 'base_url']);
     }
 
-    public function test_validates_required_fields(): void
+    public function test_returns_correct_service_name(): void
     {
+        $this->app['config']->set('microservice.name', 'pim');
+
         $this->withoutMiddleware(TrustService::class)
-            ->postJson('/microservice/manifest', ['routes' => []])
-            ->assertStatus(422);
+            ->getJson('/microservice/manifest')
+            ->assertOk()
+            ->assertJsonPath('service', 'pim');
     }
 
-    public function test_validates_route_structure(): void
+    public function test_dispatches_routes_registered_event(): void
     {
+        Event::fake([RoutesRegistered::class]);
+
         $this->withoutMiddleware(TrustService::class)
-            ->postJson('/microservice/manifest', [
-                'service' => 'pim',
-                'routes' => [['invalid' => true]],
-                'timestamp' => now()->toIso8601String(),
-            ])
-            ->assertStatus(422);
+            ->getJson('/microservice/manifest')
+            ->assertOk();
+
+        Event::assertDispatched(RoutesRegistered::class);
+    }
+
+    public function test_requires_trust_service_middleware(): void
+    {
+        $this->app['config']->set('microservice.debug', false);
+
+        $this->getJson('/microservice/manifest')
+            ->assertStatus(401);
     }
 }

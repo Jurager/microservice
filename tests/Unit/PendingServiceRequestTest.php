@@ -97,17 +97,9 @@ class PendingServiceRequestTest extends TestCase
         $this->assertSame(10, $this->request->getTimeout());
     }
 
-    public function test_retries_sets_retries(): void
-    {
-        $this->request->retries(5);
-
-        $this->assertSame(5, $this->request->getRetries());
-    }
-
-    public function test_defaults_are_null_for_timeout_and_retries(): void
+    public function test_default_timeout_is_null(): void
     {
         $this->assertNull($this->request->getTimeout());
-        $this->assertNull($this->request->getRetries());
     }
 
     public function test_get_service_returns_service_name(): void

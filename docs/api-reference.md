@@ -82,13 +82,13 @@ weight: 90
 
 | Method | URI | Middleware | Description |
 | --- | --- | --- | --- |
-| `GET` | `/microservice/manifest` | `TrustService` | Returns current service manifest (routes, base_urls, timeout) |
-| `GET` | `{SERVICE_HEALTH_ENDPOINT}` | none | Gateway-only: sync status for all configured services |
+| `GET` | `/microservice/manifest` | `TrustService` | Returns current service manifest (routes, base_url, timeout) |
+| `GET` | `/microservice/health` | none | Gateway-only: sync status for all configured services (override via `SERVICE_HEALTH_ENDPOINT`) |
 
 ## Events
 
 | Event | Dispatched when |
 | --- | --- |
-| `RoutesRegistered` | manifest stored via `microservice:register` |
+| `RoutesRegistered` | manifest endpoint called on a service |
 | `ManifestReceived` | gateway successfully pulled and stored a manifest via `microservice:sync` |
 | `IdempotentRequestDetected` | response served from idempotency cache |

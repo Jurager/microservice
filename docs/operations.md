@@ -9,17 +9,8 @@ weight: 70
 
 | Command | Where | Description |
 | --- | --- | --- |
-| `microservice:register` | Microservice | Build and store the local manifest in Redis (for local reference) |
 | `microservice:sync` | Gateway | Pull manifests from all configured services and store in gateway Redis |
 | `microservice:sync oms pim` | Gateway | Pull manifests from specific services only |
-
-### microservice:register
-
-Builds the manifest from current routes and stores it in the service's local Redis. Useful during development or for verifying what the manifest looks like before the gateway pulls it.
-
-```bash
-php artisan microservice:register
-```
 
 ### microservice:sync
 
@@ -39,7 +30,7 @@ $schedule->command('microservice:sync')->everyFiveMinutes();
 
 | Event | Trigger |
 | --- | --- |
-| `RoutesRegistered` | manifest stored via `microservice:register` |
+| `RoutesRegistered` | manifest endpoint called on a service |
 | `ManifestReceived` | gateway successfully pulled and stored a manifest via `microservice:sync` |
 | `IdempotentRequestDetected` | response served from idempotency cache |
 

@@ -111,7 +111,7 @@ return [
         /*
         | Settings published by this service so gateways can discover it.
         */
-        'base_urls' => [env('APP_URL', 'http://localhost')],
+        'base_url'  => env('APP_URL', 'http://localhost'),
         'timeout'   => env('SERVICE_TIMEOUT', 5),
         'ttl'       => 300,
         'prefix'    => env('SERVICE_MANIFEST_PREFIX', 'api'),
@@ -121,8 +121,20 @@ return [
         | Used by the microservice:sync command and the health endpoint.
         |
         | Example: ['oms', 'pim', 'agm']
+        | Via env: SERVICE_MANIFEST_SERVICES=oms,pim,agm
         */
-        'services'  => [],
+        /*
+        | Gateway-only: comma-separated list of service names to sync.
+        | Parsed into an array at boot time by the service provider.
+        | Example: SERVICE_MANIFEST_SERVICES=oms,pim,agm
+        */
+        'services'  => env('SERVICE_MANIFEST_SERVICES', ''),
+
+        /*
+        | Gateway-only: how often (in minutes) to automatically run microservice:sync.
+        | Set to 0 to disable automatic scheduling.
+        */
+        'sync_interval' => env('SERVICE_MANIFEST_SYNC_INTERVAL', 5),
     ],
 
     /*
@@ -138,7 +150,7 @@ return [
     */
 
     'health' => [
-        'endpoint' => env('SERVICE_HEALTH_ENDPOINT'),
+        'endpoint' => env('SERVICE_HEALTH_ENDPOINT', '/microservice/health'),
     ],
 
     /*

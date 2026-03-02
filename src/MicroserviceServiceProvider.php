@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice;
 
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 use Jurager\Microservice\Client\ServiceClient;
-use Jurager\Microservice\Commands\RegisterManifestCommand;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
 use Jurager\Microservice\Support\HmacSigner;
 
@@ -15,6 +15,15 @@ class MicroserviceServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/microservice.php', 'microservice');
+
+        // Normalize manifest.services from comma-separated string to array
+        $raw = config('microservice.manifest.services', '');
+        if (is_string($raw)) {
+            $this->app['config']->set(
+                'microservice.manifest.services',
+                array_values(array_filter(array_map('trim', explode(',', $raw))))
+            );
+        }
 
         $this->app->singleton(HmacSigner::class);
         $this->app->singleton(ServiceClient::class);
@@ -30,9 +39,24 @@ class MicroserviceServiceProvider extends ServiceProvider
             ], 'microservice-config');
 
             $this->commands([
-                RegisterManifestCommand::class,
                 SyncManifestsCommand::class,
             ]);
         }
+
+        $this->registerSchedule();
+    }
+
+    protected function registerSchedule(): void
+    {
+        $interval = (int) config('microservice.manifest.sync_interval', 5);
+        $services = config('microservice.manifest.services', []);
+
+        if ($interval <= 0 || empty($services)) {
+            return;
+        }
+
+        $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($interval) {
+            $schedule->command(SyncManifestsCommand::class)->everyMinutes($interval);
+        });
     }
 }

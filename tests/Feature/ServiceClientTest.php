@@ -11,12 +11,9 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
-use Illuminate\Support\Facades\Event;
+use Illuminate\Redis\Connections\Connection;
 use Jurager\Microservice\Client\ServiceClient;
-use Jurager\Microservice\Events\ServiceRequestFailed;
-use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
-use Jurager\Microservice\Registry\HealthRegistry;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
@@ -24,7 +21,7 @@ class ServiceClientTest extends TestCase
 {
     private array $history = [];
 
-    private function createClient(array $responses, ?HealthRegistry $registry = null): ServiceClient
+    private function createClient(array $responses, ?Connection $redis = null): ServiceClient
     {
         $mock = new MockHandler($responses);
         $stack = HandlerStack::create($mock);
@@ -32,21 +29,13 @@ class ServiceClientTest extends TestCase
 
         $httpClient = new Client(['handler' => $stack]);
 
-        if ($registry === null) {
-            $registry = Mockery::mock(HealthRegistry::class);
-            $registry->shouldReceive('getHealthyInstances')->andReturnUsing(function ($service) {
-                return config("microservice.services.$service.base_urls", []);
-            });
-            $registry->shouldReceive('getInstances')->andReturnUsing(function ($service) {
-                return config("microservice.services.$service.base_urls", []);
-            });
-            $registry->shouldReceive('markSuccess')->andReturnNull();
-            $registry->shouldReceive('markFailure')->andReturnNull();
+        $client = Mockery::mock(ServiceClient::class, [$this->app->make(\Jurager\Microservice\Support\HmacSigner::class)])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        if ($redis !== null) {
+            $client->shouldReceive('redis')->andReturn($redis);
         }
-
-        $this->app->instance(HealthRegistry::class, $registry);
-
-        $client = $this->app->make(ServiceClient::class);
 
         $reflection = new \ReflectionProperty($client, 'httpClient');
         $reflection->setValue($client, $httpClient);
@@ -54,9 +43,26 @@ class ServiceClientTest extends TestCase
         return $client;
     }
 
+    private function mockRedisWithManifest(string $service, string $baseUrl, ?int $timeout = null): Connection
+    {
+        $manifest = json_encode([
+            'service' => $service,
+            'base_url' => $baseUrl,
+            'timeout' => $timeout,
+            'routes' => [],
+        ]);
+
+        $redis = Mockery::mock(Connection::class);
+        $redis->shouldReceive('get')
+            ->with("microservice:manifest:$service")
+            ->andReturn($manifest);
+
+        return $redis;
+    }
+
     public function test_successful_request_returns_service_response(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(200, [], '{"data":"ok"}')]);
 
@@ -69,7 +75,7 @@ class ServiceClientTest extends TestCase
 
     public function test_request_includes_hmac_headers(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(200)]);
 
@@ -83,9 +89,9 @@ class ServiceClientTest extends TestCase
         $this->assertSame('test-service', $request->getHeaderLine('X-Service-Name'));
     }
 
-    public function test_forwards_custom_request_id(): void
+    public function test_forwards_custom_headers(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(200)]);
 
@@ -96,14 +102,12 @@ class ServiceClientTest extends TestCase
             ->send();
 
         $request = $this->history[0]['request'];
-        $this->assertTrue($request->hasHeader('X-Request-Id'));
         $this->assertSame($requestId, $request->getHeaderLine('X-Request-Id'));
     }
 
-    public function test_4xx_response_returned_without_retry(): void
+    public function test_4xx_response_returned_directly(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 2);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(404, [], '{"error":"not found"}')]);
 
@@ -113,47 +117,23 @@ class ServiceClientTest extends TestCase
         $this->assertCount(1, $this->history);
     }
 
-    public function test_5xx_triggers_retry(): void
+    public function test_5xx_response_returned_directly(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 2);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
-        $client = $this->createClient([
-            new Response(500),
-            new Response(500),
-            new Response(200, [], '{"data":"ok"}'),
-        ]);
+        $client = $this->createClient([new Response(500, [], '{"message":"error"}')]);
 
         $response = $client->service('oms')->get('/api/orders')->send();
 
-        $this->assertTrue($response->ok());
-        $this->assertCount(3, $this->history);
+        $this->assertSame(500, $response->status());
+        $this->assertCount(1, $this->history);
     }
 
-    public function test_failover_to_next_instance(): void
+    public function test_connect_exception_throws_service_unavailable(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', [
-            'http://oms-1:8000',
-            'http://oms-2:8000',
-        ]);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([
-            new ConnectException('Connection refused', new Request('GET', 'http://oms-1:8000/api/orders')),
-            new Response(200, [], '{"data":"ok"}'),
-        ]);
-
-        $response = $client->service('oms')->get('/api/orders')->retries(0)->send();
-
-        $this->assertTrue($response->ok());
-    }
-
-    public function test_all_instances_failed_throws_unavailable(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-
-        $client = $this->createClient([
-            new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders')),
-            new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders')),
             new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders')),
         ]);
 
@@ -162,37 +142,15 @@ class ServiceClientTest extends TestCase
         $client->service('oms')->get('/api/orders')->send();
     }
 
-    public function test_service_request_failed_event_dispatched(): void
-    {
-        Event::fake([ServiceRequestFailed::class]);
-
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-
-        $client = $this->createClient([new Response(500)]);
-
-        try {
-            $client->service('oms')->get('/api/orders')->send();
-        } catch (ServiceUnavailableException) {
-            // Expected
-        }
-
-        Event::assertDispatched(ServiceRequestFailed::class, function ($event) {
-            return $event->service === 'oms' && $event->statusCode === 500;
-        });
-    }
-
     public function test_post_sends_json_body(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(201, [], '{"id":1}')]);
 
-        $response = $client->service('oms')
+        $client->service('oms')
             ->post('/api/orders', ['product_id' => 1, 'quantity' => 5])
             ->send();
-
-        $this->assertSame(201, $response->status());
 
         $sentBody = (string) $this->history[0]['request']->getBody();
         $decoded = json_decode($sentBody, true);
@@ -201,196 +159,9 @@ class ServiceClientTest extends TestCase
         $this->assertSame(5, $decoded['quantity']);
     }
 
-    public function test_throws_when_no_instances_configured(): void
-    {
-        $client = $this->createClient([]);
-
-        $this->expectException(ServiceUnavailableException::class);
-        $this->expectExceptionMessage('No instances configured');
-
-        $client->service('unknown')->get('/api/test')->send();
-    }
-
-    public function test_custom_request_id_header_is_preserved(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-
-        $client = $this->createClient([new Response(200)]);
-
-        $client->service('oms')
-            ->get('/api/orders')
-            ->withHeaders(['X-Request-Id' => 'custom-id-123'])
-            ->send();
-
-        $request = $this->history[0]['request'];
-        $this->assertSame('custom-id-123', $request->getHeaderLine('X-Request-Id'));
-    }
-
-    public function test_uses_per_service_timeout_from_config(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.services.oms.timeout', 15);
-
-        $client = $this->createClient([new Response(200)]);
-
-        $client->service('oms')->get('/api/orders')->send();
-
-        $options = $this->history[0]['options'];
-        $this->assertSame(15, $options['timeout']);
-    }
-
-    public function test_explicit_timeout_overrides_config(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.services.oms.timeout', 15);
-
-        $client = $this->createClient([new Response(200)]);
-
-        $client->service('oms')->get('/api/orders')->timeout(3)->send();
-
-        $options = $this->history[0]['options'];
-        $this->assertSame(3, $options['timeout']);
-    }
-
-    public function test_falls_back_to_all_instances_when_none_healthy(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', [
-            'http://oms-1:8000',
-            'http://oms-2:8000',
-        ]);
-
-        $registry = Mockery::mock(HealthRegistry::class);
-        $registry->shouldReceive('getHealthyInstances')->with('oms')->andReturn([]);
-        $registry->shouldReceive('getInstances')->with('oms')->andReturn([
-            'http://oms-1:8000',
-            'http://oms-2:8000',
-        ]);
-        $registry->shouldReceive('markSuccess')->andReturnNull();
-        $registry->shouldReceive('markFailure')->andReturnNull();
-
-        $client = $this->createClient([new Response(200, [], '{"ok":true}')], $registry);
-
-        $response = $client->service('oms')->get('/api/orders')->send();
-
-        $this->assertTrue($response->ok());
-    }
-
-    public function test_mark_success_called_on_successful_request(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-
-        $registry = Mockery::mock(HealthRegistry::class);
-        $registry->shouldReceive('getHealthyInstances')->andReturn(['http://oms:8000']);
-        $registry->shouldReceive('markSuccess')->once()->with('oms', 'http://oms:8000');
-
-        $client = $this->createClient([new Response(200)], $registry);
-
-        $client->service('oms')->get('/api/orders')->send();
-    }
-
-    public function test_mark_failure_called_on_failed_request(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-
-        $registry = Mockery::mock(HealthRegistry::class);
-        $registry->shouldReceive('getHealthyInstances')->andReturn(['http://oms:8000']);
-        $registry->shouldReceive('getInstances')->andReturn(['http://oms:8000']);
-        $registry->shouldReceive('markFailure')->once()->with('oms', 'http://oms:8000');
-
-        $client = $this->createClient([new Response(500)], $registry);
-
-        try {
-            $client->service('oms')->get('/api/orders')->send();
-        } catch (ServiceUnavailableException) {
-            // Expected
-        }
-    }
-
-    public function test_propagate_exception_returns_5xx_response_directly(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-        $this->app['config']->set('microservice.defaults.propagate_exception', true);
-
-        $client = $this->createClient([
-            new Response(503, [], '{"message":"Service Unavailable","error":"database_down"}'),
-        ]);
-
-        $response = $client->service('oms')->get('/api/orders')->send();
-
-        $this->assertSame(503, $response->status());
-        $this->assertSame('Service Unavailable', $response->json('message'));
-        $this->assertSame('database_down', $response->json('error'));
-    }
-
-    public function test_propagate_exception_disabled_wraps_5xx_in_unavailable(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-        $this->app['config']->set('microservice.defaults.propagate_exception', false);
-
-        $client = $this->createClient([
-            new Response(500, [], '{"message":"Internal Server Error"}'),
-        ]);
-
-        $this->expectException(ServiceUnavailableException::class);
-
-        $client->service('oms')->get('/api/orders')->send();
-    }
-
-    public function test_propagate_exception_rethrows_original_exception(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-        $this->app['config']->set('microservice.defaults.propagate_exception', true);
-
-        $original = new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders'));
-
-        $client = $this->createClient([$original]);
-
-        $this->expectException(ConnectException::class);
-        $this->expectExceptionMessage('Connection refused');
-
-        $client->service('oms')->get('/api/orders')->send();
-    }
-
-    public function test_propagate_exception_disabled_wraps_in_unavailable(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-        $this->app['config']->set('microservice.defaults.propagate_exception', false);
-
-        $client = $this->createClient([
-            new ConnectException('Connection refused', new Request('GET', 'http://oms:8000/api/orders')),
-        ]);
-
-        $this->expectException(ServiceUnavailableException::class);
-
-        $client->service('oms')->get('/api/orders')->send();
-    }
-
-    public function test_propagate_exception_preserves_original_message(): void
-    {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
-        $this->app['config']->set('microservice.defaults.retries', 0);
-        $this->app['config']->set('microservice.defaults.propagate_exception', true);
-
-        $client = $this->createClient([
-            new ConnectException('Custom error: timeout after 5s', new Request('GET', 'http://oms:8000/api/orders')),
-        ]);
-
-        try {
-            $client->service('oms')->get('/api/orders')->send();
-            $this->fail('Expected exception was not thrown');
-        } catch (ConnectException $e) {
-            $this->assertStringContainsString('Custom error: timeout after 5s', $e->getMessage());
-        }
-    }
-
     public function test_query_parameters_are_sent(): void
     {
-        $this->app['config']->set('microservice.services.oms.base_urls', ['http://oms:8000']);
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(200)]);
 
@@ -402,5 +173,81 @@ class ServiceClientTest extends TestCase
         $uri = (string) $this->history[0]['request']->getUri();
         $this->assertStringContainsString('page=2', $uri);
         $this->assertStringContainsString('limit=10', $uri);
+    }
+
+    public function test_resolves_url_from_dns_pattern(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}.internal:8000');
+
+        $client = $this->createClient([new Response(200)]);
+
+        $client->service('oms')->get('/api/orders')->send();
+
+        $uri = (string) $this->history[0]['request']->getUri();
+        $this->assertStringStartsWith('http://oms.internal:8000', $uri);
+    }
+
+    public function test_resolves_url_from_redis_manifest(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', null);
+
+        $redis = $this->mockRedisWithManifest('oms', 'http://oms-from-redis:9000');
+        $client = $this->createClient([new Response(200)], $redis);
+
+        $client->service('oms')->get('/api/orders')->send();
+
+        $uri = (string) $this->history[0]['request']->getUri();
+        $this->assertStringStartsWith('http://oms-from-redis:9000', $uri);
+    }
+
+    public function test_throws_when_url_cannot_be_resolved(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', null);
+
+        $redis = Mockery::mock(Connection::class);
+        $redis->shouldReceive('get')->andReturn(null);
+
+        $client = $this->createClient([], $redis);
+
+        $this->expectException(ServiceUnavailableException::class);
+        $this->expectExceptionMessageMatches('/Cannot resolve base URL/');
+
+        $client->service('unknown')->get('/api/test')->send();
+    }
+
+    public function test_uses_timeout_from_manifest(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', null);
+
+        $redis = $this->mockRedisWithManifest('oms', 'http://oms:8000', 15);
+        $client = $this->createClient([new Response(200)], $redis);
+
+        $client->service('oms')->get('/api/orders')->send();
+
+        $this->assertSame(15, $this->history[0]['options']['timeout']);
+    }
+
+    public function test_explicit_timeout_overrides_manifest(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', null);
+
+        $redis = $this->mockRedisWithManifest('oms', 'http://oms:8000', 15);
+        $client = $this->createClient([new Response(200)], $redis);
+
+        $client->service('oms')->get('/api/orders')->timeout(3)->send();
+
+        $this->assertSame(3, $this->history[0]['options']['timeout']);
+    }
+
+    public function test_falls_back_to_default_timeout(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+        $this->app['config']->set('microservice.defaults.timeout', 7);
+
+        $client = $this->createClient([new Response(200)]);
+
+        $client->service('oms')->get('/api/orders')->send();
+
+        $this->assertSame(7, $this->history[0]['options']['timeout']);
     }
 }

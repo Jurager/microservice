@@ -39,6 +39,7 @@ class ManifestRegistryTest extends TestCase
         $this->assertSame('test-service', $manifest['service']);
         $this->assertNotEmpty($manifest['routes']);
         $this->assertArrayHasKey('timestamp', $manifest);
+        $this->assertArrayHasKey('base_url', $manifest);
 
         $methods = array_column($manifest['routes'], 'method');
         $this->assertContains('GET', $methods);
@@ -78,7 +79,11 @@ class ManifestRegistryTest extends TestCase
         ];
 
         $this->redis->shouldReceive('setex')->once()->withArgs(function ($key, $ttl, $value) {
-            return str_contains($key, 'manifest:pim') && $ttl === 300;
+            $decoded = json_decode($value, true);
+
+            return str_contains($key, 'manifest:pim')
+                && $ttl === 300
+                && isset($decoded['synced_at']);
         });
 
         $this->redis->shouldReceive('sadd')->once();

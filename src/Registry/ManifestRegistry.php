@@ -23,7 +23,7 @@ class ManifestRegistry
     {
         return [
             'service'   => config('microservice.name'),
-            'base_urls' => config('microservice.manifest.base_urls', []),
+            'base_url'  => config('microservice.manifest.base_url'),
             'timeout'   => config('microservice.manifest.timeout'),
             'routes'    => $this->collectRoutes(),
             'timestamp' => now()->toIso8601String(),
@@ -55,13 +55,13 @@ class ManifestRegistry
      */
     protected function collectRoutes(): array
     {
-        $prefix = config('microservice.manifest.prefix', 'api');
+        $prefixes = $this->resolvePrefixes();
         $routes = [];
 
         foreach (Route::getRoutes() as $route) {
             $uri = $route->uri();
 
-            if ($prefix && $uri !== $prefix && ! str_starts_with($uri, $prefix.'/')) {
+            if (! empty($prefixes) && ! $this->matchesPrefix($uri, $prefixes)) {
                 continue;
             }
 
@@ -85,5 +85,38 @@ class ManifestRegistry
         }
 
         return $routes;
+    }
+
+    /**
+     * Normalize manifest.prefix to an array of non-empty strings.
+     * Accepts a string (comma-separated) or an array.
+     *
+     * @return string[]
+     */
+    protected function resolvePrefixes(): array
+    {
+        $raw = config('microservice.manifest.prefix', '');
+
+        $items = is_array($raw)
+            ? $raw
+            : array_map('trim', explode(',', (string) $raw));
+
+        return array_values(array_filter($items, fn ($p) => $p !== ''));
+    }
+
+    /**
+     * Check if a URI matches any of the given prefixes.
+     *
+     * @param string[] $prefixes
+     */
+    protected function matchesPrefix(string $uri, array $prefixes): bool
+    {
+        foreach ($prefixes as $prefix) {
+            if ($uri === $prefix || str_starts_with($uri, $prefix.'/')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

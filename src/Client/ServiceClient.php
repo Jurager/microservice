@@ -58,7 +58,7 @@ class ServiceClient
 
         if ($raw) {
             $manifest = json_decode($raw, true);
-            $url = $manifest['base_urls'][0] ?? null;
+            $url = $manifest['base_url'] ?? null;
 
             if ($url) {
                 return $url;
