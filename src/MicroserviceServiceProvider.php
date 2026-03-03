@@ -56,7 +56,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
 
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($interval) {
-            $schedule->command(SyncManifestsCommand::class)->everyMinutes($interval);
+            $schedule->command(SyncManifestsCommand::class)->cron("*/$interval * * * *");
         });
     }
 }
