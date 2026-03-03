@@ -94,6 +94,10 @@ class SyncManifestsCommand extends Command
             return self::FAILURE;
         }
 
+        if ($this->laravel->routesAreCached()) {
+            $this->components->task('Refreshing route cache', fn () => $this->call('route:cache') === 0);
+        }
+
         return self::SUCCESS;
     }
 }
