@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice;
 
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\ServiceProvider;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
@@ -31,6 +32,8 @@ class MicroserviceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->configureTrustedProxies();
+
         $this->loadRoutesFrom(__DIR__.'/../routes/microservice.php');
 
         if ($this->app->runningInConsole()) {
@@ -44,6 +47,13 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
 
         $this->registerSchedule();
+    }
+
+    protected function configureTrustedProxies(): void
+    {
+        if (empty(config('microservice.manifest.services', []))) {
+            TrustProxies::at('*');
+        }
     }
 
     protected function registerSchedule(): void
