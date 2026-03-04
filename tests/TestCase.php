@@ -29,6 +29,5 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('microservice.manifest.services', []);
         $app['config']->set('microservice.idempotency.ttl', 60);
         $app['config']->set('microservice.idempotency.lock_timeout', 10);
-        $app['config']->set('microservice.defaults.timeout', 5);
     }
 }

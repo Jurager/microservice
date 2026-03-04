@@ -45,7 +45,7 @@ class Idempotency
                 return $this->buildCachedResponse($cached, $requestId, $request);
             }
 
-            throw new DuplicateRequestException();
+            throw new DuplicateRequestException;
         }
 
         try {
@@ -80,7 +80,7 @@ class Idempotency
         $data = json_decode($cached, true);
 
         if (! is_array($data) || ! isset($data['content'], $data['status'])) {
-            throw new InvalidCacheStateException();
+            throw new InvalidCacheStateException;
         }
 
         IdempotentRequestDetected::dispatch(

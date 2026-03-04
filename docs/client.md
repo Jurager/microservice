@@ -50,18 +50,12 @@ Available builder methods:
 - `timeout(int $seconds)`
 - `send(): ServiceResponse`
 
-Timeout resolution order:
-
-1. Per-request `->timeout(n)`
-2. `timeout` from the service manifest (published by the target service)
-3. `defaults.timeout` from config
-
 ## URL Resolution
 
 `ServiceClient` resolves the target URL using:
 
 1. `SERVICE_DISCOVERY_PATTERN` — if set, substitutes `{service}` in the pattern.
-2. Service manifest in Redis — reads `base_url` from the manifest stored by `microservice:sync`.
+2. Service manifest in Redis — reads from the manifest stored by `microservice:sync`.
 
 If neither resolves a URL, `ServiceUnavailableException` is thrown with a clear message.
 
@@ -80,7 +74,7 @@ $response->body();           // raw string body
 $response->header('X-Total');
 $response->headers();
 $response->toPsrResponse();  // PSR-7 ResponseInterface
-$response->throw();          // throws RuntimeException if failed()
+$response->throw();          // throws ServiceRequestException if failed()
 ```
 
 ## Errors

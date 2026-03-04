@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
-use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Event;
 use Jurager\Microservice\Events\RoutesRegistered;
 use Jurager\Microservice\Http\Middleware\TrustService;

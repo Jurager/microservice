@@ -65,22 +65,19 @@ Settings that every service publishes about itself:
 
 ```php
 'manifest' => [
-    'base_url'  => env('APP_URL', 'http://localhost'),
-    'timeout'   => env('SERVICE_TIMEOUT', 5),
-    'ttl'       => 300,
-    'prefix'    => 'api',
-
-    // Gateway-only: services to pull manifests from
-    'services'  => [],
+    'timeout'       => env('SERVICE_TIMEOUT', 30),
+    'ttl'           => env('SERVICE_MANIFEST_TTL', 300),
+    'prefix'        => env('SERVICE_MANIFEST_PREFIX', 'api'),
+    'services'      => env('SERVICE_MANIFEST_SERVICES', ''),
+    'sync_interval' => env('SERVICE_MANIFEST_SYNC_INTERVAL', 5),
 ],
 ```
 
-- `base_url` — reachable address of this service. Included in the manifest so gateways know where to proxy.
-- `timeout` — default HTTP timeout in seconds for callers of this service. Published in the manifest.
-- `ttl` — how long the manifest lives in the gateway's Redis before expiring (seconds).
+- `timeout` — HTTP timeout in seconds for callers of this service. Published in the manifest so gateways use it automatically.
+- `ttl` — how long the manifest lives in Redis before expiring (seconds). Override via `SERVICE_MANIFEST_TTL`.
 - `prefix` — only routes matching these URI prefixes are included in the manifest. Accepts a comma-separated string (`v1,v2`) or an array. Empty value includes all routes. Override via `SERVICE_MANIFEST_PREFIX`.
-- `services` — **gateway-only**. Comma-separated list of service names to pull manifests from via `microservice:sync`. Override via `SERVICE_MANIFEST_SERVICES=oms,pim,agm`. Parsed into an array at boot time.
-- `sync_interval` — **gateway-only**. How often (in minutes) to automatically run `microservice:sync`. Defaults to `5`. Set to `0` to disable. Override via `SERVICE_MANIFEST_SYNC_INTERVAL`.
+- `services` — **gateway-only**. Comma-separated list of service names to pull manifests from. Override via `SERVICE_MANIFEST_SERVICES=oms,pim,agm`. Parsed into an array at boot time.
+- `sync_interval` — **gateway-only**. How often (in minutes) to automatically run `microservice:sync`. Set to `0` to disable. Override via `SERVICE_MANIFEST_SYNC_INTERVAL`.
 
 > [!NOTE]
 > `HEAD` routes are excluded from the manifest.
@@ -98,9 +95,7 @@ Settings that every service publishes about itself:
 
 **Gateway-only.** When set, exposes a health route at the given URI showing sync status for all configured services.
 
-```env
-SERVICE_HEALTH_ENDPOINT=/microservice/health
-```
+
 
 > [!NOTE]
 > The health endpoint is public by default. Protect it at the route level if needed.
@@ -109,12 +104,12 @@ SERVICE_HEALTH_ENDPOINT=/microservice/health
 
 ```php
 'idempotency' => [
-    'ttl' => 86400,        // 24 hours
-    'lock_timeout' => 10,  // seconds
+    'ttl'          => env('SERVICE_IDEMPOTENCY_TTL', 86400),  // 24 hours
+    'lock_timeout' => 10,
 ],
 ```
 
-Caches successful responses by `X-Request-Id` to prevent duplicate processing.
+Caches successful responses by `X-Request-Id` to prevent duplicate processing. Override TTL via `SERVICE_IDEMPOTENCY_TTL`.
 
 ## Proxy
 
@@ -133,12 +128,3 @@ Caches successful responses by `X-Request-Id` to prevent duplicate processing.
 
 Headers removed from proxied responses to prevent conflicts with gateway-level CORS headers.
 
-## Defaults
-
-```php
-'defaults' => [
-    'timeout' => 5,
-],
-```
-
-Default HTTP timeout used when neither the request nor the service manifest specifies one.

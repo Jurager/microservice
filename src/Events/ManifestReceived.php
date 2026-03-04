@@ -14,6 +14,5 @@ class ManifestReceived
         public readonly string $service,
         public readonly array $manifest,
         public readonly int $routeCount,
-    ) {
-    }
+    ) {}
 }

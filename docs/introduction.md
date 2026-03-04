@@ -27,10 +27,9 @@ Microservice (e.g. oms)             Gateway (e.g. gateway-admin)
 ─────────────────────────           ─────────────────────────────
 GET /microservice/manifest   ←───   microservice:sync (scheduler)
                                            │
-                                    stores in local Redis
+                                    stores routes in redis
                                            │
-                                    Gateway::routes() reads Redis
-                                    and registers proxy routes
+                                    Gateway::routes() reads and registers routes
 ```
 
 Retries, failover, and instance health tracking are intentionally delegated to the infrastructure layer (Kubernetes, load balancer, service mesh).
@@ -49,4 +48,4 @@ Retries, failover, and instance health tracking are intentionally delegated to t
 - Guzzle 7+
 
 > [!NOTE]
-> Redis is required per service. Manifests and idempotency state are stored there. Gateways use their own Redis instance.
+> Redis is required per service. Manifests and idempotency state are stored there.

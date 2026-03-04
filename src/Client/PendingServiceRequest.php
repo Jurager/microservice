@@ -21,8 +21,7 @@ class PendingServiceRequest
     public function __construct(
         protected readonly ServiceClient $client,
         protected readonly string $service,
-    ) {
-    }
+    ) {}
 
     public function get(string $path): static
     {

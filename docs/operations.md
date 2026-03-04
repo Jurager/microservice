@@ -14,17 +14,23 @@ weight: 70
 
 ### microservice:sync
 
-Pulls manifests from all services listed in `manifest.services` config and stores them in the gateway's local Redis.
+Pulls manifests from all services listed in `manifest.services` and stores them in the gateway's local Redis.
 
 ```bash
 php artisan microservice:sync
 ```
 
-Schedule it to keep manifests fresh:
+The package registers the schedule automatically based on `manifest.sync_interval` (5 minutes by default).
 
-```php
-$schedule->command('microservice:sync')->everyFiveMinutes();
+No manual scheduling is needed.
+
+To change the interval:
+
+```env
+SERVICE_MANIFEST_SYNC_INTERVAL=10
 ```
+
+Set to `0` to disable automatic scheduling entirely.
 
 ## Events
 
@@ -44,6 +50,3 @@ All keys use the prefix from `microservice.redis.prefix` (default `microservice:
 | `{prefix}manifests` | set of registered service names | none |
 | `{prefix}idempotency:{request_id}` | cached response | `idempotency.ttl` |
 | `{prefix}idempotency:{request_id}:lock` | in-flight lock | `idempotency.lock_timeout` |
-
-> [!NOTE]
-> Each service has its own Redis. The gateway has its own Redis where it stores manifests pulled from services. There is no shared Redis between services.

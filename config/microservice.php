@@ -7,8 +7,8 @@ return [
     | Service Name
     |--------------------------------------------------------------------------
     |
-    | Unique identifier for the current microservice instance.
-    | Used in HMAC signing and manifest registration.
+    | Unique identifier for this microservice. Used in HMAC signing
+    | and manifest registration.
     |
     */
 
@@ -19,8 +19,7 @@ return [
     | Debug Mode
     |--------------------------------------------------------------------------
     |
-    | When enabled, the TrustGateway middleware will skip HMAC signature
-    | verification, allowing direct requests to the service.
+    | When enabled, TrustGateway middleware skips HMAC verification.
     | Must be disabled in production.
     |
     */
@@ -32,8 +31,8 @@ return [
     | Service Secret
     |--------------------------------------------------------------------------
     |
-    | Shared secret for HMAC request signing between services.
-    | All services in the cluster must use the same secret.
+    | Shared HMAC secret for inter-service request signing.
+    | All services in the cluster must use the same value.
     | Generate with: openssl rand -base64 32
     |
     */
@@ -53,8 +52,8 @@ return [
     | Signature Timestamp Tolerance
     |--------------------------------------------------------------------------
     |
-    | Maximum allowed age (in seconds) for incoming signed requests.
-    | Requests with a timestamp older than this value will be rejected.
+    | Maximum allowed age (in seconds) of an incoming signed request.
+    | Requests older than this value are rejected.
     |
     */
 
@@ -76,15 +75,11 @@ return [
     | Service Discovery
     |--------------------------------------------------------------------------
     |
-    | When 'pattern' is set, service base URLs are resolved by substituting
-    | {service} in the pattern. Suitable for environments with predictable
-    | DNS naming (e.g. Kubernetes).
+    | When 'pattern' is set, service URLs are resolved by substituting
+    | {service} in the pattern (e.g. Kubernetes DNS).
+    | When null, URLs are read from manifests stored in Redis.
     |
-    | Example for Kubernetes:
-    |   'pattern' => 'http://{service}.default.svc.cluster.local'
-    |
-    | When null, base URLs are resolved from the service manifest stored
-    | in the gateway's local Redis (populated via microservice:sync).
+    | Example: 'http://{service}.default.svc.cluster.local'
     |
     */
 
@@ -97,43 +92,22 @@ return [
     | Manifest Registration
     |--------------------------------------------------------------------------
     |
-    | Configuration published by this service into the shared Redis so that
-    | the gateway and other services can discover it.
+    | Configuration published by this service into Redis so the gateway
+    | and other services can discover it.
     |
-    | base_urls  — reachable addresses of this service instance.
-    | timeout    — default HTTP timeout (seconds) for callers of this service.
-    | ttl        — how long the manifest lives in Redis before expiring (seconds).
-    | prefix     — only routes matching this URI prefix are included.
+    | timeout       — HTTP timeout (seconds) callers should use for this service.
+    | ttl           — How long the manifest lives in Redis (seconds).
+    | prefix        — Only routes matching this URI prefix are published.
+    | services      — Gateway-only: comma-separated list of services to sync.
+    | sync_interval — Gateway-only: how often to run microservice:sync (minutes). 0 to disable.
     |
     */
 
     'manifest' => [
-        /*
-        | Settings published by this service so gateways can discover it.
-        */
-        'base_url'  => env('APP_URL', 'http://localhost'),
-        'timeout'   => env('SERVICE_TIMEOUT', 5),
-        'ttl'       => 300,
-        'prefix'    => env('SERVICE_MANIFEST_PREFIX', 'api'),
-
-        /*
-        | Gateway-only: list of service names to pull manifests from.
-        | Used by the microservice:sync command and the health endpoint.
-        |
-        | Example: ['oms', 'pim', 'agm']
-        | Via env: SERVICE_MANIFEST_SERVICES=oms,pim,agm
-        */
-        /*
-        | Gateway-only: comma-separated list of service names to sync.
-        | Parsed into an array at boot time by the service provider.
-        | Example: SERVICE_MANIFEST_SERVICES=oms,pim,agm
-        */
-        'services'  => env('SERVICE_MANIFEST_SERVICES', ''),
-
-        /*
-        | Gateway-only: how often (in minutes) to automatically run microservice:sync.
-        | Set to 0 to disable automatic scheduling.
-        */
+        'timeout'       => env('SERVICE_TIMEOUT', 30),
+        'ttl'           => env('SERVICE_MANIFEST_TTL', 300),
+        'prefix'        => env('SERVICE_MANIFEST_PREFIX', 'api'),
+        'services'      => env('SERVICE_MANIFEST_SERVICES', ''),
         'sync_interval' => env('SERVICE_MANIFEST_SYNC_INTERVAL', 5),
     ],
 
@@ -142,10 +116,7 @@ return [
     | Health Endpoint
     |--------------------------------------------------------------------------
     |
-    | Gateway-only. When set, exposes a health endpoint at the given URI
-    | showing sync status for all configured services.
-    |
-    | Example: '/microservice/health'
+    | Gateway-only. Exposes a health endpoint showing sync status for all configured services.
     |
     */
 
@@ -155,19 +126,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Idempotency Middleware
+    | Idempotency
     |--------------------------------------------------------------------------
     |
-    | TTL in seconds for caching responses by X-Request-Id.
-    | Standard is 24 hours (86400 seconds) to ensure clients can safely retry
-    | failed requests within a day and receive the same response.
-    |
-    | lock_timeout: Maximum time (in seconds) a request can hold the processing lock.
+    | ttl          — how long responses are cached by X-Request-Id (seconds).
+    | lock_timeout — max time a request can hold the processing lock (seconds).
     |
     */
 
     'idempotency' => [
-        'ttl' => 86400, // 24 hours
+        'ttl'          => env('SERVICE_IDEMPOTENCY_TTL', 86400),
         'lock_timeout' => 10,
     ],
 
@@ -176,9 +144,8 @@ return [
     | Proxy Settings
     |--------------------------------------------------------------------------
     |
-    | Headers listed here will be stripped from proxied microservice
-    | responses to prevent conflicts with the gateway's own headers
-    | (e.g. CORS or security headers set by nginx).
+    | Headers stripped from proxied responses to avoid conflicts
+    | with gateway-level headers (e.g. CORS set by nginx).
     |
     */
 
@@ -191,16 +158,6 @@ return [
             'Access-Control-Expose-Headers',
             'Access-Control-Max-Age',
         ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Default Request Settings
-    |--------------------------------------------------------------------------
-    */
-
-    'defaults' => [
-        'timeout' => 5,
     ],
 
 ];

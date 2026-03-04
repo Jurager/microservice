@@ -54,7 +54,7 @@ class ServiceClientTest extends TestCase
 
         $redis = Mockery::mock(Connection::class);
         $redis->shouldReceive('get')
-            ->with("microservice:manifest:$service")
+            ->with(config('microservice.redis.prefix', 'microservice:')."manifest:$service")
             ->andReturn($manifest);
 
         return $redis;
@@ -242,12 +242,11 @@ class ServiceClientTest extends TestCase
     public function test_falls_back_to_default_timeout(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
-        $this->app['config']->set('microservice.defaults.timeout', 7);
 
         $client = $this->createClient([new Response(200)]);
 
         $client->service('oms')->get('/api/orders')->send();
 
-        $this->assertSame(7, $this->history[0]['options']['timeout']);
+        $this->assertSame(30, $this->history[0]['options']['timeout']);
     }
 }

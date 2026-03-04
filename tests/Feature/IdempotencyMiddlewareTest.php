@@ -100,7 +100,7 @@ class IdempotencyMiddlewareTest extends TestCase
     public function test_returns_409_when_lock_held(): void
     {
         $this->redis->shouldReceive('get')
-            ->once()
+            ->twice()
             ->andReturn(null);
 
         $this->redis->shouldReceive('set')

@@ -145,7 +145,7 @@ class GatewayTest extends TestCase
 
         Route::getRoutes()->refreshNameLookups();
 
-        $route = Route::getRoutes()->getByName('products.index');
+        $route = Route::getRoutes()->getByName('pim.products.index');
 
         $this->assertNotNull($route);
         $this->assertSame('pim/api/products', $route->uri());

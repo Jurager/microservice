@@ -47,19 +47,15 @@ Sync specific services only:
 php artisan microservice:sync oms pim
 ```
 
-The gateway schedules `microservice:sync` automatically based on `manifest.sync_interval` (default: 5 minutes). No manual scheduling is needed.
+The package registers the schedule automatically based on `manifest.sync_interval` (default: 5 minutes). No manual scheduling is needed.
 
-To override the interval:
+To change the interval:
 
 ```env
-SERVICE_MANIFEST_SYNC_INTERVAL=5
+SERVICE_MANIFEST_SYNC_INTERVAL=10
 ```
 
-Set to `0` to disable automatic scheduling and manage it yourself:
-
-```php
-$schedule->command('microservice:sync')->everyFiveMinutes();
-```
+Set to `0` to disable automatic scheduling entirely.
 
 > [!NOTE]
 > The sync interval should be shorter than `manifest.ttl` (default 300 seconds) to prevent manifests from expiring between syncs.

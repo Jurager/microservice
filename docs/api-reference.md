@@ -35,7 +35,7 @@ weight: 90
 - `header(string $name): ?string`
 - `headers(): array`
 - `toPsrResponse(): ResponseInterface`
-- `throw(): static` — throws `RuntimeException` if `failed()`
+- `throw(): static` — throws `ServiceRequestException` if `failed()`
 
 ## Gateway
 
@@ -71,6 +71,7 @@ weight: 90
 
 | Exception | When |
 | --- | --- |
+| `ServiceRequestException` | `throw()` called on a failed response (4xx/5xx) |
 | `ServiceUnavailableException` | service URL cannot be resolved or request fails |
 | `MissingSignatureException` | `X-Signature` or `X-Timestamp` header is missing |
 | `InvalidSignatureException` | signature mismatch or timestamp expired |
@@ -82,7 +83,7 @@ weight: 90
 
 | Method | URI | Middleware | Description |
 | --- | --- | --- | --- |
-| `GET` | `/microservice/manifest` | `TrustService` | Returns current service manifest (routes, base_url, timeout) |
+| `GET` | `/microservice/manifest` | `TrustService` | Returns current service manifest (routes, base URL, timeout) |
 | `GET` | `/microservice/health` | none | Gateway-only: sync status for all configured services (override via `SERVICE_HEALTH_ENDPOINT`) |
 
 ## Events

@@ -25,7 +25,7 @@ class Gateway
 
         $reservedKeys = array_flip(['method', 'uri', 'name', ...ManifestRegistry::EXCLUDED_ACTION_KEYS]);
 
-        $builder = new GatewayRoutes();
+        $builder = new GatewayRoutes;
 
         if ($overrides) {
             $overrides($builder);

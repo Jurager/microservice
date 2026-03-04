@@ -19,7 +19,7 @@ class ServiceClient
     public function __construct(
         protected readonly HmacSigner $signer,
     ) {
-        $this->httpClient = new Client();
+        $this->httpClient = new Client;
     }
 
     public function service(string $name): PendingServiceRequest
@@ -114,7 +114,7 @@ class ServiceClient
             }
         }
 
-        return config('microservice.defaults.timeout', 5);
+        return 30;
     }
 
     protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = []): array

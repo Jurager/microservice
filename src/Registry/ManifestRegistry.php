@@ -22,10 +22,10 @@ class ManifestRegistry
     public function build(): array
     {
         return [
-            'service'   => config('microservice.name'),
-            'base_url'  => config('microservice.manifest.base_url'),
-            'timeout'   => config('microservice.manifest.timeout'),
-            'routes'    => $this->collectRoutes(),
+            'service' => config('microservice.name'),
+            'base_url' => config('app.url'),
+            'timeout' => config('microservice.manifest.timeout'),
+            'routes' => $this->collectRoutes(),
             'timestamp' => now()->toIso8601String(),
         ];
     }
@@ -107,7 +107,7 @@ class ManifestRegistry
     /**
      * Check if a URI matches any of the given prefixes.
      *
-     * @param string[] $prefixes
+     * @param  string[]  $prefixes
      */
     protected function matchesPrefix(string $uri, array $prefixes): bool
     {

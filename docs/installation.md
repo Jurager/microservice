@@ -32,8 +32,7 @@ SERVICE_REDIS_CONNECTION=default
 Additional settings for a microservice:
 
 ```env
-APP_URL=http://oms:8000
-SERVICE_TIMEOUT=5
+SERVICE_TIMEOUT=30
 ```
 
 Additional settings for a gateway:
