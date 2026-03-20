@@ -15,22 +15,29 @@ class ProxyController extends Controller
     {
         $service = $request->route()->getAction('_service');
         $path = $this->resolveProxyPath($request);
-        $body = null;
+
+        $pending = $client->service($service)->withMethod($request->method(), $path);
 
         if (! $request->isMethodSafe()) {
-            $content = $request->getContent();
+            if ($request->files->count() > 0) {
+                $pending->withMultipart($this->buildMultipart($request));
+            } else {
+                $content = $request->getContent();
 
-            if ($content !== '') {
-                try {
-                    $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
-                    $body = is_array($decoded) ? $decoded : null;
-                } catch (\JsonException) {
-                    $body = null;
+                if ($content !== '') {
+                    try {
+                        $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+                        $body = is_array($decoded) ? $decoded : null;
+                    } catch (\JsonException) {
+                        $body = null;
+                    }
+
+                    if ($body !== null) {
+                        $pending->withBody($body);
+                    }
                 }
             }
         }
-
-        $pending = $client->service($service)->withMethod($request->method(), $path, $body);
 
         $prefix = $request->route()->getAction('_service_prefix') ?? '';
 
@@ -49,6 +56,25 @@ class ProxyController extends Controller
 
         return response($response->body(), $response->status())
             ->withHeaders($this->filterHeaders($response->headers()));
+    }
+
+    protected function buildMultipart(Request $request): array
+    {
+        $multipart = [];
+
+        foreach ($request->post() as $key => $value) {
+            $multipart[] = ['name' => $key, 'contents' => (string) $value];
+        }
+
+        foreach ($request->allFiles() as $key => $file) {
+            $multipart[] = [
+                'name' => $key,
+                'contents' => fopen($file->getRealPath(), 'r'),
+                'filename' => $file->getClientOriginalName(),
+            ];
+        }
+
+        return $multipart;
     }
 
     protected function resolveProxyPath(Request $request): string

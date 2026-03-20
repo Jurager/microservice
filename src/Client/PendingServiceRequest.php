@@ -16,6 +16,8 @@ class PendingServiceRequest
 
     protected ?array $body = null;
 
+    protected ?array $multipart = null;
+
     protected ?int $timeout = null;
 
     public function __construct(
@@ -78,6 +80,13 @@ class PendingServiceRequest
         return $this;
     }
 
+    public function withMultipart(array $multipart): static
+    {
+        $this->multipart = $multipart;
+
+        return $this;
+    }
+
     public function timeout(int $seconds): static
     {
         $this->timeout = $seconds;
@@ -121,6 +130,11 @@ class PendingServiceRequest
     public function getBody(): ?array
     {
         return $this->body;
+    }
+
+    public function getMultipart(): ?array
+    {
+        return $this->multipart;
     }
 
     public function getTimeout(): ?int

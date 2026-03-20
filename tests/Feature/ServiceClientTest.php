@@ -249,4 +249,69 @@ class ServiceClientTest extends TestCase
 
         $this->assertSame(30, $this->history[0]['options']['timeout']);
     }
+
+    public function test_multipart_request_sends_multipart_form_data(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([new Response(201, [], '{"id":1}')]);
+
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, '{"products":[]}');
+        rewind($stream);
+
+        $client->service('pim')
+            ->post('/api/import')
+            ->withMultipart([
+                ['name' => 'import_type', 'contents' => 'products'],
+                ['name' => 'import_file', 'contents' => $stream, 'filename' => 'products.json'],
+            ])
+            ->send();
+
+        $request = $this->history[0]['request'];
+        $this->assertStringContainsString('multipart/form-data', $request->getHeaderLine('Content-Type'));
+        $this->assertArrayNotHasKey('body', $this->history[0]['options']);
+    }
+
+    public function test_multipart_request_does_not_set_json_content_type(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([new Response(201)]);
+
+        $stream = fopen('php://temp', 'r');
+
+        $client->service('pim')
+            ->post('/api/import')
+            ->withMultipart([
+                ['name' => 'import_type', 'contents' => 'products'],
+                ['name' => 'import_file', 'contents' => $stream, 'filename' => 'data.json'],
+            ])
+            ->send();
+
+        $request = $this->history[0]['request'];
+        $this->assertNotSame('application/json', $request->getHeaderLine('Content-Type'));
+    }
+
+    public function test_multipart_request_includes_hmac_headers(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([new Response(201)]);
+
+        $stream = fopen('php://temp', 'r');
+
+        $client->service('pim')
+            ->post('/api/import')
+            ->withMultipart([
+                ['name' => 'import_type', 'contents' => 'products'],
+                ['name' => 'import_file', 'contents' => $stream, 'filename' => 'data.json'],
+            ])
+            ->send();
+
+        $request = $this->history[0]['request'];
+        $this->assertTrue($request->hasHeader('X-Signature'));
+        $this->assertTrue($request->hasHeader('X-Timestamp'));
+        $this->assertTrue($request->hasHeader('X-Service-Name'));
+    }
 }

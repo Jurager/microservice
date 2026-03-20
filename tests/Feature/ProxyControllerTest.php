@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Http\UploadedFile;
 use Jurager\Microservice\Client\PendingServiceRequest;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Client\ServiceResponse;
@@ -17,6 +18,8 @@ class ProxyControllerTest extends TestCase
     private ?object $capturedRequest = null;
 
     private ?ServiceResponse $mockResponse = null;
+
+    private ?array $capturedMultipart = null;
 
     protected function setUp(): void
     {
@@ -35,14 +38,30 @@ class ProxyControllerTest extends TestCase
                 $pending = Mockery::mock(PendingServiceRequest::class);
 
                 $pending->shouldReceive('withMethod')->andReturnUsing(
-                    function ($method, $path, $body = null) use ($test, $pending) {
+                    function ($method, $path) use ($test, $pending) {
                         $test->capturedRequest = (object) [
                             'method' => $method,
                             'path' => $path,
-                            'body' => $body,
+                            'body' => null,
                             'query' => [],
                             'headers' => [],
                         ];
+
+                        return $pending;
+                    }
+                );
+
+                $pending->shouldReceive('withBody')->andReturnUsing(
+                    function ($body) use ($test, $pending) {
+                        $test->capturedRequest->body = $body;
+
+                        return $pending;
+                    }
+                );
+
+                $pending->shouldReceive('withMultipart')->andReturnUsing(
+                    function ($multipart) use ($test, $pending) {
+                        $test->capturedMultipart = $multipart;
 
                         return $pending;
                     }
@@ -110,6 +129,13 @@ class ProxyControllerTest extends TestCase
             '_service' => 'oms',
             '_service_uri' => '/api/raw-body',
             '_service_prefix' => 'oms',
+        ]));
+
+        $route = $router->post('/api/import', [ProxyController::class, 'handle']);
+        $route->setAction(array_merge($route->getAction(), [
+            '_service' => 'pim',
+            '_service_uri' => '/api/import',
+            '_service_prefix' => 'pim',
         ]));
     }
 
@@ -216,5 +242,34 @@ class ProxyControllerTest extends TestCase
         $this->getJson('/api/fallback');
 
         $this->assertSame('', $this->capturedRequest->headers['X-Forwarded-Prefix']);
+    }
+
+    public function test_proxies_multipart_with_file(): void
+    {
+        $file = UploadedFile::fake()->create('products.json', 100, 'application/json');
+
+        $this->call('POST', '/api/import', ['import_type' => 'products'], [], ['import_file' => $file]);
+
+        $this->assertSame('POST', $this->capturedRequest->method);
+        $this->assertNull($this->capturedRequest->body);
+        $this->assertNotNull($this->capturedMultipart);
+
+        $names = array_column($this->capturedMultipart, 'name');
+        $this->assertContains('import_type', $names);
+        $this->assertContains('import_file', $names);
+
+        $fileEntry = array_values(array_filter($this->capturedMultipart, fn ($e) => $e['name'] === 'import_file'))[0];
+        $this->assertSame('products.json', $fileEntry['filename']);
+        $this->assertIsResource($fileEntry['contents']);
+    }
+
+    public function test_multipart_field_values_are_forwarded(): void
+    {
+        $file = UploadedFile::fake()->create('data.json', 10, 'application/json');
+
+        $this->call('POST', '/api/import', ['import_type' => 'categories'], [], ['import_file' => $file]);
+
+        $fieldEntry = array_values(array_filter($this->capturedMultipart, fn ($e) => $e['name'] === 'import_type'))[0];
+        $this->assertSame('categories', $fieldEntry['contents']);
     }
 }

@@ -81,4 +81,31 @@ class HmacSignerTest extends TestCase
 
         $this->assertFalse($this->signer->verify($request, 'invalid-signature', $timestamp));
     }
+
+    public function test_verify_multipart_uses_empty_body_for_signature(): void
+    {
+        $timestamp = (string) time();
+
+        $signature = $this->signer->sign('POST', '/api/import', $timestamp, '');
+
+        $request = Request::create('/api/import', 'POST', [], [], [], [
+            'CONTENT_TYPE' => 'multipart/form-data; boundary=----WebKitFormBoundary',
+        ], '--raw multipart body that should be ignored--');
+
+        $this->assertTrue($this->signer->verify($request, $signature, $timestamp));
+    }
+
+    public function test_verify_non_multipart_uses_raw_body(): void
+    {
+        $timestamp = (string) time();
+        $body = '{"import_type":"products"}';
+
+        $signature = $this->signer->sign('POST', '/api/import', $timestamp, $body);
+
+        $request = Request::create('/api/import', 'POST', [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+        ], $body);
+
+        $this->assertTrue($this->signer->verify($request, $signature, $timestamp));
+    }
 }

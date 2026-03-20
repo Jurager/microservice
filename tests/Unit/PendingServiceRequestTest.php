@@ -107,6 +107,23 @@ class PendingServiceRequestTest extends TestCase
         $this->assertSame('oms', $this->request->getService());
     }
 
+    public function test_with_multipart_sets_multipart_data(): void
+    {
+        $data = [
+            ['name' => 'import_type', 'contents' => 'products'],
+            ['name' => 'import_file', 'contents' => 'stream-placeholder', 'filename' => 'data.json'],
+        ];
+
+        $this->request->withMultipart($data);
+
+        $this->assertSame($data, $this->request->getMultipart());
+    }
+
+    public function test_multipart_is_null_by_default(): void
+    {
+        $this->assertNull($this->request->getMultipart());
+    }
+
     public function test_send_delegates_to_client(): void
     {
         $mockResponse = Mockery::mock(ServiceResponse::class);

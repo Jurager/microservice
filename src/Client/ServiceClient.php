@@ -77,6 +77,8 @@ class ServiceClient
 
         $timeout = $request->getTimeout() ?? $this->resolveTimeout($service);
 
+        $multipart = $request->getMultipart();
+
         $body = $request->getBody();
         $bodyString = $body !== null
             ? json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
@@ -85,14 +87,16 @@ class ServiceClient
         $options = [
             'timeout' => $timeout,
             'http_errors' => false,
-            'headers' => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders()),
+            'headers' => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
         ];
 
         if ($query = $request->getQuery()) {
             $options['query'] = $query;
         }
 
-        if ($bodyString !== null) {
+        if ($multipart !== null) {
+            $options['multipart'] = $multipart;
+        } elseif ($bodyString !== null) {
             $options['body'] = $bodyString;
         }
 
@@ -117,16 +121,21 @@ class ServiceClient
         return 30;
     }
 
-    protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = []): array
+    protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = [], bool $multipart = false): array
     {
         $timestamp = (string) time();
 
-        return [
+        $headers = [
             ...$customHeaders,
-            'Content-Type' => 'application/json',
             'X-Service-Name' => config('microservice.name'),
             'X-Timestamp' => $timestamp,
-            'X-Signature' => $this->signer->sign($method, $path, $timestamp, $body ?? ''),
+            'X-Signature' => $this->signer->sign($method, $path, $timestamp, $multipart ? '' : ($body ?? '')),
         ];
+
+        if (! $multipart) {
+            $headers['Content-Type'] = 'application/json';
+        }
+
+        return $headers;
     }
 }

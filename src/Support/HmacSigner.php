@@ -27,11 +27,13 @@ class HmacSigner
             return false;
         }
 
+        $isMultipart = str_contains($request->header('Content-Type', ''), 'multipart/form-data');
+
         $expected = $this->sign(
             $request->method(),
             '/'.ltrim($request->path(), '/'),
             $timestamp,
-            $request->getContent()
+            $isMultipart ? '' : $request->getContent()
         );
 
         return hash_equals($expected, $signature);
