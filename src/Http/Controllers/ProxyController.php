@@ -62,19 +62,69 @@ class ProxyController extends Controller
     {
         $multipart = [];
 
-        foreach ($request->post() as $key => $value) {
-            $multipart[] = ['name' => $key, 'contents' => (string) $value];
+        foreach ($this->flattenFields($request->post()) as $name => $value) {
+            $multipart[] = ['name' => $name, 'contents' => (string) $value];
         }
 
-        foreach ($request->allFiles() as $key => $file) {
+        foreach ($this->flattenFiles($request->allFiles()) as $name => $file) {
             $multipart[] = [
-                'name' => $key,
+                'name'     => $name,
                 'contents' => fopen($file->getRealPath(), 'r'),
                 'filename' => $file->getClientOriginalName(),
             ];
         }
 
         return $multipart;
+    }
+
+    /**
+     * Recursively flattens nested scalar fields into bracket-notation keys.
+     * E.g. ['files' => [['type' => 'products']]] → ['files[0][type]' => 'products']
+     *
+     * @param  array<string|int, mixed>  $fields
+     * @param  string                    $prefix
+     * @return array<string, string>
+     */
+    private function flattenFields(array $fields, string $prefix = ''): array
+    {
+        $result = [];
+
+        foreach ($fields as $key => $value) {
+            $name = $prefix !== '' ? "{$prefix}[{$key}]" : (string) $key;
+
+            if (is_array($value)) {
+                $result += $this->flattenFields($value, $name);
+            } else {
+                $result[$name] = $value;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Recursively flattens nested file entries into bracket-notation keys.
+     * E.g. ['files' => [['file' => UploadedFile]]] → ['files[0][file]' => UploadedFile]
+     *
+     * @param  array<string|int, mixed>  $files
+     * @param  string                    $prefix
+     * @return array<string, \Symfony\Component\HttpFoundation\File\UploadedFile>
+     */
+    private function flattenFiles(array $files, string $prefix = ''): array
+    {
+        $result = [];
+
+        foreach ($files as $key => $value) {
+            $name = $prefix !== '' ? "{$prefix}[{$key}]" : (string) $key;
+
+            if (is_array($value)) {
+                $result += $this->flattenFiles($value, $name);
+            } else {
+                $result[$name] = $value;
+            }
+        }
+
+        return $result;
     }
 
     protected function resolveProxyPath(Request $request): string
