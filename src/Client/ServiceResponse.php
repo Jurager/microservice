@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Client;
 
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 
 class ServiceResponse
 {
@@ -13,7 +14,8 @@ class ServiceResponse
 
     public function __construct(
         protected readonly ResponseInterface $response,
-    ) {}
+    ) {
+    }
 
     public function status(): int
     {
@@ -86,7 +88,7 @@ class ServiceResponse
         return $this;
     }
 
-    public function stream(): \Psr\Http\Message\StreamInterface
+    public function stream(): StreamInterface
     {
         return $this->response->getBody();
     }

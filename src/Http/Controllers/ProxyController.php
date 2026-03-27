@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Jurager\Microservice\Client\ServiceClient;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -54,9 +55,9 @@ class ProxyController extends Controller
         }
 
         $response = $pending->send();
-        $headers  = $this->filterHeaders($response->headers());
-        $status   = $response->status();
-        $stream   = $response->stream();
+        $headers = $this->filterHeaders($response->headers());
+        $status = $response->status();
+        $stream = $response->stream();
 
         return new StreamedResponse(
             function () use ($stream): void {
@@ -83,7 +84,7 @@ class ProxyController extends Controller
 
         foreach ($this->flattenFiles($request->allFiles()) as $name => $file) {
             $multipart[] = [
-                'name'     => $name,
+                'name' => $name,
                 'contents' => fopen($file->getRealPath(), 'r'),
                 'filename' => $file->getClientOriginalName(),
             ];
@@ -97,7 +98,6 @@ class ProxyController extends Controller
      * E.g. ['files' => [['type' => 'products']]] → ['files[0][type]' => 'products']
      *
      * @param  array<string|int, mixed>  $fields
-     * @param  string                    $prefix
      * @return array<string, string>
      */
     private function flattenFields(array $fields, string $prefix = ''): array
@@ -122,8 +122,7 @@ class ProxyController extends Controller
      * E.g. ['files' => [['file' => UploadedFile]]] → ['files[0][file]' => UploadedFile]
      *
      * @param  array<string|int, mixed>  $files
-     * @param  string                    $prefix
-     * @return array<string, \Symfony\Component\HttpFoundation\File\UploadedFile>
+     * @return array<string, UploadedFile>
      */
     private function flattenFiles(array $files, string $prefix = ''): array
     {

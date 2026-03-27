@@ -16,7 +16,7 @@ class HmacSignerTest extends TestCase
     {
         parent::setUp();
 
-        $this->signer = new HmacSigner;
+        $this->signer = new HmacSigner();
     }
 
     public function test_sign_produces_expected_hmac(): void

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Client;
 
+use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+
 class PendingServiceRequest
 {
     protected string $method = 'GET';
@@ -23,7 +25,8 @@ class PendingServiceRequest
     public function __construct(
         protected readonly ServiceClient $client,
         protected readonly string $service,
-    ) {}
+    ) {
+    }
 
     public function get(string $path): static
     {
@@ -95,7 +98,7 @@ class PendingServiceRequest
     }
 
     /**
-     * @throws \Jurager\Microservice\Exceptions\ServiceUnavailableException
+     * @throws ServiceUnavailableException
      */
     public function send(): ServiceResponse
     {

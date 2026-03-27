@@ -14,7 +14,7 @@ class TrustService extends TrustGateway
     public function handle(Request $request, Closure $next): Response
     {
         if ($request->header('X-Service-Name') === null) {
-            throw new MissingServiceNameException;
+            throw new MissingServiceNameException();
         }
 
         return parent::handle($request, $next);

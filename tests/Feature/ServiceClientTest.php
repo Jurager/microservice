@@ -14,6 +14,7 @@ use GuzzleHttp\Psr7\Response;
 use Illuminate\Redis\Connections\Connection;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
@@ -29,7 +30,7 @@ class ServiceClientTest extends TestCase
 
         $httpClient = new Client(['handler' => $stack]);
 
-        $client = Mockery::mock(ServiceClient::class, [$this->app->make(\Jurager\Microservice\Support\HmacSigner::class)])
+        $client = Mockery::mock(ServiceClient::class, [$this->app->make(HmacSigner::class)])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 

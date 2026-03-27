@@ -6,6 +6,8 @@ namespace Jurager\Microservice\Client;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Handler\CurlHandler;
+use GuzzleHttp\HandlerStack;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Support\HmacSigner;
@@ -19,7 +21,9 @@ class ServiceClient
     public function __construct(
         protected readonly HmacSigner $signer,
     ) {
-        $this->httpClient = new Client;
+        $this->httpClient = new Client([
+            'handler' => HandlerStack::create(new CurlHandler()),
+        ]);
     }
 
     public function service(string $name): PendingServiceRequest
@@ -30,28 +34,37 @@ class ServiceClient
     public function send(PendingServiceRequest $request): ServiceResponse
     {
         $service = $request->getService();
-        $baseUrl = $this->resolveBaseUrl($service);
+        [$baseUrl, $timeout] = $this->resolveServiceConfig($service, $request->getTimeout());
 
         try {
-            return $this->executeRequest($request, $baseUrl);
+            return $this->executeRequest($request, $baseUrl, $timeout);
         } catch (GuzzleException $e) {
             throw new ServiceUnavailableException($service, previous: $e);
         }
     }
 
     /**
-     * Resolve the base URL for a service.
+     * Resolve base url and timeout.
      *
-     * Resolution order:
+     * Resolution order for base URL:
      *   1. DNS pattern (SERVICE_DISCOVERY_PATTERN) — e.g. Kubernetes
      *   2. Manifest stored in shared Redis
+     *
+     * Resolution order for timeout:
+     *   1. Per-request timeout
+     *   2. Manifest timeout
+     *   3. Default (30 s)
+     *
+     * @return array{string, int}
      */
-    protected function resolveBaseUrl(string $service): string
+    protected function resolveServiceConfig(string $service, ?int $requestTimeout): array
     {
         $pattern = config('microservice.discovery.pattern');
 
         if ($pattern) {
-            return str_replace('{service}', $service, $pattern);
+            $baseUrl = str_replace('{service}', $service, $pattern);
+
+            return [$baseUrl, $requestTimeout ?? 30];
         }
 
         $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
@@ -61,21 +74,21 @@ class ServiceClient
             $url = $manifest['base_url'] ?? null;
 
             if ($url) {
-                return $url;
+                $timeout = $requestTimeout ?? (isset($manifest['timeout']) ? (int) $manifest['timeout'] : 30);
+
+                return [$url, $timeout];
             }
         }
 
         throw new ServiceUnavailableException($service, "Cannot resolve base URL for service [$service]. Make sure the service has registered its manifest.");
     }
 
-    protected function executeRequest(PendingServiceRequest $request, string $baseUrl): ServiceResponse
+    protected function executeRequest(PendingServiceRequest $request, string $baseUrl, int $timeout): ServiceResponse
     {
         $service = $request->getService();
         $method = $request->getMethod();
         $path = $request->getPath();
         $url = rtrim($baseUrl, '/').'/'.ltrim($path, '/');
-
-        $timeout = $request->getTimeout() ?? $this->resolveTimeout($service);
 
         $multipart = $request->getMultipart();
 
@@ -102,24 +115,6 @@ class ServiceClient
         }
 
         return new ServiceResponse($this->httpClient->request($method, $url, $options));
-    }
-
-    /**
-     * Resolve timeout for a service: per-request → manifest → default.
-     */
-    protected function resolveTimeout(string $service): int
-    {
-        $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
-
-        if ($raw) {
-            $manifest = json_decode($raw, true);
-
-            if (isset($manifest['timeout'])) {
-                return (int) $manifest['timeout'];
-            }
-        }
-
-        return 30;
     }
 
     protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = [], bool $multipart = false): array

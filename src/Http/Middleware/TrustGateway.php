@@ -15,7 +15,8 @@ class TrustGateway
 {
     public function __construct(
         protected readonly HmacSigner $signer
-    ) {}
+    ) {
+    }
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -27,11 +28,11 @@ class TrustGateway
         $timestamp = $request->header('X-Timestamp');
 
         if ($signature === null || $timestamp === null) {
-            throw new MissingSignatureException;
+            throw new MissingSignatureException();
         }
 
         if (! $this->signer->verify($request, $signature, $timestamp)) {
-            throw new InvalidSignatureException;
+            throw new InvalidSignatureException();
         }
 
         return $next($request);

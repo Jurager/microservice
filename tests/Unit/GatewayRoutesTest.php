@@ -15,7 +15,7 @@ class GatewayRoutesTest extends TestCase
     {
         parent::setUp();
 
-        $this->routes = new GatewayRoutes;
+        $this->routes = new GatewayRoutes();
     }
 
     public function test_prefix_sets_service_prefix(): void

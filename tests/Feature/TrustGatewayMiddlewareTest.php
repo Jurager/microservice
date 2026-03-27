@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Testing\TestResponse;
 use Jurager\Microservice\Http\Middleware\TrustGateway;
 use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
@@ -16,7 +17,7 @@ class TrustGatewayMiddlewareTest extends TestCase
             ->middleware(TrustGateway::class);
     }
 
-    private function signedRequest(string $method, string $path, array $data = []): \Illuminate\Testing\TestResponse
+    private function signedRequest(string $method, string $path, array $data = []): TestResponse
     {
         $signer = $this->app->make(HmacSigner::class);
         $timestamp = (string) time();

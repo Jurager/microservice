@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
@@ -37,14 +39,14 @@ class MicroserviceServiceProviderTest extends TestCase
     {
         $this->artisan('list')->assertSuccessful();
 
-        $commands = array_keys(\Illuminate\Support\Facades\Artisan::all());
+        $commands = array_keys(Artisan::all());
 
         $this->assertContains('microservice:sync', $commands);
     }
 
     public function test_manifest_route_is_registered(): void
     {
-        $routes = collect(\Illuminate\Support\Facades\Route::getRoutes()->getRoutes());
+        $routes = collect(Route::getRoutes()->getRoutes());
 
         $manifestRoute = $routes->first(function ($route) {
             return $route->uri() === 'microservice/manifest' && in_array('GET', $route->methods());

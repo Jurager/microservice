@@ -104,10 +104,10 @@ return [
     */
 
     'manifest' => [
-        'timeout'       => env('SERVICE_TIMEOUT', 30),
-        'ttl'           => env('SERVICE_MANIFEST_TTL', 300),
-        'prefix'        => env('SERVICE_MANIFEST_PREFIX', 'api'),
-        'services'      => env('SERVICE_MANIFEST_SERVICES', ''),
+        'timeout' => env('SERVICE_TIMEOUT', 30),
+        'ttl' => env('SERVICE_MANIFEST_TTL', 300),
+        'prefix' => env('SERVICE_MANIFEST_PREFIX', 'api'),
+        'services' => env('SERVICE_MANIFEST_SERVICES', ''),
         'sync_interval' => env('SERVICE_MANIFEST_SYNC_INTERVAL', 5),
     ],
 
@@ -135,7 +135,7 @@ return [
     */
 
     'idempotency' => [
-        'ttl'          => env('SERVICE_IDEMPOTENCY_TTL', 86400),
+        'ttl' => env('SERVICE_IDEMPOTENCY_TTL', 86400),
         'lock_timeout' => 10,
     ],
 

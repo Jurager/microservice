@@ -15,5 +15,6 @@ class IdempotentRequestDetected
         public readonly string $method,
         public readonly string $path,
         public readonly int $cachedStatusCode,
-    ) {}
+    ) {
+    }
 }
