@@ -86,6 +86,11 @@ class ServiceResponse
         return $this;
     }
 
+    public function stream(): \Psr\Http\Message\StreamInterface
+    {
+        return $this->response->getBody();
+    }
+
     public function toPsrResponse(): ResponseInterface
     {
         return $this->response;

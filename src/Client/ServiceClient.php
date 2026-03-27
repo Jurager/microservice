@@ -87,6 +87,7 @@ class ServiceClient
         $options = [
             'timeout' => $timeout,
             'http_errors' => false,
+            'stream' => true,
             'headers' => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
         ];
 

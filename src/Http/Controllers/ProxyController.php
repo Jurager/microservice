@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Routing\Controller;
 use Jurager\Microservice\Client\ServiceClient;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ProxyController extends Controller
 {
@@ -53,9 +54,23 @@ class ProxyController extends Controller
         }
 
         $response = $pending->send();
+        $headers  = $this->filterHeaders($response->headers());
+        $status   = $response->status();
+        $stream   = $response->stream();
 
-        return response($response->body(), $response->status())
-            ->withHeaders($this->filterHeaders($response->headers()));
+        return new StreamedResponse(
+            function () use ($stream): void {
+                while (! $stream->eof()) {
+                    echo $stream->read(8192);
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
+                    flush();
+                }
+            },
+            $status,
+            $headers,
+        );
     }
 
     protected function buildMultipart(Request $request): array
