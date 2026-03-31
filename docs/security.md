@@ -5,6 +5,20 @@ weight: 30
 
 # Security
 
+## Exceptions
+
+| Exception | Thrown when |
+|---|---|
+| `ServiceRequestException` | `throw()` called on a `4xx`/`5xx` response |
+| `ServiceUnavailableException` | Service URL cannot be resolved or request fails at transport level |
+| `MissingSignatureException` | `X-Signature` or `X-Timestamp` header is absent |
+| `InvalidSignatureException` | Signature mismatch or timestamp outside tolerance |
+| `MissingServiceNameException` | `X-Service-Name` header is absent (`TrustService` only) |
+| `InvalidRequestIdException` | `X-Request-Id` is not a valid UUID v4 |
+| `DuplicateRequestException` | Duplicate in-flight idempotent request |
+
+---
+
 ## HMAC Signing
 
 Every inter-service request carries three headers:
