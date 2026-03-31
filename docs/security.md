@@ -1,36 +1,36 @@
 ---
 title: Security
-weight: 50
+weight: 30
 ---
 
-# Security and Idempotency
+# Security
 
 ## HMAC Signing
 
-Every inter-service request includes:
+Every inter-service request carries three headers:
 
-- `X-Signature` — HMAC-SHA256 of the payload
-- `X-Timestamp` — Unix timestamp of the request
-- `X-Service-Name` — name of the calling service
+| Header | Value |
+|---|---|
+| `X-Signature` | HMAC-SHA256 of the payload |
+| `X-Timestamp` | Unix timestamp of the request |
+| `X-Service-Name` | Name of the calling service |
 
-Payload format:
+Signed payload format:
 
-```text
+```
 {METHOD}\n{PATH}\n{TIMESTAMP}\n{BODY}
 ```
 
-> [!NOTE]
-> The path is normalized with a leading `/`. The body is raw JSON or an empty string.
+Path is normalized with a leading `/`. Body is raw JSON or an empty string. Query parameters are not signed.
 
 > [!NOTE]
-> Ensure service clocks are in sync. Requests with a timestamp outside `timestamp_tolerance` (default 60 seconds) are rejected.
+> Ensure clocks are synchronized. Requests outside `timestamp_tolerance` (default 60 s) are rejected.
 
-> [!NOTE]
-> Query parameters are not part of the signature. Only method, path, timestamp, and body are signed.
+## Middleware
 
-## TrustGateway Middleware
+### TrustGateway
 
-Use `TrustGateway` on routes that accept proxied calls from a gateway.
+Verifies `X-Signature` and `X-Timestamp`. Use on routes that accept proxied calls from a gateway:
 
 ```php
 use Jurager\Microservice\Http\Middleware\TrustGateway;
@@ -40,17 +40,11 @@ Route::middleware(TrustGateway::class)->group(function () {
 });
 ```
 
-Rejects with 401 if `X-Signature` or `X-Timestamp` is missing or invalid.
+Returns `401` if the signature or timestamp is missing or invalid.
 
-> [!NOTE]
-> `TrustGateway` verifies signature and timestamp only. Use `TrustService` if you also require `X-Service-Name`.
+### TrustService
 
-> [!WARNING]
-> `SERVICE_DEBUG=true` disables all signature verification. Use it only in local development.
-
-## TrustService Middleware
-
-`TrustService` extends `TrustGateway` and additionally requires `X-Service-Name` to be present.
+Extends `TrustGateway` and additionally requires `X-Service-Name`. Used internally to protect the `GET /microservice/manifest` endpoint:
 
 ```php
 use Jurager\Microservice\Http\Middleware\TrustService;
@@ -60,21 +54,12 @@ Route::middleware(TrustService::class)->group(function () {
 });
 ```
 
-Used internally to protect the `GET /microservice/manifest` endpoint — only signed requests from known services are accepted.
+> [!WARNING]
+> `SERVICE_DEBUG=true` disables all signature verification. Never enable it in production.
 
 ## Idempotency
 
-Idempotency is applied only when:
-
-- The request method is not safe (POST, PUT, PATCH, DELETE)
-- The `X-Request-Id` header is present (UUID v4 format)
-
-Rules:
-
-- Invalid UUID returns 400.
-- Duplicate in-flight requests return 409.
-- Only successful (2xx) responses are cached.
-- Cached responses include `X-Idempotency-Cache-Hit: true`.
+The `Idempotency` middleware deduplicates mutating requests using `X-Request-Id`:
 
 ```php
 use Jurager\Microservice\Http\Middleware\Idempotency;
@@ -84,11 +69,17 @@ Route::middleware(Idempotency::class)->group(function () {
 });
 ```
 
-> [!NOTE]
-> If `X-Request-Id` is missing, the middleware passes through without any caching.
+Rules:
+
+- Applied to POST, PUT, PATCH, DELETE only.
+- Skipped silently when `X-Request-Id` is absent.
+- `X-Request-Id` must be a valid UUID v4 — invalid values return `400`.
+- Duplicate in-flight requests return `409`.
+- Only `2xx` responses are cached. Cached responses include `X-Idempotency-Cache-Hit: true`.
+- State is stored in Redis using `microservice.redis.connection`.
 
 > [!NOTE]
-> Idempotency state is stored in Redis using `microservice.redis.connection`.
+> Gateway proxy routes automatically include the `Idempotency` middleware.
 
 > [!WARNING]
-> Set `idempotency.lock_timeout` longer than your slowest request. If the lock expires before the request completes, a duplicate request may be processed concurrently.
+> Set `idempotency.lock_timeout` longer than your slowest request. If the lock expires before the request completes, a duplicate may be processed concurrently.

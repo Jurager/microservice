@@ -1,13 +1,11 @@
 ---
 title: Client
-weight: 40
+weight: 20
 ---
 
-# Client API
+# Client
 
 Use `ServiceClient` to send HMAC-signed HTTP requests to other services.
-
-## Basic Usage
 
 ```php
 use Jurager\Microservice\Client\ServiceClient;
@@ -28,71 +26,67 @@ $client = app(ServiceClient::class);
 
 $client->service('oms')
     ->post('/api/orders', ['sku' => 'A1'])
-    ->withHeaders(['X-Request-Id' => $id])
-    ->withQuery(['debug' => 1])
-    ->timeout(3)
+    ->withHeaders(['X-Request-Id' => $uuid])
+    ->withQuery(['locale' => 'en'])
+    ->timeout(5)
     ->send();
 ```
 
+| Method | Description |
+|---|---|
+| `get(string $path)` | |
+| `post(string $path, ?array $body = null)` | |
+| `put(string $path, ?array $body = null)` | |
+| `patch(string $path, ?array $body = null)` | |
+| `delete(string $path)` | |
+| `withHeaders(array $headers)` | Merge extra headers |
+| `withQuery(array $query)` | Append query string |
+| `withBody(array $body)` | Set JSON body |
+| `timeout(int $seconds)` | Override per-request timeout |
+| `send(): ServiceResponse` | Execute the request |
+
 > [!NOTE]
-> Request bodies are JSON-encoded. Use arrays only.
+> Request bodies are JSON-encoded. Pass arrays only.
 
-Available builder methods:
-
-- `get(string $path)`
-- `post(string $path, ?array $body = null)`
-- `put(string $path, ?array $body = null)`
-- `patch(string $path, ?array $body = null)`
-- `delete(string $path)`
-- `withHeaders(array $headers)`
-- `withQuery(array $query)`
-- `withBody(array $body)`
-- `timeout(int $seconds)`
-- `send(): ServiceResponse`
+> [!NOTE]
+> `X-Request-Id` is not added automatically. Set it yourself if you need idempotency on the receiving end.
 
 ## URL Resolution
 
-`ServiceClient` resolves the target URL using:
-
 1. `SERVICE_DISCOVERY_PATTERN` — if set, substitutes `{service}` in the pattern.
-2. Service manifest in Redis — reads from the manifest stored by `microservice:sync`.
+2. Manifest in Redis — reads `base_url` from the manifest stored by `microservice:sync`.
 
-If neither resolves a URL, `ServiceUnavailableException` is thrown with a clear message.
+If neither resolves, `ServiceUnavailableException` is thrown.
 
-> [!NOTE]
-> Retries and failover are not handled by the package. Use Kubernetes liveness/readiness probes and load balancer retry policies.
-
-## ServiceResponse
+## Response
 
 ```php
-$response->status();         // HTTP status code
-$response->ok();             // true if 2xx
-$response->failed();         // true if 4xx or 5xx
-$response->json();           // decoded JSON body
-$response->json('data.id');  // dot-notation access
-$response->body();           // raw string body
+$response->status();          // HTTP status code
+$response->ok();              // true if 2xx
+$response->failed();          // true if 4xx or 5xx
+$response->json();            // decoded JSON body
+$response->json('data.id');   // dot-notation access
+$response->body();            // raw string body
 $response->header('X-Total');
 $response->headers();
-$response->toPsrResponse();  // PSR-7 ResponseInterface
-$response->throw();          // throws ServiceRequestException if failed()
+$response->toPsrResponse();   // PSR-7 ResponseInterface
+$response->throw();           // throws ServiceRequestException if failed()
 ```
 
-## Errors
-
-If the target service is unreachable or URL cannot be resolved, `ServiceUnavailableException` is thrown.
+## Error Handling
 
 ```php
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
 
 try {
-    $response = $client->service('oms')->get('/api/orders')->send();
+    $response = $client->service('oms')->get('/api/orders')->send()->throw();
 } catch (ServiceUnavailableException $e) {
-    // service unreachable
+    // service unreachable or URL unresolvable
+} catch (ServiceRequestException $e) {
+    // 4xx / 5xx from the service
 }
 ```
 
 > [!NOTE]
-> Requests are always JSON and signed with `X-Service-Name`, `X-Timestamp`, and `X-Signature`.
-
-> [!NOTE]
-> The client does not generate `X-Request-Id`. Add it yourself if you need idempotency on the receiving end.
+> Retries and failover are not handled by the package. Use Kubernetes liveness/readiness probes and load balancer retry policies.
