@@ -65,9 +65,12 @@ class ManifestRegistry
                 continue;
             }
 
-            $metadata = array_diff_key(
-                $route->getAction(),
-                array_flip(self::EXCLUDED_ACTION_KEYS),
+            $metadata = array_merge(
+                $route->defaults ?? [],
+                array_diff_key(
+                    $route->getAction(),
+                    array_flip(self::EXCLUDED_ACTION_KEYS),
+                ),
             );
 
             foreach ($route->methods() as $method) {
