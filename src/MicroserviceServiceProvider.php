@@ -34,8 +34,9 @@ class MicroserviceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->app->make(ExceptionHandler::class)
-            ->renderable(fn (\Throwable $e) => ResponseError::fromException($e));
+        $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
+            $handler->renderable(fn (\Throwable $e) => ResponseError::fromException($e));
+        });
 
         $this->configureTrustedProxies();
 
