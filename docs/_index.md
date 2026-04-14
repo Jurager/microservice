@@ -13,6 +13,7 @@ It solves four core problems in service-to-service communication:
 - **Discovery** — services expose their routes; gateways pull and proxy them automatically.
 - **Idempotency** — safe retries for mutating requests via `X-Request-Id`.
 - **JSON:API consumption** — typed `Item` objects and `CollectionDocument`/`ItemDocument` wrappers eliminate manual array parsing when services speak JSON:API.
+- **Error rendering** — `ResponseError` is auto-registered and converts any exception to a structured JSON:API error response. Override the format via `ResponseError::renderUsing()` if needed.
 
 **Requirements:** 
 

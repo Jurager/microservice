@@ -184,6 +184,10 @@ class ProductItem extends Item
 
 ## Error Handling
 
+### ServiceRequestException
+
+`->throw()` raises `ServiceRequestException` on any non-2xx response. The exception exposes the upstream HTTP status via `$e->status`:
+
 ```php
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
@@ -193,9 +197,35 @@ try {
 } catch (ServiceUnavailableException $e) {
     // service unreachable or URL unresolvable
 } catch (ServiceRequestException $e) {
-    // 4xx / 5xx from the service
+    $e->status; // original HTTP status from the upstream service (404, 422, 500, …)
 }
 ```
 
 > [!NOTE]
 > Retries and failover are not handled by the package. Use Kubernetes liveness/readiness probes and load balancer retry policies.
+
+### ResponseError
+
+The package automatically registers a JSON:API exception renderer via `MicroserviceServiceProvider`. No manual wiring needed — `ServiceRequestException`, `ModelNotFoundException`, `ValidationException`, and standard HTTP exceptions are all handled out of the box.
+
+The response format uses `Content-Type: application/vnd.api+json`:
+
+```json
+{
+  "errors": [{ "status": "404", "title": "Not Found", "detail": "Resource not found." }]
+}
+```
+
+To override the format (e.g. for non-JSON:API services), call `renderUsing()` once in a service provider:
+
+```php
+use Jurager\Microservice\JsonApi\ResponseError;
+
+ResponseError::renderUsing(function (array $errors, int $status, array $headers): JsonResponse {
+    return new JsonResponse(
+        ['message' => $errors[0]['detail'] ?? 'Error'],
+        $status,
+        $headers
+    );
+});
+```

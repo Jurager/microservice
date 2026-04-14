@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Jurager\Microservice;
 
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\ServiceProvider;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
+use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Support\HmacSigner;
 
 class MicroserviceServiceProvider extends ServiceProvider
@@ -32,6 +34,9 @@ class MicroserviceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->app->make(ExceptionHandler::class)
+            ->renderable(fn (\Throwable $e) => ResponseError::fromException($e));
+
         $this->configureTrustedProxies();
 
         $this->loadRoutesFrom(__DIR__.'/../routes/microservice.php');
