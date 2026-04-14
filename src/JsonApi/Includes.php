@@ -53,33 +53,47 @@ class Includes
      *   to-many → data is a sequential array (possibly empty)
      *   to-one  → data is an associative object (possibly null)
      *
-     * @param  array<string, class-string<Item>>  $map  ['relationName' => ItemClass::class]
+     * Map values can be:
+     *   - a class-string<Item>: resolve with that class, no sub-relations
+     *   - [class-string<Item>, array $subMap]: resolve with that class, then recurse into subMap
+     *
+     * @param  array<string, class-string<Item>|array{0: class-string<Item>, 1: array}>  $map
      */
     public function attachRelations(Item $item, array $map): void
     {
-        foreach ($map as $name => $itemClass) {
+        foreach ($map as $name => $spec) {
+            [$itemClass, $subMap] = is_array($spec) ? $spec : [$spec, []];
+
             $data = $item->relationshipData($name);
 
             if (is_array($data) && array_is_list($data)) {
-                // to-many: sequential array of resource identifier objects
                 $resolved = array_values(array_filter(
-                    array_map(fn (array $ref) => $this->resolveRef($ref, $itemClass), $data)
+                    array_map(fn (array $ref) => $this->resolveRef($ref, $itemClass, $subMap), $data)
                 ));
                 $item->setResolved($name, $resolved);
             } else {
-                // to-one: associative object or null/empty
-                $resolved = $data ? $this->resolveRef($data, $itemClass) : null;
+                $resolved = $data ? $this->resolveRef($data, $itemClass, $subMap) : null;
                 $item->setResolved($name, $resolved ? [$resolved] : []);
             }
         }
     }
 
-    private function resolveRef(array $ref, ?string $itemClass): ?Item
+    private function resolveRef(array $ref, ?string $itemClass, array $subMap = []): ?Item
     {
         $type     = $ref['type'] ?? null;
         $id       = (string) ($ref['id'] ?? '');
         $resource = $type ? ($this->index[$type][$id] ?? null) : null;
 
-        return $resource ? Item::from($resource, $itemClass) : null;
+        if (!$resource) {
+            return null;
+        }
+
+        $resolved = Item::from($resource, $itemClass);
+
+        if ($subMap) {
+            $this->attachRelations($resolved, $subMap);
+        }
+
+        return $resolved;
     }
 }
