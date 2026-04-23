@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Client;
 
+use Illuminate\Support\Str;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 
 class PendingServiceRequest
@@ -58,6 +59,10 @@ class PendingServiceRequest
         $this->method = $method;
         $this->path = $path;
         $this->body = $body;
+
+        if (! in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) {
+            $this->headers['X-Request-Id'] ??= (string) Str::uuid();
+        }
 
         return $this;
     }
