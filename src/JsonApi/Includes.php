@@ -18,7 +18,7 @@ class Includes
 
     public function __construct(array $included = [])
     {
-        $this->raw = $included;
+        $this->raw = array_map(fn (array $r) => array_diff_key($r, ['links' => true]), $included);
 
         foreach ($included as $resource) {
             $type = $resource['type'] ?? null;
