@@ -47,6 +47,28 @@ class Includes
     }
 
     /**
+     * Auto-resolve all relationships present in this included pool using Item::class.
+     * Skips relationships already resolved via withRelations().
+     */
+    public function autoAttach(Item $item): void
+    {
+        if ($this->isEmpty()) {
+            return;
+        }
+
+        $map = array_fill_keys(
+            array_keys($item->relationships()),
+            Item::class,
+        );
+
+        foreach ($map as $name => $class) {
+            if (!$item->hasResolved($name)) {
+                $this->attachRelations($item, [$name => $class]);
+            }
+        }
+    }
+
+    /**
      * Resolve all relationships of an Item and attach them.
      *
      * JSON:API spec:

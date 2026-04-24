@@ -26,7 +26,9 @@ class ItemDocument
         $this->meta     = $body['meta'] ?? [];
         $this->links    = $body['links'] ?? [];
         $this->included = new Includes($body['included'] ?? []);
-        $this->item     = Item::from($body['data'] ?? [], $this->itemClass);
+        $this->item = Item::from($body['data'] ?? [], $this->itemClass);
+
+        $this->included->autoAttach($this->item);
     }
 
     /** @return T */

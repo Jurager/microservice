@@ -6,6 +6,9 @@ namespace Jurager\Microservice\Client;
 
 use Illuminate\Support\Str;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\JsonApi\CollectionDocument;
+use Jurager\Microservice\JsonApi\Item;
+use Jurager\Microservice\JsonApi\ItemDocument;
 
 class PendingServiceRequest
 {
@@ -74,9 +77,25 @@ class PendingServiceRequest
         return $this;
     }
 
-    public function withQuery(array $query): static
+    public function with(array $query): static
     {
         $this->query = array_merge($this->query, $query);
+
+        return $this;
+    }
+
+    public function merge(array $query): static
+    {
+        foreach ($query as $key => $value) {
+            if (isset($this->query[$key]) && is_string($value) && is_string($this->query[$key])) {
+                $this->query[$key] = implode(',', array_unique(array_filter([
+                    ...explode(',', $this->query[$key]),
+                    ...explode(',', $value),
+                ])));
+            } else {
+                $this->query[$key] = $value;
+            }
+        }
 
         return $this;
     }
@@ -108,6 +127,23 @@ class PendingServiceRequest
     public function send(): ServiceResponse
     {
         return $this->client->send($this);
+    }
+
+    /** @param class-string<T> $itemClass @template T of Item @return CollectionDocument<T> */
+    public function collect(string $itemClass = Item::class): CollectionDocument
+    {
+        return $this->send()->collect($itemClass);
+    }
+
+    /** @param class-string<T> $itemClass @template T of Item @return ItemDocument<T> */
+    public function item(string $itemClass = Item::class): ItemDocument
+    {
+        return $this->send()->throw()->item($itemClass);
+    }
+
+    public function json(?string $key = null, mixed $default = null): mixed
+    {
+        return $this->send()->json($key, $default);
     }
 
     public function getService(): string

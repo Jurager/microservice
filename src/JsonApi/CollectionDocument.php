@@ -31,6 +31,8 @@ class CollectionDocument
 
         $this->items = Collection::make($body['data'] ?? [])
             ->map(fn (array $resource) => Item::from($resource, $this->itemClass));
+
+        $this->items->each(fn (Item $item) => $this->included->autoAttach($item));
     }
 
     /** @return Collection<int, T> */
