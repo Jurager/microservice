@@ -64,6 +64,13 @@ class ItemDocument
         return $this;
     }
 
+    public function filterIncluded(callable $filter): static
+    {
+        $this->included->filter($filter);
+
+        return $this;
+    }
+
     public function rawIncluded(): array
     {
         return $this->included->raw();

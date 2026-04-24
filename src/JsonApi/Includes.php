@@ -40,6 +40,21 @@ class Includes
         return $this->index[$type][(string) $id] ?? null;
     }
 
+    public function filter(callable $callback): void
+    {
+        $this->raw   = array_values(array_filter($this->raw, $callback));
+        $this->index = [];
+
+        foreach ($this->raw as $resource) {
+            $type = $resource['type'] ?? null;
+            $id   = (string) ($resource['id'] ?? '');
+
+            if ($type && $id) {
+                $this->index[$type][$id] = $resource;
+            }
+        }
+    }
+
     /** Raw included array for forwarding to the frontend as-is. */
     public function raw(): array
     {
