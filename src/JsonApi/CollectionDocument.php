@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\JsonApi;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 /**
@@ -102,13 +103,34 @@ class CollectionDocument
             $body['included'] = $raw;
         }
         if ($this->links) {
-            $body['links'] = $this->links;
+            $body['links'] = $this->resolveLinks();
         }
         if ($this->meta) {
             $body['meta'] = $this->meta;
         }
 
         return new JsonResponse($body, 200, ['Content-Type' => 'application/vnd.api+json']);
+    }
+
+    private function resolveLinks(): array
+    {
+        /** @var Request|null $request */
+        $request = request();
+
+        if (! $request instanceof Request) {
+            return $this->links;
+        }
+
+        $currentPage = (int) ($this->meta['current_page'] ?? $request->query('page', 1));
+        $lastPage    = (int) ($this->meta['last_page'] ?? 1);
+        $pageUrl     = fn (int $page) => $request->fullUrlWithQuery(['page' => $page]);
+
+        return [
+            'first' => $pageUrl(1),
+            'last'  => $pageUrl($lastPage),
+            'prev'  => $currentPage > 1        ? $pageUrl($currentPage - 1) : null,
+            'next'  => $currentPage < $lastPage ? $pageUrl($currentPage + 1) : null,
+        ];
     }
 
     public function isEmpty(): bool
