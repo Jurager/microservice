@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\JsonApi;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
 
 /**
@@ -111,6 +112,11 @@ class Item
         }
 
         return $data;
+    }
+
+    public function toResponse(): JsonResponse
+    {
+        return new JsonResponse(['data' => $this->toArray()], 200, ['Content-Type' => 'application/vnd.api+json']);
     }
 
     public function __get(string $name): mixed
