@@ -79,9 +79,27 @@ class PendingServiceRequest
 
     public function with(array $query): static
     {
-        $this->query = array_merge($this->query, $query);
+        $this->query = array_merge($this->query, $this->stripEmpty($query));
 
         return $this;
+    }
+
+    private function stripEmpty(array $array): array
+    {
+        $result = [];
+
+        foreach ($array as $key => $value) {
+            if (is_array($value)) {
+                $filtered = $this->stripEmpty($value);
+                if ($filtered !== []) {
+                    $result[$key] = $filtered;
+                }
+            } elseif ($value !== '' && $value !== null) {
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
     }
 
     public function merge(array $query): static
