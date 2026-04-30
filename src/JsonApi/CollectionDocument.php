@@ -130,16 +130,21 @@ class CollectionDocument
             return $this->links;
         }
 
-        $currentPage = (int) ($this->meta['current_page'] ?? $request->query('page', 1));
-        $lastPage    = (int) ($this->meta['last_page'] ?? 1);
-        $pageUrl     = fn (int $page) => $request->fullUrlWithQuery(['page' => $page]);
+        return array_map(fn ($link) => $this->rewritePaginationLink($request, $link), $this->links);
+    }
 
-        return [
-            'first' => $pageUrl(1),
-            'last'  => $pageUrl($lastPage),
-            'prev'  => $currentPage > 1        ? $pageUrl($currentPage - 1) : null,
-            'next'  => $currentPage < $lastPage ? $pageUrl($currentPage + 1) : null,
-        ];
+    private function rewritePaginationLink(Request $request, mixed $link): mixed
+    {
+        if ($link === null || ! is_string($link) || $link === '') {
+            return $link;
+        }
+
+        $query = [];
+        parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
+
+        return isset($query['page'])
+            ? $request->fullUrlWithQuery(['page' => $query['page']])
+            : $request->fullUrl();
     }
 
     public function isEmpty(): bool
