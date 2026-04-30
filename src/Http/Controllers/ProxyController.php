@@ -51,7 +51,7 @@ class ProxyController extends Controller
         ]);
 
         if ($query = $request->query()) {
-            $pending->withQuery($query);
+            $pending->with($query);
         }
 
         $response = $pending->send();

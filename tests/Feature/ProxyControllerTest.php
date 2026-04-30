@@ -78,7 +78,7 @@ class ProxyControllerTest extends TestCase
                     }
                 );
 
-                $pending->shouldReceive('withQuery')->andReturnUsing(
+                $pending->shouldReceive('with')->andReturnUsing(
                     function ($query) use ($test, $pending) {
                         $test->capturedRequest->query = $query;
 

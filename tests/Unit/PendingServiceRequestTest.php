@@ -78,7 +78,7 @@ class PendingServiceRequestTest extends TestCase
 
     public function test_with_query_merges_query_params(): void
     {
-        $this->request->withQuery(['page' => 1])->withQuery(['limit' => 10]);
+        $this->request->with(['page' => 1])->with(['limit' => 10]);
 
         $this->assertSame(['page' => 1, 'limit' => 10], $this->request->getQuery());
     }

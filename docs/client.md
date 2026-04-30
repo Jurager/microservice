@@ -19,7 +19,7 @@ $client = app(ServiceClient::class);
 $client->service('pim')
     ->get('/v1/products/42')
     ->withHeaders(['X-Request-Id' => $uuid])
-    ->withQuery(['locale' => 'en'])
+    ->with(['locale' => 'en'])
     ->timeout(5)
     ->send();
 ```
@@ -32,7 +32,7 @@ $client->service('pim')
 | `patch(string $path, ?array $body = null)` | |
 | `delete(string $path)` | |
 | `withHeaders(array $headers)` | Merge extra headers |
-| `withQuery(array $query)` | Append query string |
+| `with(array $query)` | Append query string |
 | `withBody(array $body)` | Set JSON body |
 | `timeout(int $seconds)` | Override per-request timeout |
 | `send(): ServiceResponse` | Execute the request |
@@ -79,7 +79,7 @@ $response->passthrough()                // forward raw body to the client unchan
 ```php
 $document = $client->service('pim')
     ->get('/v1/products')
-    ->withQuery(['filter[catalog_id][in]' => '1,2'])
+    ->with(['filter[catalog_id][in]' => '1,2'])
     ->send()
     ->collect(ProductItem::class);
 
@@ -125,7 +125,7 @@ foreach ($document->data() as $product) {
 ```php
 $document = $client->service('sfm')
     ->get("/v1/sites/{$id}")
-    ->withQuery(['include' => 'catalogs,prices,warehouses'])
+    ->with(['include' => 'catalogs,prices,warehouses'])
     ->send()
     ->item(SiteItem::class);
 

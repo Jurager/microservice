@@ -168,7 +168,7 @@ class ServiceClientTest extends TestCase
 
         $client->service('oms')
             ->get('/api/orders')
-            ->withQuery(['page' => 2, 'limit' => 10])
+            ->with(['page' => 2, 'limit' => 10])
             ->send();
 
         $uri = (string) $this->history[0]['request']->getUri();
