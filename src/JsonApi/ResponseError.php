@@ -63,6 +63,10 @@ final class ResponseError
 
         $headers = $e instanceof HttpExceptionInterface ? $e->getHeaders() : [];
 
+        if ($e instanceof ServiceRequestException && $e->errors !== null) {
+            return self::render(errors: $e->errors, status: $status, headers: $headers);
+        }
+
         return self::render(
             errors: [[
                 'status' => (string) $status,
