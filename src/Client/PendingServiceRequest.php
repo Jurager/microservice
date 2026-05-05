@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Client;
 
 use Illuminate\Support\Str;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\JsonApi\CollectionDocument;
 use Jurager\Microservice\JsonApi\Item;
@@ -25,6 +26,8 @@ class PendingServiceRequest
     protected ?array $multipart = null;
 
     protected ?int $timeout = null;
+
+    protected bool $exposeError = true;
 
     public function __construct(
         protected readonly ServiceClient $client,
@@ -132,6 +135,13 @@ class PendingServiceRequest
         return $this;
     }
 
+    public function withoutErrors(): static
+    {
+        $this->exposeError = false;
+
+        return $this;
+    }
+
     public function timeout(int $seconds): static
     {
         $this->timeout = $seconds;
@@ -141,10 +151,21 @@ class PendingServiceRequest
 
     /**
      * @throws ServiceUnavailableException
+     * @throws ServiceRequestException
+     */
+    /**
+     * @throws ServiceUnavailableException
+     * @throws ServiceRequestException
      */
     public function send(): ServiceResponse
     {
-        return $this->client->send($this);
+        $response = $this->client->send($this);
+
+        if ($response->failed()) {
+            throw new ServiceRequestException($response->status(), errors: $this->exposeError ? ($response->json('errors') ?: null) : null);
+        }
+
+        return $response;
     }
 
     /** @param class-string<T> $itemClass @template T of Item @return CollectionDocument<T> */
@@ -156,7 +177,7 @@ class PendingServiceRequest
     /** @param class-string<T> $itemClass @template T of Item @return ItemDocument<T> */
     public function item(string $itemClass = Item::class): ItemDocument
     {
-        return $this->send()->throw()->item($itemClass);
+        return $this->send()->item($itemClass);
     }
 
     public function json(?string $key = null, mixed $default = null): mixed

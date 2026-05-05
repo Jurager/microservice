@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Client;
 
-use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\JsonApi\CollectionDocument;
 use Jurager\Microservice\JsonApi\Item;
 use Jurager\Microservice\JsonApi\ItemDocument;
@@ -77,18 +76,6 @@ class ServiceResponse
     public function headers(): array
     {
         return $this->response->getHeaders();
-    }
-
-    /**
-     * Throw an exception if the response indicates a failure.
-     */
-    public function throw(): static
-    {
-        if ($this->failed()) {
-            throw new ServiceRequestException($this->status());
-        }
-
-        return $this;
     }
 
     /**

@@ -35,7 +35,8 @@ $client->service('pim')
 | `with(array $query)` | Append query string |
 | `withBody(array $body)` | Set JSON body |
 | `timeout(int $seconds)` | Override per-request timeout |
-| `send(): ServiceResponse` | Execute the request |
+| `withoutErrors()` | Suppress upstream error details in the exception; only the HTTP status is forwarded |
+| `send(): ServiceResponse` | Execute the request, throws `ServiceRequestException` on non-2xx |
 
 > [!NOTE]
 > Request bodies are JSON-encoded. Pass arrays only.
@@ -61,7 +62,6 @@ $response->body();            // raw string body
 $response->header('X-Total');
 $response->headers();
 $response->toPsrResponse();   // PSR-7 ResponseInterface
-$response->throw();           // throws ServiceRequestException if failed()
 ```
 
 ### JSON:API responses
@@ -80,7 +80,6 @@ $response->passthrough()                // forward raw body to the client unchan
 $document = $client->service('pim')
     ->get('/v1/products')
     ->with(['filter[catalog_id][in]' => '1,2'])
-    ->send()
     ->collect(ProductItem::class);
 
 $document->data();     // Collection<ProductItem>
@@ -126,7 +125,6 @@ foreach ($document->data() as $product) {
 $document = $client->service('sfm')
     ->get("/v1/sites/{$id}")
     ->with(['include' => 'catalogs,prices,warehouses'])
-    ->send()
     ->item(SiteItem::class);
 
 $document->data();    // SiteItem
@@ -186,19 +184,27 @@ class ProductItem extends Item
 
 ### ServiceRequestException
 
-`->throw()` raises `ServiceRequestException` on any non-2xx response. The exception exposes the upstream HTTP status via `$e->status`:
+`send()` automatically throws `ServiceRequestException` on any non-2xx response. By default the upstream `errors` array from the JSON:API body is forwarded in the exception. Use `->withoutErrors()` before sending to suppress error details — useful for endpoints that return sensitive information.
 
 ```php
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 
 try {
-    $response = $client->service('oms')->get('/v1/orders')->send()->throw();
+    $orders = $client->service('oms')->get('/v1/orders')->send()->json();
 } catch (ServiceUnavailableException $e) {
     // service unreachable or URL unresolvable
 } catch (ServiceRequestException $e) {
-    $e->status; // original HTTP status from the upstream service (404, 422, 500, …)
+    $e->status; // upstream HTTP status (404, 422, 500, …)
+    $e->errors; // upstream errors array, or null when withoutErrors() was used
 }
+
+// Sensitive endpoint — errors are not forwarded
+$basket = $client->service('oms')
+    ->post('/v1/baskets/store', $data)
+    ->withoutErrors()
+    ->item(BasketItem::class)
+    ->data();
 ```
 
 > [!NOTE]
