@@ -6,7 +6,6 @@ namespace Jurager\Microservice\Tests\Unit;
 
 use GuzzleHttp\Psr7\Response;
 use Jurager\Microservice\Client\ServiceResponse;
-use Jurager\Microservice\Exceptions\ServiceRequestException;
 use PHPUnit\Framework\TestCase;
 
 class ServiceResponseTest extends TestCase
@@ -117,20 +116,12 @@ class ServiceResponseTest extends TestCase
         $this->assertSame(['application/json'], $headers['Content-Type']);
     }
 
-    public function test_throw_throws_exception_on_failure(): void
+    public function test_stream_returns_psr_stream(): void
     {
-        $response = new ServiceResponse(new Response(500));
+        $psr      = new Response(200, [], 'hello');
+        $response = new ServiceResponse($psr);
 
-        $this->expectException(ServiceRequestException::class);
-
-        $response->throw();
-    }
-
-    public function test_throw_returns_self_on_success(): void
-    {
-        $response = new ServiceResponse(new Response(200));
-
-        $this->assertSame($response, $response->throw());
+        $this->assertInstanceOf(\Psr\Http\Message\StreamInterface::class, $response->stream());
     }
 
     public function test_to_psr_response_returns_original(): void

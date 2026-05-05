@@ -13,6 +13,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
 use Illuminate\Redis\Connections\Connection;
 use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
@@ -106,28 +107,28 @@ class ServiceClientTest extends TestCase
         $this->assertSame($requestId, $request->getHeaderLine('X-Request-Id'));
     }
 
-    public function test_4xx_response_returned_directly(): void
+    public function test_4xx_response_throws_exception(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(404, [], '{"error":"not found"}')]);
 
-        $response = $client->service('oms')->get('/api/orders/999')->send();
+        $this->expectException(ServiceRequestException::class);
+        $this->expectExceptionMessage('Service request failed with status 404.');
 
-        $this->assertSame(404, $response->status());
-        $this->assertCount(1, $this->history);
+        $client->service('oms')->get('/api/orders/999')->send();
     }
 
-    public function test_5xx_response_returned_directly(): void
+    public function test_5xx_response_throws_exception(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
         $client = $this->createClient([new Response(500, [], '{"message":"error"}')]);
 
-        $response = $client->service('oms')->get('/api/orders')->send();
+        $this->expectException(ServiceRequestException::class);
+        $this->expectExceptionMessage('Service request failed with status 500.');
 
-        $this->assertSame(500, $response->status());
-        $this->assertCount(1, $this->history);
+        $client->service('oms')->get('/api/orders')->send();
     }
 
     public function test_connect_exception_throws_service_unavailable(): void

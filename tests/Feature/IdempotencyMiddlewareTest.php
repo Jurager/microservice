@@ -139,7 +139,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440006'])
             ->assertStatus(500)
-            ->assertJson(['message' => 'Invalid cache state.']);
+            ->assertJson(['errors' => [['detail' => 'Invalid cache state.']]]);
     }
 
     public function test_returns_500_for_cached_data_missing_required_keys(): void
@@ -152,7 +152,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440007'])
             ->assertStatus(500)
-            ->assertJson(['message' => 'Invalid cache state.']);
+            ->assertJson(['errors' => [['detail' => 'Invalid cache state.']]]);
     }
 
     public function test_lock_released_on_exception_in_handler(): void
@@ -207,9 +207,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => 'not-a-uuid'])
             ->assertStatus(400)
-            ->assertJson([
-                'message' => 'X-Request-Id must be a valid UUID v4. Received: not-a-uuid',
-            ]);
+            ->assertJson(['errors' => [['detail' => 'X-Request-Id must be a valid UUID v4. Received: not-a-uuid']]]);
     }
 
     public function test_rejects_non_v4_uuid(): void
@@ -220,8 +218,6 @@ class IdempotencyMiddlewareTest extends TestCase
         $invalidUuid = '550e8400-e29b-11d4-a716-446655440000';
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => $invalidUuid])
             ->assertStatus(400)
-            ->assertJson([
-                'message' => "X-Request-Id must be a valid UUID v4. Received: $invalidUuid",
-            ]);
+            ->assertJson(['errors' => [['detail' => "X-Request-Id must be a valid UUID v4. Received: $invalidUuid"]]]);
     }
 }

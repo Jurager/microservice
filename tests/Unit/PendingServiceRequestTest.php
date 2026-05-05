@@ -127,6 +127,7 @@ class PendingServiceRequestTest extends TestCase
     public function test_send_delegates_to_client(): void
     {
         $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->once()->andReturn(false);
 
         $client = Mockery::mock(ServiceClient::class);
         $client->shouldReceive('send')->once()->andReturn($mockResponse);
@@ -135,5 +136,57 @@ class PendingServiceRequestTest extends TestCase
         $result = $request->get('/api/orders')->send();
 
         $this->assertSame($mockResponse, $result);
+    }
+
+    public function test_send_throws_exception_on_failed_response(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->once()->andReturn(true);
+        $mockResponse->shouldReceive('status')->once()->andReturn(503);
+        $mockResponse->shouldReceive('json')->with('errors')->once()->andReturn(null);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        $this->expectException(\Jurager\Microservice\Exceptions\ServiceRequestException::class);
+
+        (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->send();
+    }
+
+    public function test_send_exposes_upstream_errors_by_default(): void
+    {
+        $errors = [['status' => '422', 'detail' => 'Name is required']];
+
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->once()->andReturn(true);
+        $mockResponse->shouldReceive('status')->once()->andReturn(422);
+        $mockResponse->shouldReceive('json')->with('errors')->once()->andReturn($errors);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        try {
+            (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->send();
+            $this->fail('Expected ServiceRequestException');
+        } catch (\Jurager\Microservice\Exceptions\ServiceRequestException $e) {
+            $this->assertSame($errors, $e->errors);
+        }
+    }
+
+    public function test_without_errors_suppresses_error_details(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->once()->andReturn(true);
+        $mockResponse->shouldReceive('status')->once()->andReturn(422);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        try {
+            (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->withoutErrors()->send();
+            $this->fail('Expected ServiceRequestException');
+        } catch (\Jurager\Microservice\Exceptions\ServiceRequestException $e) {
+            $this->assertNull($e->errors);
+        }
     }
 }
