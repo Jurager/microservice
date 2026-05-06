@@ -63,7 +63,7 @@ class ResponseErrorTest extends TestCase
 
     public function test_service_request_exception_with_errors_forwards_them(): void
     {
-        $errors   = [['status' => '422', 'title' => 'Validation Error', 'detail' => 'Name required']];
+        $errors = [['status' => '422', 'title' => 'Validation Error', 'detail' => 'Name required']];
         $response = ResponseError::fromException(new ServiceRequestException(422, errors: $errors));
 
         $this->assertSame(422, $response->getStatusCode());
@@ -135,6 +135,7 @@ class ResponseErrorTest extends TestCase
 
         ResponseError::renderUsing(function (array $errors, int $status, array $headers) use (&$capturedHeaders): JsonResponse {
             $capturedHeaders = $headers;
+
             return new JsonResponse(['errors' => $errors], $status, $headers);
         });
 

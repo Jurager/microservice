@@ -174,10 +174,10 @@ class IncludesTest extends TestCase
 
     public function test_auto_attach_skips_already_resolved(): void
     {
-        $includes  = new Includes([
+        $includes = new Includes([
             ['type' => 'customers', 'id' => '7', 'attributes' => ['name' => 'Alice']],
         ]);
-        $existing  = new Item(['id' => '99', 'type' => 'customers', 'attributes' => []]);
+        $existing = new Item(['id' => '99', 'type' => 'customers', 'attributes' => []]);
 
         $item = new Item([
             'id' => '10', 'type' => 'orders', 'attributes' => [],
@@ -193,7 +193,7 @@ class IncludesTest extends TestCase
     public function test_auto_attach_does_nothing_when_empty(): void
     {
         $includes = new Includes([]);
-        $item     = new Item([
+        $item = new Item([
             'id' => '1', 'type' => 'orders', 'attributes' => [],
             'relationships' => ['customer' => ['data' => ['type' => 'customers', 'id' => '7']]],
         ]);

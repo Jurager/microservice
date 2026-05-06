@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Client;
 
+use Illuminate\Http\Response;
 use Jurager\Microservice\JsonApi\CollectionDocument;
 use Jurager\Microservice\JsonApi\Item;
 use Jurager\Microservice\JsonApi\ItemDocument;
@@ -82,7 +83,7 @@ class ServiceResponse
      * Forward the raw response body directly as a JSON:API response.
      * Use this for pure proxy cases where the API adds no business logic to the body.
      */
-    public function passthrough(): \Illuminate\Http\Response
+    public function passthrough(): Response
     {
         return response($this->body(), $this->status(), [
             'Content-Type' => $this->response->getHeaderLine('Content-Type') ?: 'application/vnd.api+json',
@@ -93,6 +94,7 @@ class ServiceResponse
      * Parse a JSON:API collection response into a CollectionDocument.
      *
      * @template T of Item
+     *
      * @param  class-string<T>  $itemClass
      * @return CollectionDocument<T>
      */
@@ -105,6 +107,7 @@ class ServiceResponse
      * Parse a JSON:API single-resource response into an ItemDocument.
      *
      * @template T of Item
+     *
      * @param  class-string<T>  $itemClass
      * @return ItemDocument<T>
      */

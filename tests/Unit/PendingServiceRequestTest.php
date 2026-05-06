@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Tests\Unit;
 use Jurager\Microservice\Client\PendingServiceRequest;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Client\ServiceResponse;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Mockery;
 use PHPUnit\Framework\TestCase;
 
@@ -148,7 +149,7 @@ class PendingServiceRequestTest extends TestCase
         $client = Mockery::mock(ServiceClient::class);
         $client->shouldReceive('send')->once()->andReturn($mockResponse);
 
-        $this->expectException(\Jurager\Microservice\Exceptions\ServiceRequestException::class);
+        $this->expectException(ServiceRequestException::class);
 
         (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->send();
     }
@@ -168,7 +169,7 @@ class PendingServiceRequestTest extends TestCase
         try {
             (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->send();
             $this->fail('Expected ServiceRequestException');
-        } catch (\Jurager\Microservice\Exceptions\ServiceRequestException $e) {
+        } catch (ServiceRequestException $e) {
             $this->assertSame($errors, $e->errors);
         }
     }
@@ -185,7 +186,7 @@ class PendingServiceRequestTest extends TestCase
         try {
             (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->withoutErrors()->send();
             $this->fail('Expected ServiceRequestException');
-        } catch (\Jurager\Microservice\Exceptions\ServiceRequestException $e) {
+        } catch (ServiceRequestException $e) {
             $this->assertNull($e->errors);
         }
     }

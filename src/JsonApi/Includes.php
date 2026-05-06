@@ -22,7 +22,7 @@ class Includes
 
         foreach ($included as $resource) {
             $type = $resource['type'] ?? null;
-            $id   = (string) ($resource['id'] ?? '');
+            $id = (string) ($resource['id'] ?? '');
 
             if ($type && $id) {
                 $this->index[$type][$id] = $resource;
@@ -42,12 +42,12 @@ class Includes
 
     public function filter(callable $callback): void
     {
-        $this->raw   = array_values(array_filter($this->raw, $callback));
+        $this->raw = array_values(array_filter($this->raw, $callback));
         $this->index = [];
 
         foreach ($this->raw as $resource) {
             $type = $resource['type'] ?? null;
-            $id   = (string) ($resource['id'] ?? '');
+            $id = (string) ($resource['id'] ?? '');
 
             if ($type && $id) {
                 $this->index[$type][$id] = $resource;
@@ -77,7 +77,7 @@ class Includes
         );
 
         foreach ($map as $name => $class) {
-            if (!$item->hasResolved($name)) {
+            if (! $item->hasResolved($name)) {
                 $this->attachRelations($item, [$name => $class]);
             }
         }
@@ -117,11 +117,11 @@ class Includes
 
     private function resolveRef(array $ref, ?string $itemClass, array $subMap = []): ?Item
     {
-        $type     = $ref['type'] ?? null;
-        $id       = (string) ($ref['id'] ?? '');
+        $type = $ref['type'] ?? null;
+        $id = (string) ($ref['id'] ?? '');
         $resource = $type ? ($this->index[$type][$id] ?? null) : null;
 
-        if (!$resource) {
+        if (! $resource) {
             return null;
         }
 

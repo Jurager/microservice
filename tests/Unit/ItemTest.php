@@ -11,15 +11,15 @@ use PHPUnit\Framework\TestCase;
 class ItemTest extends TestCase
 {
     private array $resource = [
-        'id'   => '42',
+        'id' => '42',
         'type' => 'orders',
         'attributes' => [
             'status' => 'pending',
-            'total'  => 99.5,
+            'total' => 99.5,
         ],
         'relationships' => [
             'customer' => ['data' => ['type' => 'customers', 'id' => '7']],
-            'lines'    => ['data' => [
+            'lines' => ['data' => [
                 ['type' => 'order-lines', 'id' => '1'],
                 ['type' => 'order-lines', 'id' => '2'],
             ]],
@@ -122,7 +122,7 @@ class ItemTest extends TestCase
 
     public function test_set_and_get_resolved_to_one(): void
     {
-        $item    = new Item($this->resource);
+        $item = new Item($this->resource);
         $related = new Item(['id' => '7', 'type' => 'customers', 'attributes' => ['name' => 'Alice']]);
 
         $item->setResolved('customer', [$related]);
@@ -133,7 +133,7 @@ class ItemTest extends TestCase
 
     public function test_get_relation_returns_collection(): void
     {
-        $item    = new Item($this->resource);
+        $item = new Item($this->resource);
         $related = new Item(['id' => '1', 'type' => 'order-lines', 'attributes' => []]);
 
         $item->setResolved('lines', [$related]);
@@ -146,7 +146,7 @@ class ItemTest extends TestCase
     public function test_get_relation_returns_empty_collection_when_not_resolved(): void
     {
         $item = new Item($this->resource);
-        $col  = $item->getRelation('customer');
+        $col = $item->getRelation('customer');
         $this->assertInstanceOf(Collection::class, $col);
         $this->assertTrue($col->isEmpty());
     }
@@ -166,7 +166,7 @@ class ItemTest extends TestCase
     public function test_to_array_without_relationships(): void
     {
         $item = new Item(['id' => '1', 'type' => 'orders', 'attributes' => ['status' => 'ok']]);
-        $arr  = $item->toArray();
+        $arr = $item->toArray();
 
         $this->assertSame('1', $arr['id']);
         $this->assertSame('orders', $arr['type']);
@@ -181,7 +181,7 @@ class ItemTest extends TestCase
 
     public function test_to_response_returns_json_response_with_data(): void
     {
-        $item     = new Item(['id' => '1', 'type' => 'orders', 'attributes' => []]);
+        $item = new Item(['id' => '1', 'type' => 'orders', 'attributes' => []]);
         $response = $item->toResponse();
 
         $this->assertSame(200, $response->getStatusCode());

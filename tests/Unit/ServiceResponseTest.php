@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Tests\Unit;
 use GuzzleHttp\Psr7\Response;
 use Jurager\Microservice\Client\ServiceResponse;
 use PHPUnit\Framework\TestCase;
+use Psr\Http\Message\StreamInterface;
 
 class ServiceResponseTest extends TestCase
 {
@@ -118,10 +119,10 @@ class ServiceResponseTest extends TestCase
 
     public function test_stream_returns_psr_stream(): void
     {
-        $psr      = new Response(200, [], 'hello');
+        $psr = new Response(200, [], 'hello');
         $response = new ServiceResponse($psr);
 
-        $this->assertInstanceOf(\Psr\Http\Message\StreamInterface::class, $response->stream());
+        $this->assertInstanceOf(StreamInterface::class, $response->stream());
     }
 
     public function test_to_psr_response_returns_original(): void

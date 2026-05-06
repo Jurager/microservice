@@ -51,7 +51,7 @@ class HttpExceptionsTest extends TestCase
     public function test_invalid_request_id_exception_accepts_custom_message(): void
     {
         $msg = 'X-Request-Id must be a valid UUID v4. Received: bad';
-        $e   = new InvalidRequestIdException($msg);
+        $e = new InvalidRequestIdException($msg);
         $this->assertSame($msg, $e->getMessage());
     }
 
@@ -93,7 +93,7 @@ class HttpExceptionsTest extends TestCase
     public function test_service_request_exception_with_errors_array(): void
     {
         $errors = [['status' => '422', 'detail' => 'Name is required']];
-        $e      = new ServiceRequestException(422, errors: $errors);
+        $e = new ServiceRequestException(422, errors: $errors);
         $this->assertSame($errors, $e->errors);
     }
 

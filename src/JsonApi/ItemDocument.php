@@ -17,14 +17,16 @@ class ItemDocument
     private Item $item;
 
     private array $meta;
+
     private array $links;
+
     private Includes $included;
 
     /** @param  class-string<T>  $itemClass */
     public function __construct(array $body, private readonly string $itemClass = Item::class)
     {
-        $this->meta     = $body['meta'] ?? [];
-        $this->links    = $body['links'] ?? [];
+        $this->meta = $body['meta'] ?? [];
+        $this->links = $body['links'] ?? [];
         $this->included = new Includes($body['included'] ?? []);
         $this->item = Item::from($body['data'] ?? [], $this->itemClass);
 

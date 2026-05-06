@@ -15,7 +15,7 @@ class CollectionDocumentTest extends TestCase
             ['id' => '1', 'type' => 'orders', 'attributes' => ['status' => 'pending']],
             ['id' => '2', 'type' => 'orders', 'attributes' => ['status' => 'shipped']],
         ],
-        'meta'  => ['total' => 2],
+        'meta' => ['total' => 2],
         'links' => ['next' => null, 'prev' => null],
     ];
 
@@ -66,13 +66,15 @@ class CollectionDocumentTest extends TestCase
     {
         $doc = new CollectionDocument($this->body);
         $ids = [];
-        $doc->each(function (Item $item) use (&$ids) { $ids[] = $item->id; });
+        $doc->each(function (Item $item) use (&$ids) {
+            $ids[] = $item->id;
+        });
         $this->assertSame(['1', '2'], $ids);
     }
 
     public function test_map_transforms_items(): void
     {
-        $doc    = new CollectionDocument($this->body);
+        $doc = new CollectionDocument($this->body);
         $result = $doc->map(fn (Item $item) => $item->id)->values()->all();
         $this->assertSame(['1', '2'], $result);
     }
@@ -89,7 +91,7 @@ class CollectionDocumentTest extends TestCase
 
     public function test_to_response_with_transform(): void
     {
-        $doc     = new CollectionDocument($this->body);
+        $doc = new CollectionDocument($this->body);
         $payload = json_decode(
             $doc->toResponse(fn (Item $item) => ['custom_id' => $item->id])->getContent(),
             true
@@ -132,7 +134,7 @@ class CollectionDocumentTest extends TestCase
     public function test_raw_included_returns_included_data(): void
     {
         $body = [
-            'data'     => [],
+            'data' => [],
             'included' => [['type' => 'customers', 'id' => '1', 'attributes' => ['name' => 'Bob']]],
         ];
         $this->assertCount(1, (new CollectionDocument($body))->rawIncluded());
@@ -141,7 +143,7 @@ class CollectionDocumentTest extends TestCase
     public function test_filter_included_reduces_set(): void
     {
         $body = [
-            'data'     => [],
+            'data' => [],
             'included' => [
                 ['type' => 'customers', 'id' => '1', 'attributes' => []],
                 ['type' => 'products',  'id' => '2', 'attributes' => []],
@@ -156,7 +158,7 @@ class CollectionDocumentTest extends TestCase
     public function test_to_response_includes_included_when_present(): void
     {
         $body = [
-            'data'     => [['id' => '1', 'type' => 'orders', 'attributes' => []]],
+            'data' => [['id' => '1', 'type' => 'orders', 'attributes' => []]],
             'included' => [['type' => 'customers', 'id' => '1', 'attributes' => ['name' => 'Bob']]],
         ];
 

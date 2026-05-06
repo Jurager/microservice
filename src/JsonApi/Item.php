@@ -15,28 +15,38 @@ use Illuminate\Support\Collection;
 class Item
 {
     public readonly string $id;
+
     public readonly string $type;
 
     private array $attributes;
+
     private array $relationships;
+
+    private array $links;
+
+    private array $meta;
+
     private array $resolved = [];
 
     final public function __construct(array $resource)
     {
-        $this->id            = (string) ($resource['id'] ?? '');
-        $this->type          = (string) ($resource['type'] ?? '');
-        $this->attributes    = $resource['attributes'] ?? [];
+        $this->id = (string) ($resource['id'] ?? '');
+        $this->type = (string) ($resource['type'] ?? '');
+        $this->attributes = $resource['attributes'] ?? [];
         $this->relationships = $resource['relationships'] ?? [];
+        $this->links = $resource['links'] ?? [];
+        $this->meta = $resource['meta'] ?? [];
     }
 
     /**
      * @template T of Item
+     *
      * @param  class-string<T>|null  $class
-     * @return static
      */
     public static function from(array $resource, ?string $class = null): static
     {
         $target = $class ?? static::class;
+
         return new $target($resource);
     }
 
@@ -54,12 +64,14 @@ class Item
     public function relationIds(string $name): array
     {
         $items = data_get($this->relationships, "{$name}.data", []);
+
         return array_map('intval', array_column((array) $items, 'id'));
     }
 
     public function relationId(string $name): ?int
     {
         $id = data_get($this->relationships, "{$name}.data.id");
+
         return $id !== null ? (int) $id : null;
     }
 
@@ -73,6 +85,16 @@ class Item
         return $this->relationships;
     }
 
+    public function links(): array
+    {
+        return $this->links;
+    }
+
+    public function meta(): array
+    {
+        return $this->meta;
+    }
+
     /** @param  Item[]  $items */
     public function setResolved(string $name, array $items): void
     {
@@ -81,6 +103,7 @@ class Item
 
     /**
      * @template T of Item
+     *
      * @return Collection<int, T>
      */
     public function getRelation(string $name): Collection
@@ -102,13 +125,19 @@ class Item
     public function toArray(): array
     {
         $data = [
-            'id'         => $this->id,
-            'type'       => $this->type,
+            'id' => $this->id,
+            'type' => $this->type,
             'attributes' => $this->attributes,
         ];
 
         if ($this->relationships) {
             $data['relationships'] = $this->relationships;
+        }
+        if ($this->links) {
+            $data['links'] = $this->links;
+        }
+        if ($this->meta) {
+            $data['meta'] = $this->meta;
         }
 
         return $data;

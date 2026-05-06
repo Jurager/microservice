@@ -34,7 +34,9 @@ final class ResponseError
     /** @var callable(array, int, array): JsonResponse|null */
     private static $renderer = null;
 
-    private function __construct() {}
+    private function __construct()
+    {
+    }
 
     /**
      * Override the default JSON:API renderer.
@@ -53,12 +55,12 @@ final class ResponseError
         }
 
         $status = match (true) {
-            $e instanceof HttpExceptionInterface  => $e->getStatusCode(),
+            $e instanceof HttpExceptionInterface => $e->getStatusCode(),
             $e instanceof ServiceRequestException => $e->status,
             $e instanceof AuthenticationException => 401,
-            $e instanceof AuthorizationException  => 403,
-            $e instanceof ModelNotFoundException  => 404,
-            default                               => 500,
+            $e instanceof AuthorizationException => 403,
+            $e instanceof ModelNotFoundException => 404,
+            default => 500,
         };
 
         $headers = $e instanceof HttpExceptionInterface ? $e->getHeaders() : [];
@@ -70,7 +72,7 @@ final class ResponseError
         return self::render(
             errors: [[
                 'status' => (string) $status,
-                'title'  => self::title($status),
+                'title' => self::title($status),
                 'detail' => $e->getMessage() ?: self::detail($status),
             ]],
             status: $status,
@@ -89,7 +91,7 @@ final class ResponseError
             foreach ($messages as $message) {
                 $errors[] = [
                     'status' => '422',
-                    'title'  => 'Validation Error',
+                    'title' => 'Validation Error',
                     'detail' => $message,
                     'source' => ['pointer' => $pointer],
                 ];
@@ -120,13 +122,13 @@ final class ResponseError
     private static function title(int $status): string
     {
         return match ($status) {
-            401     => 'Unauthenticated',
-            403     => 'Forbidden',
-            404     => 'Not Found',
-            405     => 'Method Not Allowed',
-            422     => 'Unprocessable Entity',
-            429     => 'Too Many Requests',
-            500     => 'Server Error',
+            401 => 'Unauthenticated',
+            403 => 'Forbidden',
+            404 => 'Not Found',
+            405 => 'Method Not Allowed',
+            422 => 'Unprocessable Entity',
+            429 => 'Too Many Requests',
+            500 => 'Server Error',
             default => 'HTTP Error',
         };
     }
@@ -134,9 +136,9 @@ final class ResponseError
     private static function detail(int $status): string
     {
         return match ($status) {
-            401     => 'Unauthenticated.',
-            403     => 'This action is unauthorized.',
-            404     => 'Resource not found.',
+            401 => 'Unauthenticated.',
+            403 => 'This action is unauthorized.',
+            404 => 'Resource not found.',
             default => 'An unexpected error occurred.',
         };
     }

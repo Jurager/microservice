@@ -12,11 +12,11 @@ class ItemDocumentTest extends TestCase
 {
     private array $body = [
         'data' => [
-            'id'         => '42',
-            'type'       => 'orders',
+            'id' => '42',
+            'type' => 'orders',
             'attributes' => ['status' => 'pending', 'total' => 99.5],
         ],
-        'meta'  => ['server_time' => '2025-01-01'],
+        'meta' => ['server_time' => '2025-01-01'],
         'links' => ['self' => '/orders/42'],
     ];
 
@@ -74,7 +74,7 @@ class ItemDocumentTest extends TestCase
 
     public function test_to_response_with_transform(): void
     {
-        $doc     = new ItemDocument($this->body);
+        $doc = new ItemDocument($this->body);
         $payload = json_decode(
             $doc->toResponse(fn (Item $item) => ['custom_id' => $item->id])->getContent(),
             true
@@ -92,7 +92,7 @@ class ItemDocumentTest extends TestCase
     public function test_to_response_includes_included_when_present(): void
     {
         $body = [
-            'data'     => ['id' => '1', 'type' => 'orders', 'attributes' => []],
+            'data' => ['id' => '1', 'type' => 'orders', 'attributes' => []],
             'included' => [['type' => 'customers', 'id' => '1', 'attributes' => ['name' => 'Bob']]],
         ];
 
@@ -110,7 +110,7 @@ class ItemDocumentTest extends TestCase
     public function test_raw_included_returns_included_array(): void
     {
         $body = [
-            'data'     => ['id' => '1', 'type' => 'orders', 'attributes' => []],
+            'data' => ['id' => '1', 'type' => 'orders', 'attributes' => []],
             'included' => [['type' => 'customers', 'id' => '1', 'attributes' => ['name' => 'Bob']]],
         ];
         $this->assertCount(1, (new ItemDocument($body))->rawIncluded());
@@ -119,7 +119,7 @@ class ItemDocumentTest extends TestCase
     public function test_filter_included_reduces_set(): void
     {
         $body = [
-            'data'     => ['id' => '1', 'type' => 'orders', 'attributes' => []],
+            'data' => ['id' => '1', 'type' => 'orders', 'attributes' => []],
             'included' => [
                 ['type' => 'customers', 'id' => '1', 'attributes' => []],
                 ['type' => 'products',  'id' => '2', 'attributes' => []],
