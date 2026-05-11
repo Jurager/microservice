@@ -6,8 +6,9 @@ namespace Jurager\Microservice\Client;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
-use GuzzleHttp\Handler\CurlHandler;
+use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Promise\Utils;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Support\HmacSigner;
@@ -18,11 +19,14 @@ class ServiceClient
 
     protected Client $httpClient;
 
+    /** @var array<string, array{string, int}> In-memory cache: service → [baseUrl, timeout] */
+    protected array $resolvedConfigs = [];
+
     public function __construct(
         protected readonly HmacSigner $signer,
     ) {
         $this->httpClient = new Client([
-            'handler' => HandlerStack::create(new CurlHandler()),
+            'handler' => HandlerStack::create(new CurlMultiHandler()),
         ]);
     }
 
@@ -41,6 +45,43 @@ class ServiceClient
         } catch (GuzzleException $e) {
             throw new ServiceUnavailableException($service, previous: $e);
         }
+    }
+
+    /**
+     * Send multiple requests concurrently and return responses keyed by the same keys.
+     *
+     * All requests are dispatched simultaneously. The method blocks until all complete.
+     * Failed requests throw ServiceUnavailableException; non-2xx responses are returned
+     * as-is so the caller can inspect status codes.
+     *
+     * @param  array<string|int, PendingServiceRequest>  $requests
+     * @return array<string|int, ServiceResponse>
+     */
+    public function parallel(array $requests): array
+    {
+        $promises = [];
+
+        foreach ($requests as $key => $pending) {
+            $service = $pending->getService();
+            [$baseUrl, $timeout] = $this->resolveServiceConfig($service, $pending->getTimeout());
+
+            $promises[$key] = $this->executeRequestAsync($pending, $baseUrl, $timeout);
+        }
+
+        $settled = Utils::settle($promises)->wait();
+
+        $responses = [];
+
+        foreach ($settled as $key => $result) {
+            if ($result['state'] === 'fulfilled') {
+                $responses[$key] = new ServiceResponse($result['value']);
+            } else {
+                $pending = $requests[$key];
+                throw new ServiceUnavailableException($pending->getService(), previous: $result['reason']);
+            }
+        }
+
+        return $responses;
     }
 
     /**
@@ -67,6 +108,12 @@ class ServiceClient
             return [$baseUrl, $requestTimeout ?? 30];
         }
 
+        if (isset($this->resolvedConfigs[$service])) {
+            [$baseUrl, $defaultTimeout] = $this->resolvedConfigs[$service];
+
+            return [$baseUrl, $requestTimeout ?? $defaultTimeout];
+        }
+
         $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
 
         if ($raw) {
@@ -74,9 +121,11 @@ class ServiceClient
             $url = $manifest['base_url'] ?? null;
 
             if ($url) {
-                $timeout = $requestTimeout ?? (isset($manifest['timeout']) ? (int) $manifest['timeout'] : 30);
+                $defaultTimeout = isset($manifest['timeout']) ? (int) $manifest['timeout'] : 30;
 
-                return [$url, $timeout];
+                $this->resolvedConfigs[$service] = [$url, $defaultTimeout];
+
+                return [$url, $requestTimeout ?? $defaultTimeout];
             }
         }
 
@@ -85,11 +134,33 @@ class ServiceClient
 
     protected function executeRequest(PendingServiceRequest $request, string $baseUrl, int $timeout): ServiceResponse
     {
-        $service = $request->getService();
+        return new ServiceResponse(
+            $this->httpClient->request(
+                $request->getMethod(),
+                $this->buildUrl($baseUrl, $request->getPath()),
+                $this->buildOptions($request, $timeout),
+            )
+        );
+    }
+
+    protected function executeRequestAsync(PendingServiceRequest $request, string $baseUrl, int $timeout): \GuzzleHttp\Promise\PromiseInterface
+    {
+        return $this->httpClient->requestAsync(
+            $request->getMethod(),
+            $this->buildUrl($baseUrl, $request->getPath()),
+            $this->buildOptions($request, $timeout),
+        );
+    }
+
+    protected function buildUrl(string $baseUrl, string $path): string
+    {
+        return rtrim($baseUrl, '/').'/'.ltrim($path, '/');
+    }
+
+    protected function buildOptions(PendingServiceRequest $request, int $timeout): array
+    {
         $method = $request->getMethod();
         $path = $request->getPath();
-        $url = rtrim($baseUrl, '/').'/'.ltrim($path, '/');
-
         $multipart = $request->getMultipart();
 
         $body = $request->getBody();
@@ -114,7 +185,7 @@ class ServiceClient
             $options['body'] = $bodyString;
         }
 
-        return new ServiceResponse($this->httpClient->request($method, $url, $options));
+        return $options;
     }
 
     protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = [], bool $multipart = false): array
