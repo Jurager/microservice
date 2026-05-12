@@ -185,6 +185,11 @@ class PendingServiceRequest
         return $this->send()->json($key, $default);
     }
 
+    public function status(): int
+    {
+        return $this->send()->status();
+    }
+
     public function getService(): string
     {
         return $this->service;
