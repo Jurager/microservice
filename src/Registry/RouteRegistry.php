@@ -88,7 +88,15 @@ class RouteRegistry
     }
 
     /** @var array<string, string> Compiled regex patterns keyed by route pattern. */
-    private static array $compiledPatterns = [];
+    private array $compiledPatterns = [];
+
+    /**
+     * Clear cached compiled patterns. Call after manifests change in long-running processes.
+     */
+    public function clearPatternCache(): void
+    {
+        $this->compiledPatterns = [];
+    }
 
     /**
      * Match a route pattern against a URI.
@@ -101,21 +109,21 @@ class RouteRegistry
             return true;
         }
 
-        if (! isset(self::$compiledPatterns[$pattern])) {
+        if (! isset($this->compiledPatterns[$pattern])) {
             $placeholder = '__PARAM__';
             $temp = preg_replace('/\{[^}]+\}/', $placeholder, $pattern);
 
             if ($temp === null) {
-                self::$compiledPatterns[$pattern] = '';
+                $this->compiledPatterns[$pattern] = '';
 
                 return false;
             }
 
             $quoted = preg_quote($temp, '#');
-            self::$compiledPatterns[$pattern] = str_replace(preg_quote($placeholder, '#'), '[^/]+', $quoted);
+            $this->compiledPatterns[$pattern] = str_replace(preg_quote($placeholder, '#'), '[^/]+', $quoted);
         }
 
-        $regex = self::$compiledPatterns[$pattern];
+        $regex = $this->compiledPatterns[$pattern];
 
         return $regex !== '' && (bool) preg_match('#^'.$regex.'$#', $uri);
     }

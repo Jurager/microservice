@@ -19,8 +19,9 @@ return [
     | Debug Mode
     |--------------------------------------------------------------------------
     |
-    | When enabled, TrustGateway middleware skips HMAC verification.
-    | Must be disabled in production.
+    | When enabled, TrustGateway middleware skips HMAC signature verification
+    | and SERVICE_SECRET validation is bypassed.
+    | FOR LOCAL DEVELOPMENT ONLY. Must be disabled in production.
     |
     */
 
@@ -69,6 +70,19 @@ return [
         'connection' => env('SERVICE_REDIS_CONNECTION', 'default'),
         'prefix' => 'microservice:',
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Trust All Proxies
+    |--------------------------------------------------------------------------
+    |
+    | When true (default), the service provider calls TrustProxies::at('*')
+    | when no manifest.services are configured. Set to false to manage
+    | trusted proxies yourself.
+    |
+    */
+
+    'trust_all_proxies' => true,
 
     /*
     |--------------------------------------------------------------------------
@@ -141,6 +155,56 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Retries
+    |--------------------------------------------------------------------------
+    |
+    | Automatic retry on connection failures and 5xx server errors.
+    |
+    | max        — maximum number of retries (0 = disabled).
+    | delay      — base delay in milliseconds before the first retry.
+    | multiplier — exponential backoff multiplier (2.0 = 100ms, 200ms, 400ms...).
+    |
+    */
+
+    'retries' => [
+        'max' => env('SERVICE_RETRIES_MAX', 0),
+        'delay' => env('SERVICE_RETRIES_DELAY', 100),
+        'multiplier' => env('SERVICE_RETRIES_MULTIPLIER', 2.0),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Circuit Breaker
+    |--------------------------------------------------------------------------
+    |
+    | Protects services from cascading failures. After `threshold` consecutive
+    | failures within `window` seconds, the circuit opens for `timeout` seconds.
+    | Set threshold to 0 to disable.
+    |
+    */
+
+    'circuit_breaker' => [
+        'threshold' => env('SERVICE_CIRCUIT_BREAKER_THRESHOLD', 0),
+        'timeout' => env('SERVICE_CIRCUIT_BREAKER_TIMEOUT', 30),
+        'window' => env('SERVICE_CIRCUIT_BREAKER_WINDOW', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Distributed Tracing
+    |--------------------------------------------------------------------------
+    |
+    | W3C Trace Context propagation. When enabled, outgoing requests include
+    | traceparent and tracestate headers.
+    |
+    */
+
+    'tracing' => [
+        'enabled' => env('SERVICE_TRACING_ENABLED', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Proxy Settings
     |--------------------------------------------------------------------------
     |
@@ -148,6 +212,21 @@ return [
     | with gateway-level headers (e.g. CORS set by nginx).
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Message Bus
+    |--------------------------------------------------------------------------
+    |
+    | RabbitMQ-based inter-service messaging.
+    |
+    | connection — Laravel queue connection name configured in config/queue.php.
+    |
+    */
+
+    'message_bus' => [
+        'connection' => env('MESSAGE_BUS_CONNECTION', 'rabbitmq'),
+    ],
 
     'proxy' => [
         'strip_headers' => [

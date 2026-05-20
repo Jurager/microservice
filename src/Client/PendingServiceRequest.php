@@ -113,6 +113,8 @@ class PendingServiceRequest
                     ...explode(',', $this->query[$key]),
                     ...explode(',', $value),
                 ])));
+            } elseif (isset($this->query[$key]) && is_array($value) && is_array($this->query[$key])) {
+                $this->query[$key] = array_replace_recursive($this->query[$key], $value);
             } else {
                 $this->query[$key] = $value;
             }
@@ -149,10 +151,6 @@ class PendingServiceRequest
         return $this;
     }
 
-    /**
-     * @throws ServiceUnavailableException
-     * @throws ServiceRequestException
-     */
     /**
      * @throws ServiceUnavailableException
      * @throws ServiceRequestException
@@ -224,4 +222,5 @@ class PendingServiceRequest
     {
         return $this->timeout;
     }
+
 }

@@ -16,9 +16,6 @@ class ManifestRegistry
         'where', 'domain', 'excluded_middleware', 'withoutMiddleware',
     ];
 
-    /**
-     * Build the manifest payload for the current service.
-     */
     public function build(): array
     {
         return [

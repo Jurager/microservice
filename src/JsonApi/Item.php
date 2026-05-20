@@ -72,7 +72,11 @@ class Item
     {
         $id = data_get($this->relationships, "{$name}.data.id");
 
-        return $id !== null ? (int) $id : null;
+        if ($id === null) {
+            return null;
+        }
+
+        return is_numeric($id) ? (int) $id : null;
     }
 
     public function relationshipData(string $name): array

@@ -8,26 +8,50 @@ use Illuminate\Http\Request;
 
 class HmacSigner
 {
+    private string $algorithm;
+
+    private string $secret;
+
+    private int $tolerance;
+
+    public function __construct()
+    {
+        $this->algorithm = config('microservice.algorithm', 'sha256');
+        $this->secret = (string) config('microservice.secret', '');
+        $this->tolerance = (int) config('microservice.timestamp_tolerance', 60);
+    }
+
+    /**
+     * Produce an HMAC signature for an outgoing request.
+     *
+     * Signed payload format (newline-separated):
+     *   METHOD\n/path\ntimestamp\nbody
+     *
+     * Multipart requests pass an empty string for $body because the boundary
+     * embedded in the Content-Type header changes per request and cannot be
+     * reproduced reliably on the receiving side.
+     */
     public function sign(string $method, string $path, string $timestamp, ?string $body = null): string
     {
         $payload = strtoupper($method)."\n".'/'.ltrim($path, '/')."\n$timestamp\n".($body ?? '');
 
-        return hash_hmac(
-            config('microservice.algorithm', 'sha256'),
-            $payload,
-            config('microservice.secret')
-        );
+        return hash_hmac($this->algorithm, $payload, $this->secret);
     }
 
+    /**
+     * Verify the HMAC signature of an incoming request.
+     *
+     * Returns false if the timestamp is outside the tolerance window or if the
+     * signature does not match. Uses hash_equals to prevent timing attacks.
+     */
     public function verify(Request $request, string $signature, string $timestamp): bool
     {
-        $tolerance = config('microservice.timestamp_tolerance', 60);
-
-        if (abs(time() - (int) $timestamp) > $tolerance) {
+        if (abs(time() - (int) $timestamp) > $this->tolerance) {
             return false;
         }
 
-        $isMultipart = str_contains($request->header('Content-Type', ''), 'multipart/form-data');
+        $contentType = $request->header('Content-Type', '');
+        $isMultipart = stripos($contentType, 'multipart/form-data') !== false;
 
         $expected = $this->sign(
             $request->method(),

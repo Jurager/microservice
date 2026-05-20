@@ -8,6 +8,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\ServiceProvider;
+use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
 use Jurager\Microservice\JsonApi\ResponseError;
@@ -30,10 +31,30 @@ class MicroserviceServiceProvider extends ServiceProvider
 
         $this->app->singleton(HmacSigner::class);
         $this->app->singleton(ServiceClient::class);
+        $this->app->singleton(MessageBus::class, fn ($app) => new MessageBus(
+            config('microservice.message_bus.connection', 'rabbitmq'),
+        ));
+    }
+
+    private function validateSecret(): void
+    {
+        if (config('microservice.debug', false)) {
+            return;
+        }
+
+        $secret = config('microservice.secret');
+
+        if (empty($secret)) {
+            throw new \RuntimeException(
+                'Invalid SERVICE_SECRET value. HMAC signing requires a non-empty shared secret'
+            );
+        }
     }
 
     public function boot(): void
     {
+        $this->validateSecret();
+
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
             $handler->renderable(fn (\Throwable $e) => ResponseError::fromException($e));
         });
@@ -57,7 +78,7 @@ class MicroserviceServiceProvider extends ServiceProvider
 
     protected function configureTrustedProxies(): void
     {
-        if (empty(config('microservice.manifest.services', []))) {
+        if (empty(config('microservice.manifest.services', [])) && config('microservice.trust_all_proxies', true)) {
             TrustProxies::at('*');
         }
     }

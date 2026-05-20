@@ -20,9 +20,12 @@ class ProxyController extends Controller
 
         $pending = $client->service($service)->withMethod($request->method(), $path);
 
+        $multipart = null;
+
         if (! $request->isMethodSafe()) {
             if ($request->files->count() > 0) {
-                $pending->withMultipart($this->buildMultipart($request));
+                $multipart = $this->buildMultipart($request);
+                $pending->withMultipart($multipart);
             } else {
                 $content = $request->getContent();
 
@@ -43,19 +46,37 @@ class ProxyController extends Controller
 
         $prefix = $request->route()->getAction('_service_prefix') ?? '';
 
-        $pending->withHeaders([
+        $headers = [
             'X-Forwarded-Host' => $request->getHttpHost(),
             'X-Forwarded-Proto' => $request->getScheme(),
             'X-Forwarded-Port' => (string) $request->getPort(),
-            'X-Forwarded-Prefix' => $prefix !== '' ? '/'.trim($prefix, '/') : '',
-        ]);
+        ];
+
+        if ($prefix !== '') {
+            $headers['X-Forwarded-Prefix'] = '/'.trim($prefix, '/');
+        }
+
+        $pending->withHeaders($headers);
 
         if ($query = $request->query()) {
             $pending->with($query);
         }
 
-        $response = $pending->send();
-        $headers = $this->filterHeaders($response->headers());
+        try {
+            $response = $pending->send();
+        } catch (\Throwable $e) {
+            if ($multipart !== null) {
+                foreach ($multipart as $part) {
+                    if (isset($part['contents']) && \is_resource($part['contents'])) {
+                        @\fclose($part['contents']);
+                    }
+                }
+            }
+
+            throw $e;
+        }
+
+        $outHeaders = $this->filterHeaders($response->headers());
         $status = $response->status();
         $stream = $response->stream();
 
@@ -70,7 +91,7 @@ class ProxyController extends Controller
                 }
             },
             $status,
-            $headers,
+            $outHeaders,
         );
     }
 

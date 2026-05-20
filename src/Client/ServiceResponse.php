@@ -17,8 +17,7 @@ class ServiceResponse
 
     public function __construct(
         protected readonly ResponseInterface $response,
-    ) {
-    }
+    ) {}
 
     public function status(): int
     {
@@ -80,14 +79,31 @@ class ServiceResponse
     }
 
     /**
-     * Forward the raw response body directly as a JSON:API response.
-     * Use this for pure proxy cases where the API adds no business logic to the body.
+     * Forward the raw response body directly as a response.
+     * Proxies all safe upstream headers, not just Content-Type.
      */
     public function passthrough(): Response
     {
-        return response($this->body(), $this->status(), [
-            'Content-Type' => $this->response->getHeaderLine('Content-Type') ?: 'application/vnd.api+json',
-        ]);
+        return response($this->body(), $this->status(), $this->passthroughHeaders());
+    }
+
+    private function passthroughHeaders(): array
+    {
+        $strip = ['transfer-encoding', 'connection'];
+
+        $headers = [];
+
+        foreach ($this->response->getHeaders() as $name => $values) {
+            if (! in_array(strtolower($name), $strip, true)) {
+                $headers[$name] = implode(', ', (array) $values);
+            }
+        }
+
+        if (! isset($headers['Content-Type'])) {
+            $headers['Content-Type'] = 'application/vnd.api+json';
+        }
+
+        return $headers;
     }
 
     /**

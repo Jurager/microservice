@@ -37,7 +37,11 @@ class Idempotency
         }
 
         $lockKey = $cacheKey.':lock';
-        $lockTimeout = config('microservice.idempotency.lock_timeout', 10);
+        $lockTimeout = (int) config('microservice.idempotency.lock_timeout', 10);
+
+        if ($lockTimeout <= 0) {
+            throw new InvalidCacheStateException('Idempotency lock_timeout must be greater than 0.');
+        }
 
         if (! $this->redis()->set($lockKey, 'processing', 'EX', $lockTimeout, 'NX')) {
             // Another process holds the lock — check if it already cached the response.

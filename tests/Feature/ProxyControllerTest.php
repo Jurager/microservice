@@ -237,11 +237,11 @@ class ProxyControllerTest extends TestCase
         $this->assertSame('/oms', $this->capturedRequest->headers['X-Forwarded-Prefix']);
     }
 
-    public function test_forwards_empty_prefix_when_not_set(): void
+    public function test_omits_prefix_when_not_set(): void
     {
         $this->getJson('/api/fallback');
 
-        $this->assertSame('', $this->capturedRequest->headers['X-Forwarded-Prefix']);
+        $this->assertArrayNotHasKey('X-Forwarded-Prefix', $this->capturedRequest->headers);
     }
 
     public function test_proxies_multipart_with_file(): void

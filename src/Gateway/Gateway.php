@@ -18,9 +18,9 @@ class Gateway
      *
      * @param  string[]|null  $services
      */
-    public static function routes(?Closure $overrides = null, ?array $services = null, ?string $controller = null): void
+    public static function routes(?Closure $overrides = null, ?array $services = null, ?string $controller = null, ?RouteRegistry $registry = null): void
     {
-        $registry = app(RouteRegistry::class);
+        $registry ??= app(RouteRegistry::class);
         $controller ??= ProxyController::class;
 
         $reservedKeys = array_flip(['method', 'uri', 'name', ...ManifestRegistry::EXCLUDED_ACTION_KEYS]);

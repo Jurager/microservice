@@ -20,7 +20,7 @@ class TrustGateway
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (config('microservice.debug')) {
+        if (config('microservice.debug', false)) {
             return $next($request);
         }
 
