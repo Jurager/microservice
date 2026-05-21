@@ -62,4 +62,22 @@ class HmacSigner
 
         return hash_equals($expected, $signature);
     }
+
+    /**
+     * Produce an HMAC signature for an arbitrary payload string.
+     * Used by MessageBus to sign event envelopes.
+     */
+    public function signRaw(string $payload): string
+    {
+        return hash_hmac($this->algorithm, $payload, $this->secret);
+    }
+
+    /**
+     * Verify an HMAC signature for an arbitrary payload string.
+     * Uses hash_equals to prevent timing attacks.
+     */
+    public function verifyRaw(string $payload, string $signature): bool
+    {
+        return hash_equals($this->signRaw($payload), $signature);
+    }
 }

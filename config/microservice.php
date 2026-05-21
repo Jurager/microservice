@@ -213,21 +213,6 @@ return [
     |
     */
 
-    /*
-    |--------------------------------------------------------------------------
-    | Message Bus
-    |--------------------------------------------------------------------------
-    |
-    | RabbitMQ-based inter-service messaging.
-    |
-    | connection — Laravel queue connection name configured in config/queue.php.
-    |
-    */
-
-    'message_bus' => [
-        'connection' => env('MESSAGE_BUS_CONNECTION', 'rabbitmq'),
-    ],
-
     'proxy' => [
         'strip_headers' => [
             'Access-Control-Allow-Origin',

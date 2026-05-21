@@ -4,83 +4,103 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Unit;
 
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Queue;
 use Jurager\Microservice\Bus\MessageBus;
+use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
 class MessageBusTest extends TestCase
 {
-    public function test_publish_sends_json_envelope_to_queue(): void
+    public function test_publish_dispatches_event_with_signed_envelope(): void
     {
-        $connection = Mockery::mock();
-        $connection->shouldReceive('pushRaw')
+        config()->set('microservice.name', 'sfm');
+
+        Event::shouldReceive('dispatch')
             ->once()
-            ->with(
-                json_encode(['type' => 'sfm.site.updated', 'payload' => ['site_id' => 1, 'domain' => 'example.com']]),
-                'api.sfm.cache',
-            );
+            ->with('sfm.site.updated', Mockery::on(function (array $args): bool {
+                $envelope = $args[0] ?? null;
 
-        Queue::shouldReceive('connection')->with('rabbitmq')->once()->andReturn($connection);
+                return is_array($envelope)
+                    && $envelope['type'] === 'sfm.site.updated'
+                    && $envelope['service'] === 'sfm'
+                    && $envelope['payload'] === ['site_id' => 1, 'domain' => 'example.com']
+                    && array_key_exists('occurred_at', $envelope)
+                    && array_key_exists('request_id', $envelope)
+                    && is_string($envelope['signature'])
+                    && $envelope['signature'] !== '';
+            }));
 
-        (new MessageBus('rabbitmq'))->publish(
+        app(MessageBus::class)->publish(
             'sfm.site.updated',
             ['site_id' => 1, 'domain' => 'example.com'],
-            'api.sfm.cache',
         );
     }
 
-    public function test_publish_uses_configured_connection(): void
+    public function test_publish_logs_error_on_exception(): void
     {
-        $connection = Mockery::mock();
-        $connection->shouldReceive('pushRaw')->once();
-
-        Queue::shouldReceive('connection')->with('custom-connection')->once()->andReturn($connection);
-
-        (new MessageBus('custom-connection'))->publish('foo.bar', [], 'some-queue');
-    }
-
-    public function test_publish_does_not_throw_on_queue_exception(): void
-    {
-        $connection = Mockery::mock();
-        $connection->shouldReceive('pushRaw')->andThrow(new \RuntimeException('Connection refused'));
-
-        Queue::shouldReceive('connection')->andReturn($connection);
-        Log::spy();
-
-        (new MessageBus('rabbitmq'))->publish('sfm.site.updated', ['site_id' => 1], 'api.sfm.cache');
-
-        $this->addToAssertionCount(1);
-    }
-
-    public function test_publish_logs_error_with_context_on_exception(): void
-    {
-        $connection = Mockery::mock();
-        $connection->shouldReceive('pushRaw')->andThrow(new \RuntimeException('Connection refused'));
-
-        Queue::shouldReceive('connection')->andReturn($connection);
+        Event::shouldReceive('dispatch')->andThrow(new \RuntimeException('AMQP down'));
 
         Log::shouldReceive('error')
             ->once()
-            ->with('MessageBus: failed to publish', Mockery::on(fn (array $ctx) =>
-                $ctx['type'] === 'sfm.site.updated' &&
-                $ctx['queue'] === 'api.sfm.cache' &&
-                $ctx['error'] === 'Connection refused'
+            ->with('MessageBus: failed to publish', Mockery::on(fn (array $ctx): bool =>
+                $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
             ));
 
-        (new MessageBus('rabbitmq'))->publish('sfm.site.updated', ['site_id' => 1], 'api.sfm.cache');
+        app(MessageBus::class)->publish('sfm.site.deleted', []);
     }
 
-    public function test_publish_encodes_empty_payload(): void
+    public function test_verify_accepts_envelope_signed_by_publish(): void
     {
-        $connection = Mockery::mock();
-        $connection->shouldReceive('pushRaw')
-            ->once()
-            ->with(json_encode(['type' => 'sfm.site.deleted', 'payload' => []]), 'api.sfm.cache');
+        $signer = app(HmacSigner::class);
+        $bus    = new MessageBus($signer);
 
-        Queue::shouldReceive('connection')->andReturn($connection);
+        $captured = null;
+        Event::listen('sfm.site.updated', function (array $envelope) use (&$captured): void {
+            $captured = $envelope;
+        });
 
-        (new MessageBus('rabbitmq'))->publish('sfm.site.deleted', [], 'api.sfm.cache');
+        $bus->publish('sfm.site.updated', ['site_id' => 42]);
+
+        $this->assertIsArray($captured);
+        $this->assertTrue($bus->verify($captured));
+    }
+
+    public function test_verify_rejects_envelope_with_tampered_payload(): void
+    {
+        $bus = app(MessageBus::class);
+
+        $captured = null;
+        Event::listen('sfm.site.updated', function (array $envelope) use (&$captured): void {
+            $captured = $envelope;
+        });
+
+        $bus->publish('sfm.site.updated', ['site_id' => 1]);
+
+        $this->assertIsArray($captured);
+
+        $captured['payload']['site_id'] = 999;
+
+        $this->assertFalse($bus->verify($captured));
+    }
+
+    public function test_verify_rejects_envelope_without_signature(): void
+    {
+        $bus = app(MessageBus::class);
+
+        $this->assertFalse($bus->verify([
+            'type'    => 'sfm.site.updated',
+            'payload' => ['site_id' => 1],
+        ]));
+    }
+
+    public function test_verify_passes_through_in_debug_mode(): void
+    {
+        config()->set('microservice.debug', true);
+
+        $bus = app(MessageBus::class);
+
+        $this->assertTrue($bus->verify(['type' => 'whatever', 'payload' => []]));
     }
 }
