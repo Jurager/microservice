@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Bus;
 
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Support\HmacSigner;
 use Throwable;
@@ -12,9 +11,9 @@ use Throwable;
 /**
  * Inter-service message bus over nuwber/rabbitevents.
  *
- * Wraps a domain payload into a standard, HMAC-signed envelope and dispatches
- * it via Laravel's Event dispatcher; the rabbitevents publisher forwards it
- * to RabbitMQ. Consumers verify the signature before invoking handlers.
+ * Builds an HMAC-signed envelope around a domain payload and publishes it to
+ * RabbitMQ via nuwber's Publisher (the global `publish()` helper). Consumers
+ * verify the signature before invoking handlers.
  */
 class MessageBus
 {
@@ -35,7 +34,9 @@ class MessageBus
             $envelope = $this->envelope($type, $payload);
             $envelope['signature'] = $this->signer->signRaw(self::canonicalize($envelope));
 
-            Event::dispatch($type, [$envelope]);
+            // Sends to RabbitMQ via nuwber's Publisher.
+            // Defined in vendor/nuwber/rabbitevents/src/RabbitEvents/Publisher/functions.php
+            publish($type, $envelope);
         } catch (Throwable $e) {
             Log::error('MessageBus: failed to publish', [
                 'type'  => $type,

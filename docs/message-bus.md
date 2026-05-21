@@ -1,22 +1,26 @@
 # Message Bus
 
-Inter-service event bus over RabbitMQ. The package provides a publisher (`MessageBus`), a `MessageHandler` contract for typed handlers, and a `microservice:listen` command that auto-discovers types from the application's handler map.
+Inter-service event bus over RabbitMQ. The package provides a publisher (`MessageBus`), a `MessageHandler` contract for typed handlers, and a thin auto-registration layer on top of [nuwber/rabbitevents](https://github.com/rabbitevents/listener).
 
 `nuwber/rabbitevents` is a hard dependency of the package, so the publisher and listener are always available. Using them is optional — services that don't publish events or run a listener pay nothing.
 
 ## Requirements
 
-`RabbitEvents\Publisher\PublisherServiceProvider` and `RabbitEvents\Listener\ListenerServiceProvider` are auto-discovered by Laravel. If you opt out of auto-discovery, register them manually.
+`RabbitEvents\Publisher\PublisherServiceProvider` and `RabbitEvents\Listener\ListenerServiceProvider` are auto-discovered by Laravel.
+
+The `MicroserviceServiceProvider` automatically creates an empty `app/Listeners` directory if it doesn't exist — nuwber's listener auto-discovery would otherwise fail at boot in services that don't have any class-based listeners.
 
 Add to `.env`:
 
 ```env
-RABBITMQ_HOST=127.0.0.1
-RABBITMQ_PORT=5672
-RABBITMQ_USER=guest
-RABBITMQ_PASSWORD=guest
-RABBITMQ_VHOST=/
+RABBITEVENTS_HOST=127.0.0.1
+RABBITEVENTS_PORT=5672
+RABBITEVENTS_USER=guest
+RABBITEVENTS_PASSWORD=guest
+RABBITEVENTS_VHOST=events
 ```
+
+> `RABBITEVENTS_VHOST` defaults to `events` (not `/`). Create the vhost in RabbitMQ or override to `/`.
 
 ---
 
@@ -41,7 +45,7 @@ class BroadcastSiteEvents
 }
 ```
 
-`MessageBus` is a singleton concrete class. Publishing failures are caught and logged — they do not throw.
+`MessageBus` is a singleton concrete class. Internally it builds a signed envelope and forwards to RabbitMQ via nuwber's `publish()` helper. Publishing failures are caught and logged — they do not throw.
 
 The envelope sent on the wire wraps the domain payload with metadata and an HMAC signature:
 
@@ -111,26 +115,28 @@ return [
 ];
 ```
 
-The provider iterates this list at boot and subscribes a Laravel event listener for each handler's `type()`. When `rabbitevents:listen` receives an AMQP message, it dispatches the local event; the registered listener unwraps the envelope, calls `fromMessage()` and routes the handler:
+`MicroserviceServiceProvider` subscribes a listener on the RabbitEvents `Dispatcher` for each handler's `type()`. When `rabbitevents:listen` receives an AMQP message it fires the local event; the subscribed listener verifies the envelope signature, then routes the handler:
 
 - If it implements `Illuminate\Contracts\Queue\ShouldQueue` → `dispatch($handler)` (pushed to the Laravel queue, processed by a regular `queue:work` worker with retries, backoff, failed_jobs).
 - Otherwise → `$handler->handle()` is invoked synchronously in the listener process.
 
-The `microservice:listen` process itself stays non-blocking even with heavy handlers — it only pushes to the queue and continues consuming the next AMQP message. Plain `MessageHandler` (without `ShouldQueue`) should only be used for cheap operations.
+The `rabbitevents:listen` process stays non-blocking even with heavy handlers — it only pushes to the queue and continues consuming. Plain `MessageHandler` (without `ShouldQueue`) should only be used for cheap operations.
 
 ### 3. Run the worker
 
 ```bash
-php artisan microservice:listen
+php artisan rabbitevents:listen
 ```
 
-The command auto-discovers all types from `config/messages.php`. You can also restrict to specific types for debugging:
+Without arguments, `rabbitevents:listen` picks up **all** events registered on the dispatcher — which is exactly what our auto-registration produces from `config/messages.php`. Adding a new handler to the config requires no command-line change, just a restart of the worker.
+
+Restrict to specific types for debugging:
 
 ```bash
-php artisan microservice:listen sfm.site.updated sfm.site.config
+php artisan rabbitevents:listen sfm.site.updated,sfm.site.config
 ```
 
-Under the hood it calls `rabbitevents:listen` with the discovered event list, so all standard options (`--memory`, `--timeout`, `--tries`) are supported.
+Standard options are supported: `--memory`, `--timeout`, `--tries`, `--sleep`. See [nuwber's listener docs](https://github.com/rabbitevents/listener) for the full list.
 
 ---
 
@@ -159,17 +165,17 @@ Manually publish an event to the bus — useful for triggering handlers without 
 php artisan microservice:emit sfm.site.updated '{"site_id":1,"domain":"example.com"}'
 ```
 
-Goes through the same `MessageBus::publish` path as a real publish: envelope is built, signed and dispatched. Subscribers in other services pick it up via their listener.
+Goes through the same `MessageBus::publish` path as a real publish: envelope is built, signed and forwarded to RabbitMQ via nuwber's Publisher. Subscribers in other services pick it up via their listener.
 
 ---
 
 ## Production
 
-For production, manage the listener with Supervisor:
+Manage the listener with Supervisor:
 
 ```ini
-[program:api-microservice-listener]
-command=php /var/www/api/artisan microservice:listen --memory=256 --timeout=120
+[program:api-rabbitevents-listener]
+command=php /var/www/api/artisan rabbitevents:listen --memory=256 --timeout=120
 autostart=true
 autorestart=true
 stopwaitsecs=10

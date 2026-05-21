@@ -6,12 +6,23 @@ namespace Jurager\Microservice\Tests;
 
 use Jurager\Microservice\MicroserviceServiceProvider;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
+use RabbitEvents\Listener\ListenerServiceProvider;
+use RabbitEvents\Publisher\PublisherServiceProvider;
 
 abstract class TestCase extends OrchestraTestCase
 {
     protected function getPackageProviders($app): array
     {
+        // nuwber's ListenerServiceProvider scans app/Listeners on boot.
+        // testbench's fake app doesn't have it — create stub before providers boot.
+        $listenersDir = $app->path('Listeners');
+        if (! is_dir($listenersDir)) {
+            @mkdir($listenersDir, 0o755, true);
+        }
+
         return [
+            PublisherServiceProvider::class,
+            ListenerServiceProvider::class,
             MicroserviceServiceProvider::class,
         ];
     }
