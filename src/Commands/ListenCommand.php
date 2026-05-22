@@ -11,14 +11,20 @@ use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
+use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
+use PhpAmqpLib\Wire\AMQPTable;
 use Throwable;
 
 /**
  * Consume events from RabbitMQ and dispatch to handlers registered in
  * config/messages.php. For each handler type a durable queue is declared,
  * bound to the topic exchange by routing key = type.
+ *
+ * When DLQ is enabled (config: microservice.bus.dead_letter.enabled), failed
+ * messages (bad signature, malformed JSON, handler exception) are nacked and
+ * routed via the DLX into a per-handler dead-letter queue for inspection.
  *
  * Usage:
  *   php artisan microservice:listen
@@ -62,14 +68,20 @@ class ListenCommand extends Command
         $memory   = (int) $this->option('memory');
         $maxJobs  = (int) $this->option('max-jobs');
 
+        $dlqEnabled = (bool) config('microservice.bus.dead_letter.enabled', true);
+        $dlxName    = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
+
+        if ($dlqEnabled) {
+            $channel->exchange_declare($dlxName, 'topic', passive: false, durable: true, auto_delete: false);
+        }
+
         // Fair dispatch: don't pile messages on a single worker
         $channel->basic_qos(prefetch_size: 0, prefetch_count: 1, a_global: false);
 
         foreach ($handlers as $type => $class) {
-            $queue = "{$service}.{$type}";
+            $this->declareQueues($channel, $service, $type, $exchange, $dlqEnabled, $dlxName);
 
-            $channel->queue_declare($queue, passive: false, durable: true, exclusive: false, auto_delete: false);
-            $channel->queue_bind($queue, $exchange, $type);
+            $queue = "{$service}.{$type}";
 
             $channel->basic_consume(
                 $queue,
@@ -78,8 +90,8 @@ class ListenCommand extends Command
                 no_ack: false,
                 exclusive: false,
                 nowait: false,
-                callback: function (AMQPMessage $message) use ($class, $listener, $memory, $maxJobs): void {
-                    $this->dispatch($message, $class, $listener);
+                callback: function (AMQPMessage $message) use ($class, $listener, $memory, $maxJobs, $dlqEnabled): void {
+                    $this->dispatch($message, $class, $listener, $dlqEnabled);
 
                     if ($maxJobs > 0 && $this->processed >= $maxJobs) {
                         $this->info("Reached --max-jobs={$maxJobs}, stopping.");
@@ -94,11 +106,11 @@ class ListenCommand extends Command
             );
         }
 
-        $this->info('Listening for events: ' . implode(', ', array_keys($handlers)));
+        $this->info('Listening for events: ' . implode(', ', array_keys($handlers))
+            . ($dlqEnabled ? " (DLQ → {$dlxName})" : ''));
 
         while (! $this->shouldStop && $channel->is_consuming()) {
             try {
-                // 1-second tick — lets us check signals between messages
                 $channel->wait(null, false, 1);
             } catch (AMQPTimeoutException) {
                 // No message in window — normal, loop and check signals
@@ -121,6 +133,41 @@ class ListenCommand extends Command
     }
 
     /**
+     * Declare main queue + (optionally) its dead-letter queue, and bind both.
+     */
+    private function declareQueues(
+        AMQPChannel $channel,
+        string $service,
+        string $type,
+        string $exchange,
+        bool $dlqEnabled,
+        string $dlxName,
+    ): void {
+        $queue = "{$service}.{$type}";
+        $args  = [];
+
+        if ($dlqEnabled) {
+            $dlq = "{$queue}.dlq";
+
+            $channel->queue_declare($dlq, passive: false, durable: true, exclusive: false, auto_delete: false);
+            $channel->queue_bind($dlq, $dlxName, $type);
+
+            $args = new AMQPTable(['x-dead-letter-exchange' => $dlxName]);
+        }
+
+        $channel->queue_declare(
+            $queue,
+            passive: false,
+            durable: true,
+            exclusive: false,
+            auto_delete: false,
+            nowait: false,
+            arguments: $args,
+        );
+        $channel->queue_bind($queue, $exchange, $type);
+    }
+
+    /**
      * @return array<string, class-string<MessageHandler>>
      */
     private function discoverHandlers(): array
@@ -138,7 +185,7 @@ class ListenCommand extends Command
         return $map;
     }
 
-    private function dispatch(AMQPMessage $message, string $class, Listener $listener): void
+    private function dispatch(AMQPMessage $message, string $class, Listener $listener, bool $dlqEnabled): void
     {
         $this->processed++;
 
@@ -147,20 +194,20 @@ class ListenCommand extends Command
         try {
             $envelope = json_decode($message->getBody(), true, flags: JSON_THROW_ON_ERROR);
         } catch (Throwable $e) {
-            Log::warning('ListenCommand: malformed JSON, dropping message', [
+            Log::warning('ListenCommand: malformed JSON, rejecting message', [
                 'error' => $e->getMessage(),
                 'body'  => substr((string) $message->getBody(), 0, 256),
             ]);
             $this->writeLine('FAIL', '(malformed JSON)', "from {$routingKey}", 'error');
-            $message->ack();
+            $this->reject($message, $dlqEnabled);
 
             return;
         }
 
         if (! is_array($envelope)) {
-            Log::warning('ListenCommand: envelope is not an array, dropping');
+            Log::warning('ListenCommand: envelope is not an array, rejecting');
             $this->writeLine('FAIL', '(non-array envelope)', "from {$routingKey}", 'error');
-            $message->ack();
+            $this->reject($message, $dlqEnabled);
 
             return;
         }
@@ -175,19 +222,32 @@ class ListenCommand extends Command
         $success = $listener->handle($class, $envelope);
         $elapsed = (int) ((microtime(true) - $start) * 1000);
 
-        // Always ack — failures are either invalid input (poison message, no point
-        // requeueing) or already routed to Laravel queue (which owns retries).
-        $message->ack();
-
         if ($success) {
+            $message->ack();
             $this->writeLine('DONE', $type, "{$mode} → {$class} ({$elapsed}ms)", 'info');
         } else {
-            $this->writeLine('FAIL', $type, "{$class} — see logs", 'error');
+            $this->reject($message, $dlqEnabled);
+            $this->writeLine(
+                'FAIL',
+                $type,
+                $dlqEnabled ? "{$class} → DLQ" : "{$class} — discarded (DLQ off)",
+                'error',
+            );
+        }
+    }
 
-            Log::debug('ListenCommand: message acked despite handler failure', [
-                'class' => $class,
-                'type'  => $type,
-            ]);
+    /**
+     * Negative-ack with no requeue. When DLQ is configured, RabbitMQ routes
+     * the message through the queue's x-dead-letter-exchange. Without DLQ,
+     * the message is simply discarded.
+     */
+    private function reject(AMQPMessage $message, bool $dlqEnabled): void
+    {
+        if ($dlqEnabled) {
+            $message->nack(requeue: false);
+        } else {
+            // No DLQ — ack to discard (avoid poison-message loops on infrastructure with no DLX configured)
+            $message->ack();
         }
     }
 

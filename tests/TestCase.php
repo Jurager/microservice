@@ -31,5 +31,7 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('microservice.idempotency.lock_timeout', 10);
         $app['config']->set('microservice.bus.enabled', true);
         $app['config']->set('microservice.bus.exchange', 'events');
+        $app['config']->set('microservice.bus.dead_letter.enabled', true);
+        $app['config']->set('microservice.bus.dead_letter.exchange', 'events.dlx');
     }
 }

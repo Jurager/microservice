@@ -251,6 +251,20 @@ return [
             'heartbeat'          => (int) env('RABBITMQ_HEARTBEAT', 60),
             'connection_timeout' => (int) env('RABBITMQ_TIMEOUT', 10),
         ],
+
+        /*
+        | Dead-letter routing for failed messages (invalid signature, malformed
+        | JSON, handler exceptions). When enabled, the listener nacks failures
+        | instead of ack-and-discard; messages route through the DLX into a
+        | per-handler dead-letter queue ({service}.{type}.dlq) for inspection.
+        |
+        | Note: enabling/disabling DLQ for an existing service requires deleting
+        | the old main queues — RabbitMQ rejects redeclares with changed args.
+        */
+        'dead_letter' => [
+            'enabled'  => env('MESSAGE_BUS_DLQ_ENABLED', true),
+            'exchange' => env('MESSAGE_BUS_DLQ_EXCHANGE', 'events.dlx'),
+        ],
     ],
 
 ];
