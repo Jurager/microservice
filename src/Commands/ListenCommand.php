@@ -77,7 +77,7 @@ class ListenCommand extends Command
         $dlxName    = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
         if ($dlqEnabled) {
-            $channel->exchange_declare($dlxName, 'topic', auto_delete: false);
+            $channel->exchange_declare($dlxName, 'topic', durable: true, auto_delete: false);
         }
 
         // Fair dispatch: don't pile messages on a single worker
