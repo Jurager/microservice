@@ -8,60 +8,28 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
+use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
+use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
-use RabbitEvents\Listener\Dispatcher as RabbitEventsDispatcher;
+use Mockery;
 
 /**
- * End-to-end tests against the real RabbitEvents Dispatcher (no AMQP transport).
- *
- * Verifies that our auto-registration:
- *   - actually attaches listeners on nuwber's Dispatcher (not on Laravel's),
- *     so `rabbitevents:listen` picks them up;
- *   - wraps each MessageHandler in a closure that verifies the envelope
- *     signature before invocation;
- *   - routes ShouldQueue handlers to the Laravel queue instead of running
- *     them inline in the listener process.
+ * Tests Listener directly — the AMQP transport is exercised separately
+ * via ListenCommand, but message routing logic lives here.
  */
-class MessageBusIntegrationTest extends TestCase
+class ListenerTest extends TestCase
 {
-    protected function defineEnvironment($app): void
-    {
-        parent::defineEnvironment($app);
-
-        $app['config']->set('messages', [
-            FakeSyncHandler::class,
-            FakeQueuedHandler::class,
-        ]);
-    }
-
-    /**
-     * Force console mode so MicroserviceServiceProvider::registerMessageHandlers()
-     * runs (it gates on runningInConsole() to mirror nuwber's own boot behavior).
-     */
-    protected function resolveApplicationConsoleKernel($app)
-    {
-        return parent::resolveApplicationConsoleKernel($app);
-    }
-
-    public function test_listeners_are_registered_on_rabbitevents_dispatcher(): void
-    {
-        $dispatcher = $this->app->make(RabbitEventsDispatcher::class);
-        $events = $dispatcher->getEvents();
-
-        $this->assertContains('test.sync', $events);
-        $this->assertContains('test.queued', $events);
-    }
-
-    public function test_sync_handler_is_invoked_when_dispatcher_fires_signed_envelope(): void
+    public function test_sync_handler_is_invoked_inline_for_valid_envelope(): void
     {
         FakeSyncHandler::$invocations = [];
 
         $envelope = $this->signedEnvelope('test.sync', ['x' => 1]);
+        $result = app(Listener::class)->handle(FakeSyncHandler::class, $envelope);
 
-        $this->app->make(RabbitEventsDispatcher::class)->dispatch('test.sync', [$envelope]);
-
+        $this->assertTrue($result);
         $this->assertCount(1, FakeSyncHandler::$invocations);
         $this->assertSame(['x' => 1], FakeSyncHandler::$invocations[0]);
     }
@@ -72,16 +40,20 @@ class MessageBusIntegrationTest extends TestCase
         FakeQueuedHandler::$invocations = [];
 
         $envelope = $this->signedEnvelope('test.queued', ['site_id' => 7]);
+        $result = app(Listener::class)->handle(FakeQueuedHandler::class, $envelope);
 
-        $this->app->make(RabbitEventsDispatcher::class)->dispatch('test.queued', [$envelope]);
-
+        $this->assertTrue($result);
         Bus::assertDispatched(FakeQueuedHandler::class, fn (FakeQueuedHandler $job) => $job->siteId === 7);
-        $this->assertCount(0, FakeQueuedHandler::$invocations, 'ShouldQueue handler must not run inline in the listener');
+        $this->assertCount(0, FakeQueuedHandler::$invocations, 'ShouldQueue handler must not run inline');
     }
 
-    public function test_listener_rejects_envelope_with_invalid_signature(): void
+    public function test_rejects_envelope_with_invalid_signature(): void
     {
         FakeSyncHandler::$invocations = [];
+
+        Log::shouldReceive('warning')
+            ->once()
+            ->with('Listener: rejected envelope with invalid or missing signature', Mockery::any());
 
         $envelope = [
             'type'        => 'test.sync',
@@ -92,25 +64,45 @@ class MessageBusIntegrationTest extends TestCase
             'signature'   => 'fake-signature',
         ];
 
-        $this->app->make(RabbitEventsDispatcher::class)->dispatch('test.sync', [$envelope]);
+        $result = app(Listener::class)->handle(FakeSyncHandler::class, $envelope);
 
+        $this->assertFalse($result);
         $this->assertCount(0, FakeSyncHandler::$invocations);
     }
 
-    public function test_listener_accepts_unsigned_envelope_in_debug_mode(): void
+    public function test_accepts_unsigned_envelope_in_debug_mode(): void
     {
         config()->set('microservice.debug', true);
         FakeSyncHandler::$invocations = [];
 
-        $envelope = [
-            'type'    => 'test.sync',
-            'payload' => ['x' => 42],
-        ];
+        $envelope = ['type' => 'test.sync', 'payload' => ['x' => 42]];
+        $result = app(Listener::class)->handle(FakeSyncHandler::class, $envelope);
 
-        $this->app->make(RabbitEventsDispatcher::class)->dispatch('test.sync', [$envelope]);
-
-        $this->assertCount(1, FakeSyncHandler::$invocations);
+        $this->assertTrue($result);
         $this->assertSame(['x' => 42], FakeSyncHandler::$invocations[0]);
+    }
+
+    public function test_rejects_non_messagehandler_class(): void
+    {
+        Log::shouldReceive('error')->once()->with('Listener: not a MessageHandler', Mockery::any());
+
+        $result = app(Listener::class)->handle(\stdClass::class, ['payload' => []]);
+
+        $this->assertFalse($result);
+    }
+
+    public function test_logs_and_returns_false_when_handler_throws(): void
+    {
+        Log::shouldReceive('error')
+            ->once()
+            ->with('Listener: handler threw', Mockery::on(fn (array $ctx): bool =>
+                $ctx['class'] === ThrowingHandler::class && $ctx['error'] === 'boom'
+            ));
+
+        $envelope = $this->signedEnvelope('test.throws', []);
+        $result = app(Listener::class)->handle(ThrowingHandler::class, $envelope);
+
+        $this->assertFalse($result);
     }
 
     private function signedEnvelope(string $type, array $payload): array
@@ -123,7 +115,7 @@ class MessageBusIntegrationTest extends TestCase
             'payload'     => $payload,
         ];
 
-        $envelope['signature'] = app(\Jurager\Microservice\Support\HmacSigner::class)->signRaw(
+        $envelope['signature'] = app(HmacSigner::class)->signRaw(
             json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
         );
 
@@ -181,5 +173,27 @@ class FakeQueuedHandler implements MessageHandler, ShouldQueue
     public function handle(): void
     {
         self::$invocations[] = $this->siteId;
+    }
+}
+
+class ThrowingHandler implements MessageHandler
+{
+    public function __construct(public readonly array $payload)
+    {
+    }
+
+    public static function type(): string
+    {
+        return 'test.throws';
+    }
+
+    public static function fromMessage(array $payload): static
+    {
+        return new static($payload);
+    }
+
+    public function handle(): void
+    {
+        throw new \RuntimeException('boom');
     }
 }

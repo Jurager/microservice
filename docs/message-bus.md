@@ -1,26 +1,29 @@
 # Message Bus
 
-Inter-service event bus over RabbitMQ. The package provides a publisher (`MessageBus`), a `MessageHandler` contract for typed handlers, and a thin auto-registration layer on top of [nuwber/rabbitevents](https://github.com/rabbitevents/listener).
+Inter-service event bus over RabbitMQ. The package ships its own publisher (`MessageBus`), consumer (`microservice:listen` command), `MessageHandler` contract, and HMAC envelope signing — built directly on [bunny/bunny](https://github.com/jakubkulhan/bunny), no higher-level transport wrappers.
 
-`nuwber/rabbitevents` is a hard dependency of the package, so the publisher and listener are always available. Using them is optional — services that don't publish events or run a listener pay nothing.
+The bus can be disabled per-service via `microservice.bus.enabled=false` — `publish()` becomes a no-op and the listen command refuses to start. Services that don't need RabbitMQ pay nothing.
 
-## Requirements
+## Setup
 
-`RabbitEvents\Publisher\PublisherServiceProvider` and `RabbitEvents\Listener\ListenerServiceProvider` are auto-discovered by Laravel.
-
-The `MicroserviceServiceProvider` automatically creates an empty `app/Listeners` directory if it doesn't exist — nuwber's listener auto-discovery would otherwise fail at boot in services that don't have any class-based listeners.
+```bash
+composer require jurager/microservice
+```
 
 Add to `.env`:
 
 ```env
-RABBITEVENTS_HOST=127.0.0.1
-RABBITEVENTS_PORT=5672
-RABBITEVENTS_USER=guest
-RABBITEVENTS_PASSWORD=guest
-RABBITEVENTS_VHOST=events
+MESSAGE_BUS_ENABLED=true
+MESSAGE_BUS_EXCHANGE=events
+
+RABBITMQ_HOST=127.0.0.1
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_VHOST=/
 ```
 
-> `RABBITEVENTS_VHOST` defaults to `events` (not `/`). Create the vhost in RabbitMQ or override to `/`.
+No config publishing, no extra commands.
 
 ---
 
@@ -45,9 +48,11 @@ class BroadcastSiteEvents
 }
 ```
 
-`MessageBus` is a singleton concrete class. Internally it builds a signed envelope and forwards to RabbitMQ via nuwber's `publish()` helper. Publishing failures are caught and logged — they do not throw.
+`MessageBus` is a singleton. Internally it builds a signed envelope and publishes to a **topic exchange** (`events` by default) with the event type as the routing key. The AMQP connection is lazy — opened on first publish.
 
-The envelope sent on the wire wraps the domain payload with metadata and an HMAC signature:
+Publishing failures are caught and logged — they do not throw.
+
+The envelope on the wire:
 
 ```json
 {
@@ -64,7 +69,7 @@ The envelope sent on the wire wraps the domain payload with metadata and an HMAC
 
 ### Envelope signature
 
-Every envelope is HMAC-signed with `microservice.secret` before publishing. The auto-registered listener verifies the signature before invoking the handler — envelopes with missing or invalid signatures are logged and dropped. Verification is skipped when `microservice.debug=true` (mirrors HTTP `TrustGateway` behavior).
+Every envelope is HMAC-signed with `microservice.secret` before publishing. The consumer verifies the signature before invoking the handler — envelopes with missing or invalid signatures are dropped (logged as warning). Verification is skipped when `microservice.debug=true` (mirrors HTTP `TrustGateway` behavior).
 
 This protects consumers from messages forged by anything that has access to the broker but doesn't share the cluster secret.
 
@@ -74,7 +79,7 @@ This protects consumers from messages forged by anything that has access to the 
 
 ### 1. Implement MessageHandler
 
-A handler is a standard Laravel queued job that also implements `MessageHandler`:
+A handler is typically a standard Laravel queued job that also implements `MessageHandler`:
 
 ```php
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
@@ -106,8 +111,6 @@ class ForgetSiteConfig implements MessageHandler, ShouldQueue
 
 ### 2. Register in config/messages.php
 
-Create `config/messages.php` with a flat list of handler classes:
-
 ```php
 return [
     \App\Jobs\Cache\ForgetSiteConfig::class,
@@ -115,28 +118,46 @@ return [
 ];
 ```
 
-`MicroserviceServiceProvider` subscribes a listener on the RabbitEvents `Dispatcher` for each handler's `type()`. When `rabbitevents:listen` receives an AMQP message it fires the local event; the subscribed listener verifies the envelope signature, then routes the handler:
-
-- If it implements `Illuminate\Contracts\Queue\ShouldQueue` → `dispatch($handler)` (pushed to the Laravel queue, processed by a regular `queue:work` worker with retries, backoff, failed_jobs).
-- Otherwise → `$handler->handle()` is invoked synchronously in the listener process.
-
-The `rabbitevents:listen` process stays non-blocking even with heavy handlers — it only pushes to the queue and continues consuming. Plain `MessageHandler` (without `ShouldQueue`) should only be used for cheap operations.
-
 ### 3. Run the worker
 
 ```bash
-php artisan rabbitevents:listen
+php artisan microservice:listen
 ```
 
-Without arguments, `rabbitevents:listen` picks up **all** events registered on the dispatcher — which is exactly what our auto-registration produces from `config/messages.php`. Adding a new handler to the config requires no command-line change, just a restart of the worker.
+For each handler `type()` in `config/messages.php`, the worker:
+1. Declares a durable queue named `{service_name}.{type}` (e.g. `api.sfm.site.config`).
+2. Binds it to the topic exchange with routing key = type.
+3. Starts consuming.
 
-Restrict to specific types for debugging:
+When a message arrives:
+- The envelope signature is verified — failure → ack + log warning (no requeue, poison messages are not retried).
+- The handler is constructed via `fromMessage($envelope['payload'])`.
+- If it implements `ShouldQueue` → `dispatch($handler)` and ack (Laravel queue owns retries).
+- Otherwise → `$handler->handle()` synchronously, ack on success or after exception (logged).
+
+The worker stays non-blocking even with heavy handlers since `ShouldQueue` ones don't run inline.
+
+#### Options
 
 ```bash
-php artisan rabbitevents:listen sfm.site.updated,sfm.site.config
+php artisan microservice:listen --memory=256 --max-jobs=1000
 ```
 
-Standard options are supported: `--memory`, `--timeout`, `--tries`, `--sleep`. See [nuwber's listener docs](https://github.com/rabbitevents/listener) for the full list.
+- `--memory=N` — stop when process RSS reaches N MB.
+- `--max-jobs=N` — stop after N messages (useful for periodic restarts via supervisor).
+
+Graceful shutdown via `SIGTERM`/`SIGINT` — the loop finishes the current message and exits cleanly. Supervisor can safely send signals for rolling restarts.
+
+#### Supervisor
+
+```ini
+[program:api-microservice-listener]
+command=php /var/www/api/artisan microservice:listen --memory=256 --max-jobs=1000
+autostart=true
+autorestart=true
+stopsignal=TERM
+stopwaitsecs=30
+```
 
 ---
 
@@ -165,23 +186,41 @@ Manually publish an event to the bus — useful for triggering handlers without 
 php artisan microservice:emit sfm.site.updated '{"site_id":1,"domain":"example.com"}'
 ```
 
-Goes through the same `MessageBus::publish` path as a real publish: envelope is built, signed and forwarded to RabbitMQ via nuwber's Publisher. Subscribers in other services pick it up via their listener.
+Goes through the same `MessageBus::publish` path as a real publish: envelope is built, signed, sent to AMQP. Subscribers in other services pick it up via their `microservice:listen`.
 
 ---
 
-## Production
+## Disabling the bus
 
-Manage the listener with Supervisor:
+For services that don't publish or consume events:
 
-```ini
-[program:api-rabbitevents-listener]
-command=php /var/www/api/artisan rabbitevents:listen --memory=256 --timeout=120
-autostart=true
-autorestart=true
-stopwaitsecs=10
+```env
+MESSAGE_BUS_ENABLED=false
 ```
 
+- `MessageBus::publish()` logs a debug line and returns — no AMQP connection is attempted.
+- `microservice:listen` refuses to start.
+- The package itself imposes no runtime cost.
+
 ---
+
+## Architecture
+
+```
+src/Bus/
+├── Contracts/
+│   └── MessageHandler.php   — public contract for consumer handlers
+├── Connection.php           — lazy bunny client/channel wrapper, declares topic exchange
+├── MessageBus.php           — publish: envelope + HMAC + channel->publish
+└── Listener.php             — verify + route to ShouldQueue or sync handler (no AMQP)
+
+src/Commands/
+├── ListenCommand.php        — consumer loop: declare queue, bind, consume, dispatch
+├── EventsCommand.php        — diagnostic: list registered handlers
+└── EmitCommand.php          — diagnostic: manual publish
+```
+
+The AMQP transport is encapsulated in `Connection` + `ListenCommand`. `Listener` is pure dispatch logic — unit-testable without a broker.
 
 ## MessageBus
 
@@ -191,10 +230,12 @@ namespace Jurager\Microservice\Bus;
 class MessageBus
 {
     public function publish(string $type, array $payload, ?string $queue = null): void;
+    public function verify(array $envelope): bool;
+    public function enabled(): bool;
 }
 ```
 
-The `$queue` parameter is kept for backward compatibility with the previous queue-driver implementation and is ignored — routing in rabbitevents is by event name.
+The `$queue` parameter is kept for backward compatibility and is ignored — routing is by event type via the topic exchange.
 
 ## MessageHandler interface
 
@@ -203,12 +244,9 @@ namespace Jurager\Microservice\Bus\Contracts;
 
 interface MessageHandler
 {
-    // The message type this handler processes
     public static function type(): string;
-
-    // Construct the handler from the raw domain payload (envelope already unwrapped)
     public static function fromMessage(array $payload): static;
 }
 ```
 
-A handler that also implements `ShouldQueue` benefits from retries, the failed jobs table, and all other queue features.
+A handler that also implements `ShouldQueue` benefits from retries, the failed jobs table, and all other queue features via the standard Laravel queue worker.

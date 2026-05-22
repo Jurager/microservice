@@ -18,7 +18,7 @@
         "illuminate/redis": "^11.0|^12.0|^13.0",
         "illuminate/routing": "^11.0|^12.0|^13.0",
         "illuminate/support": "^11.0|^12.0|^13.0",
-        "nuwber/rabbitevents": "^9.0"
+        "bunny/bunny": "^0.5.6"
     },
     "require-dev": {
         "orchestra/testbench": "^9.0|^10.0",

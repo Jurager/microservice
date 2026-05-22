@@ -9,16 +9,20 @@ use Jurager\Microservice\Support\HmacSigner;
 use Throwable;
 
 /**
- * Inter-service message bus over nuwber/rabbitevents.
+ * Inter-service message bus over bunny/bunny (AMQP).
  *
- * Builds an HMAC-signed envelope around a domain payload and publishes it to
- * RabbitMQ via nuwber's Publisher (the global `publish()` helper). Consumers
- * verify the signature before invoking handlers.
+ * Wraps a domain payload in a standard HMAC-signed envelope and publishes
+ * it to a topic exchange with the event type as the routing key.
+ *
+ * Disabled via `microservice.bus.enabled = false`, in which case publish()
+ * is a no-op (logged) — useful for services that don't need RabbitMQ at all.
  */
 class MessageBus
 {
-    public function __construct(private readonly HmacSigner $signer)
-    {
+    public function __construct(
+        private readonly HmacSigner $signer,
+        private readonly Connection $connection,
+    ) {
     }
 
     /**
@@ -30,13 +34,24 @@ class MessageBus
      */
     public function publish(string $type, array $payload, ?string $queue = null): void
     {
+        if (! $this->enabled()) {
+            Log::debug('MessageBus: publish skipped (disabled)', ['type' => $type]);
+
+            return;
+        }
+
         try {
             $envelope = $this->envelope($type, $payload);
             $envelope['signature'] = $this->signer->signRaw(self::canonicalize($envelope));
 
-            // Sends to RabbitMQ via nuwber's Publisher.
-            // Defined in vendor/nuwber/rabbitevents/src/RabbitEvents/Publisher/functions.php
-            publish($type, $envelope);
+            $body = json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
+            $this->connection->channel()->publish(
+                $body,
+                ['content-type' => 'application/json', 'delivery-mode' => 2],
+                $this->connection->exchange(),
+                $type,
+            );
         } catch (Throwable $e) {
             Log::error('MessageBus: failed to publish', [
                 'type'  => $type,
@@ -68,6 +83,11 @@ class MessageBus
         } catch (Throwable) {
             return false;
         }
+    }
+
+    public function enabled(): bool
+    {
+        return (bool) config('microservice.bus.enabled', true);
     }
 
     /**

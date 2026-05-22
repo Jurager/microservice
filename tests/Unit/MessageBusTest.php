@@ -4,79 +4,127 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Unit;
 
+use Bunny\Channel;
+use Illuminate\Support\Facades\Log;
+use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
+use Mockery;
 
 class MessageBusTest extends TestCase
 {
-    public function test_verify_accepts_envelope_signed_by_canonicalize(): void
+    public function test_publish_sends_signed_envelope_to_topic_exchange(): void
     {
-        $signer = app(HmacSigner::class);
-        $bus    = new MessageBus($signer);
+        config()->set('microservice.name', 'sfm');
 
-        // Build a signed envelope manually using the same canonical form as publish().
-        $envelope = [
-            'type'        => 'sfm.site.updated',
-            'service'     => 'sfm',
-            'occurred_at' => '2026-05-21T10:00:00+00:00',
-            'request_id'  => null,
-            'payload'     => ['site_id' => 1],
-        ];
-        $envelope['signature'] = $signer->signRaw(json_encode(
-            [
-                'type'        => $envelope['type'],
-                'service'     => $envelope['service'],
-                'occurred_at' => $envelope['occurred_at'],
-                'request_id'  => $envelope['request_id'],
-                'payload'     => $envelope['payload'],
-            ],
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
-        ));
+        $channel = Mockery::mock(Channel::class);
+        $channel->shouldReceive('publish')
+            ->once()
+            ->withArgs(function (string $body, array $headers, string $exchange, string $routingKey): bool {
+                $envelope = json_decode($body, true);
 
-        $this->assertTrue($bus->verify($envelope));
+                return $exchange === 'events'
+                    && $routingKey === 'sfm.site.updated'
+                    && ($headers['content-type'] ?? null) === 'application/json'
+                    && is_array($envelope)
+                    && $envelope['type'] === 'sfm.site.updated'
+                    && $envelope['service'] === 'sfm'
+                    && $envelope['payload'] === ['site_id' => 1]
+                    && is_string($envelope['signature']);
+            });
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+
+        $this->app->instance(Connection::class, $connection);
+
+        app(MessageBus::class)->publish('sfm.site.updated', ['site_id' => 1]);
+    }
+
+    public function test_publish_is_noop_when_bus_disabled(): void
+    {
+        config()->set('microservice.bus.enabled', false);
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldNotReceive('channel');
+        $this->app->instance(Connection::class, $connection);
+
+        Log::shouldReceive('debug')->once();
+
+        app(MessageBus::class)->publish('test', ['x' => 1]);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_publish_logs_error_on_exception(): void
+    {
+        $channel = Mockery::mock(Channel::class);
+        $channel->shouldReceive('publish')->andThrow(new \RuntimeException('AMQP down'));
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+        $this->app->instance(Connection::class, $connection);
+
+        Log::shouldReceive('error')
+            ->once()
+            ->with('MessageBus: failed to publish', Mockery::on(fn (array $ctx): bool =>
+                $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
+            ));
+
+        app(MessageBus::class)->publish('sfm.site.deleted', []);
+    }
+
+    public function test_verify_accepts_envelope_signed_by_publish(): void
+    {
+        $captured = null;
+        $channel = Mockery::mock(Channel::class);
+        $channel->shouldReceive('publish')
+            ->andReturnUsing(function (string $body) use (&$captured): void {
+                $captured = json_decode($body, true);
+            });
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+        $this->app->instance(Connection::class, $connection);
+
+        $bus = app(MessageBus::class);
+        $bus->publish('sfm.site.updated', ['site_id' => 42]);
+
+        $this->assertIsArray($captured);
+        $this->assertTrue($bus->verify($captured));
     }
 
     public function test_verify_rejects_envelope_with_tampered_payload(): void
     {
+        $captured = null;
+        $channel = Mockery::mock(Channel::class);
+        $channel->shouldReceive('publish')
+            ->andReturnUsing(function (string $body) use (&$captured): void {
+                $captured = json_decode($body, true);
+            });
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+        $this->app->instance(Connection::class, $connection);
+
         $bus = app(MessageBus::class);
+        $bus->publish('sfm.site.updated', ['site_id' => 1]);
 
-        $envelope = [
-            'type'        => 'sfm.site.updated',
-            'service'     => 'sfm',
-            'occurred_at' => '2026-05-21T10:00:00+00:00',
-            'request_id'  => null,
-            'payload'     => ['site_id' => 1],
-        ];
-        $signer = app(HmacSigner::class);
-        $envelope['signature'] = $signer->signRaw(json_encode(
-            ['type' => $envelope['type'], 'service' => $envelope['service'], 'occurred_at' => $envelope['occurred_at'], 'request_id' => null, 'payload' => $envelope['payload']],
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
-        ));
+        $captured['payload']['site_id'] = 999;
 
-        $envelope['payload']['site_id'] = 999;
-
-        $this->assertFalse($bus->verify($envelope));
+        $this->assertFalse($bus->verify($captured));
     }
 
     public function test_verify_rejects_envelope_without_signature(): void
     {
-        $bus = app(MessageBus::class);
-
-        $this->assertFalse($bus->verify([
+        $this->assertFalse(app(MessageBus::class)->verify([
             'type'    => 'sfm.site.updated',
             'payload' => ['site_id' => 1],
-        ]));
-    }
-
-    public function test_verify_rejects_envelope_with_empty_signature(): void
-    {
-        $bus = app(MessageBus::class);
-
-        $this->assertFalse($bus->verify([
-            'type'      => 'sfm.site.updated',
-            'payload'   => [],
-            'signature' => '',
         ]));
     }
 
@@ -84,8 +132,6 @@ class MessageBusTest extends TestCase
     {
         config()->set('microservice.debug', true);
 
-        $bus = app(MessageBus::class);
-
-        $this->assertTrue($bus->verify(['type' => 'whatever', 'payload' => []]));
+        $this->assertTrue(app(MessageBus::class)->verify(['type' => 'whatever', 'payload' => []]));
     }
 }

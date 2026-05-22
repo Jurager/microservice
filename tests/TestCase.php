@@ -6,23 +6,12 @@ namespace Jurager\Microservice\Tests;
 
 use Jurager\Microservice\MicroserviceServiceProvider;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
-use RabbitEvents\Listener\ListenerServiceProvider;
-use RabbitEvents\Publisher\PublisherServiceProvider;
 
 abstract class TestCase extends OrchestraTestCase
 {
     protected function getPackageProviders($app): array
     {
-        // nuwber's ListenerServiceProvider scans app/Listeners on boot.
-        // testbench's fake app doesn't have it — create stub before providers boot.
-        $listenersDir = $app->path('Listeners');
-        if (! is_dir($listenersDir)) {
-            @mkdir($listenersDir, 0o755, true);
-        }
-
         return [
-            PublisherServiceProvider::class,
-            ListenerServiceProvider::class,
             MicroserviceServiceProvider::class,
         ];
     }
@@ -40,5 +29,7 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('microservice.manifest.services', []);
         $app['config']->set('microservice.idempotency.ttl', 60);
         $app['config']->set('microservice.idempotency.lock_timeout', 10);
+        $app['config']->set('microservice.bus.enabled', true);
+        $app['config']->set('microservice.bus.exchange', 'events');
     }
 }

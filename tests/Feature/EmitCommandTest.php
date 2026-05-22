@@ -4,34 +4,33 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Bunny\Channel;
+use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
-use RabbitEvents\Publisher\Publisher;
-use RabbitEvents\Publisher\ShouldPublish;
 
 class EmitCommandTest extends TestCase
 {
     public function test_emits_event_via_message_bus(): void
     {
-        $publisher = Mockery::mock(Publisher::class);
-        $publisher->shouldReceive('publish')
+        $channel = Mockery::mock(Channel::class);
+        $channel->shouldReceive('publish')
             ->once()
-            ->with(Mockery::on(function (ShouldPublish $event): bool {
-                if ($event->publishEventKey() !== 'test.foo') {
-                    return false;
-                }
+            ->withArgs(function (string $body, array $headers, string $exchange, string $routingKey): bool {
+                $envelope = json_decode($body, true);
 
-                $payload = $event->toPublish();
-                // nuwber wraps the assoc envelope into [$envelope]
-                $envelope = is_array($payload) && array_is_list($payload) ? $payload[0] : $payload;
+                return $exchange === 'events'
+                    && $routingKey === 'test.foo'
+                    && is_array($envelope)
+                    && $envelope['type'] === 'test.foo'
+                    && $envelope['payload'] === ['k' => 'v']
+                    && is_string($envelope['signature']);
+            });
 
-                return is_array($envelope)
-                    && ($envelope['type'] ?? null) === 'test.foo'
-                    && ($envelope['payload'] ?? null) === ['k' => 'v']
-                    && is_string($envelope['signature'] ?? null);
-            }));
-
-        $this->app->instance(Publisher::class, $publisher);
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+        $this->app->instance(Connection::class, $connection);
 
         $this->artisan('microservice:emit', ['type' => 'test.foo', 'payload' => '{"k":"v"}'])
             ->expectsOutputToContain('Published event [test.foo]')
@@ -40,9 +39,9 @@ class EmitCommandTest extends TestCase
 
     public function test_fails_on_invalid_json_payload(): void
     {
-        $publisher = Mockery::mock(Publisher::class);
-        $publisher->shouldNotReceive('publish');
-        $this->app->instance(Publisher::class, $publisher);
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldNotReceive('channel');
+        $this->app->instance(Connection::class, $connection);
 
         $this->artisan('microservice:emit', ['type' => 'test.foo', 'payload' => 'not json'])
             ->expectsOutputToContain('Invalid JSON payload')
@@ -51,9 +50,9 @@ class EmitCommandTest extends TestCase
 
     public function test_fails_when_payload_is_not_object_or_array(): void
     {
-        $publisher = Mockery::mock(Publisher::class);
-        $publisher->shouldNotReceive('publish');
-        $this->app->instance(Publisher::class, $publisher);
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldNotReceive('channel');
+        $this->app->instance(Connection::class, $connection);
 
         $this->artisan('microservice:emit', ['type' => 'test.foo', 'payload' => '"just-a-string"'])
             ->expectsOutputToContain('Payload must be a JSON object/array')

@@ -224,4 +224,33 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Message Bus
+    |--------------------------------------------------------------------------
+    |
+    | Inter-service event bus over RabbitMQ (bunny/bunny client).
+    |
+    | enabled    — when false, publish() is a no-op and listen refuses to start.
+    | exchange   — topic exchange name; all events are published to it,
+    |              routed by their type as the routing key.
+    | connection — bunny client connection parameters.
+    |
+    */
+
+    'bus' => [
+        'enabled'  => env('MESSAGE_BUS_ENABLED', true),
+        'exchange' => env('MESSAGE_BUS_EXCHANGE', 'events'),
+
+        'connection' => [
+            'host'               => env('RABBITMQ_HOST', '127.0.0.1'),
+            'port'               => (int) env('RABBITMQ_PORT', 5672),
+            'user'               => env('RABBITMQ_USER', 'guest'),
+            'password'           => env('RABBITMQ_PASSWORD', 'guest'),
+            'vhost'              => env('RABBITMQ_VHOST', '/'),
+            'heartbeat'          => (int) env('RABBITMQ_HEARTBEAT', 60),
+            'connection_timeout' => (int) env('RABBITMQ_TIMEOUT', 10),
+        ],
+    ],
+
 ];
