@@ -4,49 +4,57 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Bus;
 
-use Bunny\Channel;
-use Bunny\Client;
+use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Connection\AMQPStreamConnection;
 
 /**
- * Lazy bunny AMQP connection wrapper.
+ * Lazy AMQP connection wrapper over php-amqplib.
  *
- * Holds a single Client + Channel pair, opened on first use and reused for
- * the lifetime of the process. Declares the topic exchange once on first
- * channel access — both publishers and consumers go through this.
+ * Holds a single AMQPStreamConnection + Channel pair, opened on first use
+ * and reused for the lifetime of the process. Declares the topic exchange
+ * once on first channel access — both publishers and consumers go through this.
  */
 class Connection
 {
-    private ?Client $client = null;
+    private ?AMQPStreamConnection $connection = null;
 
-    private ?Channel $channel = null;
+    private ?AMQPChannel $channel = null;
 
-    public function channel(): Channel
+    public function channel(): AMQPChannel
     {
         if ($this->channel !== null) {
             return $this->channel;
         }
 
-        $this->client = new Client($this->options());
-        $this->client->connect();
+        $cfg = (array) config('microservice.bus.connection', []);
 
-        $this->channel = $this->client->channel();
-        $this->channel->exchangeDeclare(
+        $this->connection = new AMQPStreamConnection(
+            $cfg['host']               ?? '127.0.0.1',
+            (int) ($cfg['port']        ?? 5672),
+            $cfg['user']               ?? 'guest',
+            $cfg['password']           ?? 'guest',
+            $cfg['vhost']              ?? '/',
+            insist: false,
+            login_method: 'AMQPLAIN',
+            login_response: null,
+            locale: 'en_US',
+            connection_timeout: (float) ($cfg['connection_timeout'] ?? 10),
+            read_write_timeout: (float) ($cfg['read_write_timeout'] ?? 30),
+            context: null,
+            keepalive: false,
+            heartbeat: (int) ($cfg['heartbeat'] ?? 60),
+        );
+
+        $this->channel = $this->connection->channel();
+        $this->channel->exchange_declare(
             $this->exchange(),
             'topic',
             passive: false,
             durable: true,
-            autoDelete: false,
+            auto_delete: false,
         );
 
         return $this->channel;
-    }
-
-    public function client(): Client
-    {
-        $this->channel(); // ensure connection is open
-
-        /** @var Client */
-        return $this->client;
     }
 
     public function exchange(): string
@@ -56,33 +64,21 @@ class Connection
 
     public function close(): void
     {
-        if ($this->client !== null && $this->client->isConnected()) {
+        if ($this->channel !== null) {
             try {
-                $this->client->disconnect();
+                $this->channel->close();
             } catch (\Throwable) {
-                // best-effort cleanup
+            }
+        }
+
+        if ($this->connection !== null) {
+            try {
+                $this->connection->close();
+            } catch (\Throwable) {
             }
         }
 
         $this->channel = null;
-        $this->client = null;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function options(): array
-    {
-        $cfg = (array) config('microservice.bus.connection', []);
-
-        return [
-            'host'               => $cfg['host']               ?? '127.0.0.1',
-            'port'               => (int) ($cfg['port']        ?? 5672),
-            'user'               => $cfg['user']               ?? 'guest',
-            'password'           => $cfg['password']           ?? 'guest',
-            'vhost'              => $cfg['vhost']              ?? '/',
-            'heartbeat'          => (int) ($cfg['heartbeat']   ?? 60),
-            'timeout'            => (int) ($cfg['connection_timeout'] ?? 10),
-        ];
+        $this->connection = null;
     }
 }

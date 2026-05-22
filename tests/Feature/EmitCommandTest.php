@@ -4,20 +4,21 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
-use Bunny\Channel;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
+use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Message\AMQPMessage;
 
 class EmitCommandTest extends TestCase
 {
     public function test_emits_event_via_message_bus(): void
     {
-        $channel = Mockery::mock(Channel::class);
-        $channel->shouldReceive('publish')
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('basic_publish')
             ->once()
-            ->withArgs(function (string $body, array $headers, string $exchange, string $routingKey): bool {
-                $envelope = json_decode($body, true);
+            ->withArgs(function (AMQPMessage $msg, string $exchange, string $routingKey): bool {
+                $envelope = json_decode($msg->getBody(), true);
 
                 return $exchange === 'events'
                     && $routingKey === 'test.foo'

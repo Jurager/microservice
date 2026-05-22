@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Commands;
 
-use Bunny\Channel;
-use Bunny\Message;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
@@ -13,6 +11,8 @@ use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
+use PhpAmqpLib\Exception\AMQPTimeoutException;
+use PhpAmqpLib\Message\AMQPMessage;
 use Throwable;
 
 /**
@@ -62,15 +62,24 @@ class ListenCommand extends Command
         $memory   = (int) $this->option('memory');
         $maxJobs  = (int) $this->option('max-jobs');
 
+        // Fair dispatch: don't pile messages on a single worker
+        $channel->basic_qos(prefetch_size: 0, prefetch_count: 1, a_global: false);
+
         foreach ($handlers as $type => $class) {
             $queue = "{$service}.{$type}";
 
-            $channel->queueDeclare($queue, passive: false, durable: true, exclusive: false, autoDelete: false);
-            $channel->queueBind($queue, $exchange, $type);
+            $channel->queue_declare($queue, passive: false, durable: true, exclusive: false, auto_delete: false);
+            $channel->queue_bind($queue, $exchange, $type);
 
-            $channel->consume(
-                function (Message $message, Channel $ch) use ($class, $listener, $memory, $maxJobs): void {
-                    $this->dispatch($message, $ch, $class, $listener);
+            $channel->basic_consume(
+                $queue,
+                consumer_tag: "{$service}-{$type}",
+                no_local: false,
+                no_ack: false,
+                exclusive: false,
+                nowait: false,
+                callback: function (AMQPMessage $message) use ($class, $listener, $memory, $maxJobs): void {
+                    $this->dispatch($message, $class, $listener);
 
                     if ($maxJobs > 0 && $this->processed >= $maxJobs) {
                         $this->info("Reached --max-jobs={$maxJobs}, stopping.");
@@ -82,15 +91,17 @@ class ListenCommand extends Command
                         $this->shouldStop = true;
                     }
                 },
-                $queue,
             );
         }
 
         $this->info('Listening for events: ' . implode(', ', array_keys($handlers)));
 
-        while (! $this->shouldStop) {
+        while (! $this->shouldStop && $channel->is_consuming()) {
             try {
-                $connection->client()->run(1); // 1 second tick — lets us check signals
+                // 1-second tick — lets us check signals between messages
+                $channel->wait(null, false, 1);
+            } catch (AMQPTimeoutException) {
+                // No message in window — normal, loop and check signals
             } catch (Throwable $e) {
                 Log::error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
                 $this->error('AMQP error: ' . $e->getMessage());
@@ -127,32 +138,34 @@ class ListenCommand extends Command
         return $map;
     }
 
-    private function dispatch(Message $message, Channel $channel, string $class, Listener $listener): void
+    private function dispatch(AMQPMessage $message, string $class, Listener $listener): void
     {
         $this->processed++;
 
+        $routingKey = (string) $message->getRoutingKey();
+
         try {
-            $envelope = json_decode($message->content, true, flags: JSON_THROW_ON_ERROR);
+            $envelope = json_decode($message->getBody(), true, flags: JSON_THROW_ON_ERROR);
         } catch (Throwable $e) {
             Log::warning('ListenCommand: malformed JSON, dropping message', [
                 'error' => $e->getMessage(),
-                'body'  => substr((string) $message->content, 0, 256),
+                'body'  => substr((string) $message->getBody(), 0, 256),
             ]);
-            $this->writeLine('FAIL', '(malformed JSON)', "from {$message->routingKey}", 'error');
-            $channel->ack($message);
+            $this->writeLine('FAIL', '(malformed JSON)', "from {$routingKey}", 'error');
+            $message->ack();
 
             return;
         }
 
         if (! is_array($envelope)) {
             Log::warning('ListenCommand: envelope is not an array, dropping');
-            $this->writeLine('FAIL', '(non-array envelope)', "from {$message->routingKey}", 'error');
-            $channel->ack($message);
+            $this->writeLine('FAIL', '(non-array envelope)', "from {$routingKey}", 'error');
+            $message->ack();
 
             return;
         }
 
-        $type    = (string) ($envelope['type'] ?? $message->routingKey);
+        $type    = (string) ($envelope['type'] ?? $routingKey);
         $service = (string) ($envelope['service'] ?? 'unknown');
         $mode    = is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync';
 
@@ -164,7 +177,7 @@ class ListenCommand extends Command
 
         // Always ack — failures are either invalid input (poison message, no point
         // requeueing) or already routed to Laravel queue (which owns retries).
-        $channel->ack($message);
+        $message->ack();
 
         if ($success) {
             $this->writeLine('DONE', $type, "{$mode} → {$class} ({$elapsed}ms)", 'info');

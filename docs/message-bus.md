@@ -1,6 +1,6 @@
 # Message Bus
 
-Inter-service event bus over RabbitMQ. The package ships its own publisher (`MessageBus`), consumer (`microservice:listen` command), `MessageHandler` contract, and HMAC envelope signing — built directly on [bunny/bunny](https://github.com/jakubkulhan/bunny), no higher-level transport wrappers.
+Inter-service event bus over RabbitMQ. The package ships its own publisher (`MessageBus`), consumer (`microservice:listen` command), `MessageHandler` contract, and HMAC envelope signing — built directly on [php-amqplib/php-amqplib](https://github.com/php-amqplib/php-amqplib), no higher-level transport wrappers.
 
 The bus can be disabled per-service via `microservice.bus.enabled=false` — `publish()` becomes a no-op and the listen command refuses to start. Services that don't need RabbitMQ pay nothing.
 
@@ -210,7 +210,7 @@ MESSAGE_BUS_ENABLED=false
 src/Bus/
 ├── Contracts/
 │   └── MessageHandler.php   — public contract for consumer handlers
-├── Connection.php           — lazy bunny client/channel wrapper, declares topic exchange
+├── Connection.php           — lazy AMQPStreamConnection/channel wrapper, declares topic exchange
 ├── MessageBus.php           — publish: envelope + HMAC + channel->publish
 └── Listener.php             — verify + route to ShouldQueue or sync handler (no AMQP)
 

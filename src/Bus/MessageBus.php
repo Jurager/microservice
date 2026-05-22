@@ -46,9 +46,13 @@ class MessageBus
 
             $body = json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
-            $this->connection->channel()->publish(
-                $body,
-                ['content-type' => 'application/json', 'delivery-mode' => 2],
+            $message = new \PhpAmqpLib\Message\AMQPMessage($body, [
+                'content_type'  => 'application/json',
+                'delivery_mode' => \PhpAmqpLib\Message\AMQPMessage::DELIVERY_MODE_PERSISTENT,
+            ]);
+
+            $this->connection->channel()->basic_publish(
+                $message,
                 $this->connection->exchange(),
                 $type,
             );

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Unit;
 
-use Bunny\Channel;
 use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\MessageBus;
-use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
+use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Message\AMQPMessage;
 
 class MessageBusTest extends TestCase
 {
@@ -18,15 +18,15 @@ class MessageBusTest extends TestCase
     {
         config()->set('microservice.name', 'sfm');
 
-        $channel = Mockery::mock(Channel::class);
-        $channel->shouldReceive('publish')
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('basic_publish')
             ->once()
-            ->withArgs(function (string $body, array $headers, string $exchange, string $routingKey): bool {
-                $envelope = json_decode($body, true);
+            ->withArgs(function (AMQPMessage $msg, string $exchange, string $routingKey): bool {
+                $envelope = json_decode($msg->getBody(), true);
 
                 return $exchange === 'events'
                     && $routingKey === 'sfm.site.updated'
-                    && ($headers['content-type'] ?? null) === 'application/json'
+                    && $msg->get('content_type') === 'application/json'
                     && is_array($envelope)
                     && $envelope['type'] === 'sfm.site.updated'
                     && $envelope['service'] === 'sfm'
@@ -34,11 +34,7 @@ class MessageBusTest extends TestCase
                     && is_string($envelope['signature']);
             });
 
-        $connection = Mockery::mock(Connection::class);
-        $connection->shouldReceive('channel')->andReturn($channel);
-        $connection->shouldReceive('exchange')->andReturn('events');
-
-        $this->app->instance(Connection::class, $connection);
+        $this->bindChannel($channel);
 
         app(MessageBus::class)->publish('sfm.site.updated', ['site_id' => 1]);
     }
@@ -60,13 +56,9 @@ class MessageBusTest extends TestCase
 
     public function test_publish_logs_error_on_exception(): void
     {
-        $channel = Mockery::mock(Channel::class);
-        $channel->shouldReceive('publish')->andThrow(new \RuntimeException('AMQP down'));
-
-        $connection = Mockery::mock(Connection::class);
-        $connection->shouldReceive('channel')->andReturn($channel);
-        $connection->shouldReceive('exchange')->andReturn('events');
-        $this->app->instance(Connection::class, $connection);
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('basic_publish')->andThrow(new \RuntimeException('AMQP down'));
+        $this->bindChannel($channel);
 
         Log::shouldReceive('error')
             ->once()
@@ -80,16 +72,13 @@ class MessageBusTest extends TestCase
     public function test_verify_accepts_envelope_signed_by_publish(): void
     {
         $captured = null;
-        $channel = Mockery::mock(Channel::class);
-        $channel->shouldReceive('publish')
-            ->andReturnUsing(function (string $body) use (&$captured): void {
-                $captured = json_decode($body, true);
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('basic_publish')
+            ->andReturnUsing(function (AMQPMessage $msg) use (&$captured): void {
+                $captured = json_decode($msg->getBody(), true);
             });
 
-        $connection = Mockery::mock(Connection::class);
-        $connection->shouldReceive('channel')->andReturn($channel);
-        $connection->shouldReceive('exchange')->andReturn('events');
-        $this->app->instance(Connection::class, $connection);
+        $this->bindChannel($channel);
 
         $bus = app(MessageBus::class);
         $bus->publish('sfm.site.updated', ['site_id' => 42]);
@@ -101,16 +90,13 @@ class MessageBusTest extends TestCase
     public function test_verify_rejects_envelope_with_tampered_payload(): void
     {
         $captured = null;
-        $channel = Mockery::mock(Channel::class);
-        $channel->shouldReceive('publish')
-            ->andReturnUsing(function (string $body) use (&$captured): void {
-                $captured = json_decode($body, true);
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('basic_publish')
+            ->andReturnUsing(function (AMQPMessage $msg) use (&$captured): void {
+                $captured = json_decode($msg->getBody(), true);
             });
 
-        $connection = Mockery::mock(Connection::class);
-        $connection->shouldReceive('channel')->andReturn($channel);
-        $connection->shouldReceive('exchange')->andReturn('events');
-        $this->app->instance(Connection::class, $connection);
+        $this->bindChannel($channel);
 
         $bus = app(MessageBus::class);
         $bus->publish('sfm.site.updated', ['site_id' => 1]);
@@ -133,5 +119,14 @@ class MessageBusTest extends TestCase
         config()->set('microservice.debug', true);
 
         $this->assertTrue(app(MessageBus::class)->verify(['type' => 'whatever', 'payload' => []]));
+    }
+
+    private function bindChannel(AMQPChannel $channel): void
+    {
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+
+        $this->app->instance(Connection::class, $connection);
     }
 }
