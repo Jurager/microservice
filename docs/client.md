@@ -3,11 +3,15 @@ title: Client
 weight: 20
 ---
 
-# Client
+## Introduction
 
-Use `ServiceClient` to send HMAC-signed HTTP requests to other services.
+The `ServiceClient` is the package's HTTP client for talking to other services. Every request it sends is automatically signed with HMAC-SHA256, propagates trace headers, and resolves the destination service URL from either a configured discovery pattern or the gateway's manifest registry.
+
+You may use the client to call any service in the cluster without knowing where it physically lives — the discovery layer handles that for you.
 
 ## Sending Requests
+
+You may resolve the client from the container and start building a request with the `service` method:
 
 ```php
 use Jurager\Microservice\Client\ServiceClient;
@@ -21,35 +25,43 @@ $response = $client->service('pim')
     ->send();
 ```
 
+The `service` method names the destination service. The HTTP verb (`get`, `post`, `put`, etc.) starts the request. Builder methods such as `with` and `withHeaders` may be chained in any order. The request is dispatched when you call `send`.
+
+### Available Methods
+
 | Method | Description |
 |---|---|
-| `get(string $path)` | |
-| `post(string $path, ?array $body)` | |
-| `put(string $path, ?array $body)` | |
-| `patch(string $path, ?array $body)` | |
-| `delete(string $path)` | |
-| `with(array $query)` | Append query parameters |
-| `withHeaders(array $headers)` | Merge extra headers |
-| `withBody(array $body)` | Set JSON body |
-| `timeout(int $seconds)` | Per-request timeout override |
-| `withoutErrors()` | Suppress upstream error details in the exception |
-| `send(): ServiceResponse` | Execute — throws `ServiceRequestException` on non-2xx |
+| `get(string $path)` | Issue a GET request |
+| `post(string $path, ?array $body)` | Issue a POST request with an optional JSON body |
+| `put(string $path, ?array $body)` | Issue a PUT request |
+| `patch(string $path, ?array $body)` | Issue a PATCH request |
+| `delete(string $path)` | Issue a DELETE request |
+| `with(array $query)` | Append query string parameters |
+| `withHeaders(array $headers)` | Merge additional headers |
+| `withBody(array $body)` | Set the JSON body |
+| `timeout(int $seconds)` | Override the per-request timeout |
+| `withoutErrors()` | Suppress upstream error details in raised exceptions |
+| `send()` | Execute the request — throws `ServiceRequestException` on non-2xx |
 
-## ServiceResponse
+## Working with Responses
+
+The `send` method returns a `ServiceResponse` instance that wraps the raw HTTP response with convenient accessors:
 
 ```php
-$response->status();        // HTTP status code
+$response->status();        // HTTP status code (int)
 $response->ok();            // true if 2xx
 $response->failed();        // true if 4xx or 5xx
-$response->json();          // decoded array
-$response->json('data.id'); // dot-notation access
-$response->body();          // raw string
+$response->json();          // decoded JSON as array
+$response->json('data.id'); // dot-notation access into the decoded body
+$response->body();          // raw response body
 $response->header('X-Total');
 ```
 
+For JSON:API responses you typically won't reach for `json()` directly — see [JSON:API Responses](#jsonapi-responses) for typed wrappers.
+
 ## Parallel Requests
 
-Send multiple requests concurrently. All are dispatched at the same time; the method blocks until all complete. Keys are preserved in the response array.
+To dispatch multiple requests concurrently, you may use the `parallel` method. All requests are sent at the same time, and the method blocks until every response arrives. Array keys are preserved so you may match responses back to their requests:
 
 ```php
 $responses = $client->parallel([
@@ -62,9 +74,9 @@ $responses['catalog']->ok();
 $responses['warehouse']->json();
 ```
 
-Transport failures throw `ServiceUnavailableException`. Non-2xx responses are returned as-is — inspect `->status()` yourself.
+Transport-level failures throw `ServiceUnavailableException`. Non-2xx responses are returned as-is so you may inspect their status codes yourself — `parallel` does not throw on application errors.
 
-Typical validation pattern:
+A common pattern is batch-validating a list of identifiers in a single round trip:
 
 ```php
 $requests = array_combine(
@@ -83,14 +95,18 @@ foreach ($client->parallel($requests) as $id => $response) {
 
 ## JSON:API Responses
 
-When the remote service returns JSON:API, use typed wrappers instead of raw `json()`:
+When the remote service returns a JSON:API document, you may use typed wrappers instead of working with the raw array. Two helpers on `ServiceResponse` produce them:
 
 ```php
-$response->collect(ProductItem::class)  // CollectionDocument<ProductItem>
-$response->item(ProductItem::class)     // ItemDocument<ProductItem>
+$response->collect(ProductItem::class);  // CollectionDocument<ProductItem>
+$response->item(ProductItem::class);     // ItemDocument<ProductItem>
 ```
 
-### CollectionDocument
+Both wrappers handle relationship resolution, pagination metadata, and pass-through serialization for forwarding upstream documents to your own clients.
+
+### Collection Documents
+
+A `CollectionDocument` represents a JSON:API resource collection. You may access its data, metadata, and pagination details via dedicated methods:
 
 ```php
 $document = $client->service('pim')
@@ -101,16 +117,18 @@ $document = $client->service('pim')
 $document->data();    // Collection<ProductItem>
 $document->first();   // ProductItem|null
 $document->meta();    // array
-$document->total();   // ?int  (from meta.total)
+$document->total();   // ?int — from meta.total
 ```
 
-Pass-through or transform before returning to the client:
+To forward the document to your own client unchanged, call `toResponse`:
 
 ```php
-// Forward as-is
 return $document->toResponse();
+```
 
-// Enrich each item
+To enrich each item before forwarding, pass a closure that returns a JSON:API resource array:
+
+```php
 return $document->toResponse(function (ProductItem $item) {
     return array_merge($item->toArray(), [
         'attributes' => array_merge($item->attributes(), [
@@ -120,7 +138,7 @@ return $document->toResponse(function (ProductItem $item) {
 });
 ```
 
-Resolve included relationships:
+If the response includes related resources, you may resolve them into typed collections with `withRelations`:
 
 ```php
 $document->withRelations(['categories' => CategoryItem::class]);
@@ -130,7 +148,9 @@ foreach ($document->data() as $product) {
 }
 ```
 
-### ItemDocument
+### Item Documents
+
+For single-resource responses, use `ItemDocument`:
 
 ```php
 $document = $client->service('sfm')
@@ -141,33 +161,44 @@ $document->data();   // SiteItem
 return $document->toResponse();
 ```
 
-### Item
+### Defining Custom Items
 
-Subclass `Item` to add domain-specific accessors:
+The `Item` base class exposes generic accessors. To add domain-specific helpers, you may subclass it:
 
 ```php
 use Jurager\Microservice\JsonApi\Item;
 
 class ProductItem extends Item
 {
-    public function name(): string   { return $this->attribute('name', ''); }
-    public function isActive(): bool { return (bool) $this->attribute('is_active'); }
+    public function name(): string
+    {
+        return $this->attribute('name', '');
+    }
+
+    public function isActive(): bool
+    {
+        return (bool) $this->attribute('is_active');
+    }
 }
 ```
+
+The base class provides the following accessors out of the box:
 
 | Method | Description |
 |---|---|
 | `$item->id` | Resource id |
 | `$item->type` | Resource type |
-| `$item->attribute(key, default)` | Single attribute with dot-notation |
-| `$item->attributes()` | All attributes as array |
-| `$item->relationIds(name)` | To-many linkage → `int[]` |
-| `$item->relationId(name)` | To-one linkage → `?int` |
+| `$item->attribute(key, default)` | Single attribute with dot-notation access |
+| `$item->attributes()` | All attributes as an array |
+| `$item->relationIds(name)` | To-many linkage as `int[]` |
+| `$item->relationId(name)` | To-one linkage as `?int` |
 | `$item->getRelation(name)` | Resolved included collection |
-| `$item->getRelationOne(name)` | Resolved included single item |
-| `$item->toArray()` | Serialize back to JSON:API resource array |
+| `$item->getRelationOne(name)` | Resolved single included item |
+| `$item->toArray()` | Serialize back to a JSON:API resource array |
 
 ## Error Handling
+
+The client raises two exception types depending on the nature of the failure:
 
 ```php
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
@@ -176,11 +207,11 @@ use Jurager\Microservice\Exceptions\ServiceRequestException;
 try {
     $response = $client->service('oms')->get('/v1/orders')->send();
 } catch (ServiceUnavailableException $e) {
-    // service unreachable
+    // Service is unreachable — DNS failure, connection refused, timeout, etc.
 } catch (ServiceRequestException $e) {
-    $e->status; // upstream HTTP status
-    $e->errors; // upstream errors array, null when withoutErrors() was used
+    $e->status; // Upstream HTTP status code
+    $e->errors; // Upstream errors array; null when withoutErrors() was used
 }
 ```
 
-The package auto-registers a JSON:API exception renderer. All exceptions — `ValidationException`, `ModelNotFoundException`, standard HTTP exceptions — are rendered as `application/vnd.api+json` without any configuration.
+The package auto-registers a JSON:API exception renderer. `ValidationException`, `ModelNotFoundException`, and the standard HTTP exceptions are all rendered as `application/vnd.api+json` without any configuration on your part.

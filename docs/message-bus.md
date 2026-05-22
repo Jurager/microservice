@@ -1,30 +1,14 @@
-# Message Bus
+---
+title: Message Bus
+weight: 50
+---
 
-- [Introduction](#introduction)
-- [Configuration](#configuration)
-    - [Disabling the Message Bus](#disabling-the-message-bus)
-- [Publishing Events](#publishing-events)
-    - [The Envelope](#the-envelope)
-    - [Signing Envelopes](#signing-envelopes)
-- [Consuming Events](#consuming-events)
-    - [Defining Message Handlers](#defining-message-handlers)
-    - [Registering Handlers](#registering-handlers)
-    - [Running the Listener](#running-the-listener)
-    - [Dead-Letter Queues](#dead-letter-queues)
-    - [Graceful Shutdown](#graceful-shutdown)
-- [Diagnostic Commands](#diagnostic-commands)
-    - [Listing Registered Events](#listing-registered-events)
-    - [Emitting Events Manually](#emitting-events-manually)
-- [Production Deployment](#production-deployment)
-
-<a name="introduction"></a>
 ## Introduction
 
 The package provides an inter-service event bus over RabbitMQ, built directly on [php-amqplib/php-amqplib](https://github.com/php-amqplib/php-amqplib). You may use it to broadcast domain events between services without coupling them through HTTP calls. The bus ships its own publisher, consumer, HMAC envelope signing, and dead-letter routing — no higher-level transport wrappers are required.
 
 The bus is opt-in per service. Services that don't publish or consume events pay nothing at runtime; the bus simply isn't activated.
 
-<a name="configuration"></a>
 ## Configuration
 
 The bus is configured in `config/microservice.php` under the `bus` key. The defaults are sensible for local development and may be overridden via environment variables:
@@ -45,7 +29,6 @@ MESSAGE_BUS_DLQ_EXCHANGE=events.dlx
 
 All events are published to a single topic exchange (`events` by default), routed by the event type as the routing key. This allows multiple services to subscribe to the same event independently.
 
-<a name="disabling-the-message-bus"></a>
 ### Disabling the Message Bus
 
 For services that don't need to participate in inter-service messaging, you may disable the bus entirely:
@@ -56,7 +39,6 @@ MESSAGE_BUS_ENABLED=false
 
 With the bus disabled, `MessageBus::publish` logs a debug line and returns immediately — no AMQP connection is attempted. The `microservice:listen` command refuses to start. The package imposes no other runtime cost.
 
-<a name="publishing-events"></a>
 ## Publishing Events
 
 To publish an event, you may inject the `MessageBus` and call the `publish` method:
@@ -82,7 +64,6 @@ The `MessageBus` is registered as a singleton. The AMQP connection is opened laz
 
 Event types follow the convention `{source_service}.{entity}.{event}`, for example `sfm.site.updated` or `oms.order.shipped`. The type becomes the AMQP routing key, so subscribing services can bind queues to specific events or wildcard patterns such as `sfm.site.*`.
 
-<a name="the-envelope"></a>
 ### The Envelope
 
 Every published event is wrapped in a standard envelope containing metadata and the domain payload:
@@ -100,17 +81,14 @@ Every published event is wrapped in a standard envelope containing metadata and 
 
 The `service` field is taken from `microservice.name`, `occurred_at` is the publish timestamp in ISO 8601, and `request_id` is propagated from the inbound HTTP request's `X-Request-Id` header (when available) to enable distributed tracing across event chains.
 
-<a name="signing-envelopes"></a>
 ### Signing Envelopes
 
 Every envelope is HMAC-signed with `microservice.secret` before publishing. The consumer verifies the signature before invoking the handler — envelopes with missing or invalid signatures are rejected and routed to the dead-letter queue.
 
 This protects consumers from messages forged by anything with broker access but without the cluster secret. Signature verification is skipped when `microservice.debug=true`, mirroring the behavior of the HTTP `TrustGateway` middleware.
 
-<a name="consuming-events"></a>
 ## Consuming Events
 
-<a name="defining-message-handlers"></a>
 ### Defining Message Handlers
 
 A handler is a class that implements the `MessageHandler` contract. It declares the event type it processes and knows how to reconstruct itself from a domain payload:
@@ -145,7 +123,6 @@ class ForgetSiteConfig implements MessageHandler, ShouldQueue
 
 Handlers that implement `ShouldQueue` are pushed to the Laravel queue when an event arrives, where they benefit from retries, the `failed_jobs` table, backoff, and all other queue features. Plain handlers without `ShouldQueue` are invoked synchronously in the listener process — you should only use them for cheap, idempotent operations.
 
-<a name="registering-handlers"></a>
 ### Registering Handlers
 
 Register your handlers in a `config/messages.php` file as a flat list of class names:
@@ -160,7 +137,6 @@ return [
 
 The package reads this file at boot, derives the event type from each handler's `type()` method, and registers the handler with the listener. You don't need to modify the listener command when you add a new handler — restarting the worker is enough.
 
-<a name="running-the-listener"></a>
 ### Running the Listener
 
 To start consuming events, you may use the `microservice:listen` Artisan command:
@@ -189,7 +165,6 @@ php artisan microservice:listen --memory=256 --max-jobs=1000
 
 Pairing `--max-jobs` with a process supervisor allows for periodic restarts that reclaim memory and pick up code changes without the operational overhead of full opcache flushes.
 
-<a name="dead-letter-queues"></a>
 ### Dead-Letter Queues
 
 When `MESSAGE_BUS_DLQ_ENABLED=true` (the default), the listener declares a dead-letter exchange (`events.dlx`) and a per-handler dead-letter queue alongside each main queue:
@@ -218,15 +193,12 @@ To disable dead-letter routing globally, set `MESSAGE_BUS_DLQ_ENABLED=false`. Wi
 
 > **Migration note:** toggling DLQ for an existing service requires deleting the affected main queues first — RabbitMQ rejects redeclares that change the `x-dead-letter-exchange` argument.
 
-<a name="graceful-shutdown"></a>
 ### Graceful Shutdown
 
 The listener responds to `SIGTERM` and `SIGINT`. On receiving either signal, the loop finishes processing the current message, closes the AMQP channel, and exits with status `0`. This makes the listener safe to manage with Supervisor's rolling restarts and Kubernetes pod lifecycle.
 
-<a name="diagnostic-commands"></a>
 ## Diagnostic Commands
 
-<a name="listing-registered-events"></a>
 ### Listing Registered Events
 
 To inspect the handlers your service has registered, you may use the `microservice:events` command:
@@ -249,7 +221,6 @@ The command prints a table of every event type from `config/messages.php` along 
 
 This is useful for diagnosing configuration before starting a listener and for confirming that newly added handlers are picked up.
 
-<a name="emitting-events-manually"></a>
 ### Emitting Events Manually
 
 To trigger handlers without going through application code, you may use the `microservice:emit` command:
@@ -260,7 +231,6 @@ php artisan microservice:emit sfm.site.config '{"site_id":1}'
 
 The command goes through the same `MessageBus::publish` path as a real publish — the envelope is built, signed, and forwarded to RabbitMQ. Subscribing services pick the event up via their own listeners. This is the recommended way to smoke-test the pipeline after a deploy.
 
-<a name="production-deployment"></a>
 ## Production Deployment
 
 The listener is a long-running process and should be managed by a supervisor such as Supervisor, systemd, or a Kubernetes Deployment. The following Supervisor configuration runs the worker, restarts it on crash, restarts it gracefully every 1000 messages, and stops it cleanly on shutdown:
