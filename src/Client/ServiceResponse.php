@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Client;
 
 use Illuminate\Http\Response;
+use JsonException;
 use Jurager\Microservice\JsonApi\CollectionDocument;
 use Jurager\Microservice\JsonApi\Item;
 use Jurager\Microservice\JsonApi\ItemDocument;
@@ -17,7 +18,8 @@ class ServiceResponse
 
     public function __construct(
         protected readonly ResponseInterface $response,
-    ) {}
+    ) {
+    }
 
     public function status(): int
     {
@@ -51,7 +53,7 @@ class ServiceResponse
             try {
                 $decoded = json_decode($this->body(), true, 512, JSON_THROW_ON_ERROR);
                 $this->decoded = is_array($decoded) ? $decoded : [];
-            } catch (\JsonException) {
+            } catch (JsonException) {
                 $this->decoded = [];
             }
         }
@@ -95,7 +97,7 @@ class ServiceResponse
 
         foreach ($this->response->getHeaders() as $name => $values) {
             if (! in_array(strtolower($name), $strip, true)) {
-                $headers[$name] = implode(', ', (array) $values);
+                $headers[$name] = implode(', ', $values);
             }
         }
 

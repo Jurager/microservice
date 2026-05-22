@@ -8,5 +8,5 @@ interface MessageHandler
 {
     public static function type(): string;
 
-    public static function fromMessage(array $payload): static;
+    public static function from(array $payload): static;
 }

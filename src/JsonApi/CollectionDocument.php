@@ -137,7 +137,7 @@ class CollectionDocument
 
     private function rewritePaginationLink(Request $request, mixed $link): mixed
     {
-        if ($link === null || ! is_string($link) || $link === '') {
+        if (! is_string($link) || $link === '') {
             return $link;
         }
 

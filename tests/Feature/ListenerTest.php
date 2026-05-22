@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\Listener;
-use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
@@ -95,7 +94,8 @@ class ListenerTest extends TestCase
     {
         Log::shouldReceive('error')
             ->once()
-            ->with('Listener: handler threw', Mockery::on(fn (array $ctx): bool =>
+            ->with('Listener: handler threw', Mockery::on(
+                fn (array $ctx): bool =>
                 $ctx['class'] === ThrowingHandler::class && $ctx['error'] === 'boom'
             ));
 
@@ -137,7 +137,7 @@ class FakeSyncHandler implements MessageHandler
         return 'test.sync';
     }
 
-    public static function fromMessage(array $payload): static
+    public static function from(array $payload): static
     {
         return new static($payload);
     }
@@ -165,7 +165,7 @@ class FakeQueuedHandler implements MessageHandler, ShouldQueue
         return 'test.queued';
     }
 
-    public static function fromMessage(array $payload): static
+    public static function from(array $payload): static
     {
         return new static((int) ($payload['site_id'] ?? 0));
     }
@@ -187,7 +187,7 @@ class ThrowingHandler implements MessageHandler
         return 'test.throws';
     }
 
-    public static function fromMessage(array $payload): static
+    public static function from(array $payload): static
     {
         return new static($payload);
     }

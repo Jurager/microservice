@@ -37,7 +37,7 @@ class Includes
 
     public function find(string $type, string $id): ?array
     {
-        return $this->index[$type][(string) $id] ?? null;
+        return $this->index[$type][$id] ?? null;
     }
 
     public function filter(callable $callback): void
@@ -103,7 +103,7 @@ class Includes
 
             $data = $item->relationshipData($name);
 
-            if (is_array($data) && array_is_list($data)) {
+            if (array_is_list($data)) {
                 $resolved = array_values(array_filter(
                     array_map(fn (array $ref) => $this->resolveRef($ref, $itemClass, $subMap), $data)
                 ));

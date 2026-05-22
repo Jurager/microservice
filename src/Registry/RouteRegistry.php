@@ -125,6 +125,6 @@ class RouteRegistry
 
         $regex = $this->compiledPatterns[$pattern];
 
-        return $regex !== '' && (bool) preg_match('#^'.$regex.'$#', $uri);
+        return $regex !== '' && preg_match('#^'.$regex.'$#', $uri);
     }
 }

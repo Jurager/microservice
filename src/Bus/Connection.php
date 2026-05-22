@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Bus;
 
+use Exception;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use Throwable;
 
 /**
  * Lazy AMQP connection wrapper over php-amqplib.
@@ -20,6 +22,9 @@ class Connection
 
     private ?AMQPChannel $channel = null;
 
+    /**
+     * @throws Exception
+     */
     public function channel(): AMQPChannel
     {
         if ($this->channel !== null) {
@@ -49,7 +54,6 @@ class Connection
         $this->channel->exchange_declare(
             $this->exchange(),
             'topic',
-            passive: false,
             durable: true,
             auto_delete: false,
         );
@@ -67,14 +71,14 @@ class Connection
         if ($this->channel !== null) {
             try {
                 $this->channel->close();
-            } catch (\Throwable) {
+            } catch (Throwable) {
             }
         }
 
         if ($this->connection !== null) {
             try {
                 $this->connection->close();
-            } catch (\Throwable) {
+            } catch (Throwable) {
             }
         }
 

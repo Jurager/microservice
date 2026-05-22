@@ -13,6 +13,6 @@ class ServiceRequestException extends RuntimeException
         string $message = '',
         public readonly ?array $errors = null,
     ) {
-        parent::__construct($message ?: "Service request failed with status {$status}.");
+        parent::__construct($message ?: "Service request failed with status $status.");
     }
 }

@@ -32,7 +32,7 @@ use Throwable;
 final class ResponseError
 {
     /** @var callable(array, int, array): JsonResponse|null */
-    private static $renderer = null;
+    private static $renderer;
 
     private function __construct()
     {

@@ -6,13 +6,21 @@ namespace Jurager\Microservice\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use JsonException;
 use Jurager\Microservice\Client\ServiceClient;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Throwable;
+
+use function fclose;
+use function is_resource;
 
 class ProxyController extends Controller
 {
+    /**
+     * @throws Throwable
+     */
     public function handle(Request $request, ServiceClient $client): Response
     {
         $service = $request->route()->getAction('_service');
@@ -33,7 +41,7 @@ class ProxyController extends Controller
                     try {
                         $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
                         $body = is_array($decoded) ? $decoded : null;
-                    } catch (\JsonException) {
+                    } catch (JsonException) {
                         $body = null;
                     }
 
@@ -64,11 +72,11 @@ class ProxyController extends Controller
 
         try {
             $response = $pending->send();
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             if ($multipart !== null) {
                 foreach ($multipart as $part) {
-                    if (isset($part['contents']) && \is_resource($part['contents'])) {
-                        @\fclose($part['contents']);
+                    if (isset($part['contents']) && is_resource($part['contents'])) {
+                        @fclose($part['contents']);
                     }
                 }
             }
@@ -100,7 +108,7 @@ class ProxyController extends Controller
         $multipart = [];
 
         foreach ($this->flattenFields($request->post()) as $name => $value) {
-            $multipart[] = ['name' => $name, 'contents' => (string) $value];
+            $multipart[] = ['name' => $name, 'contents' => $value];
         }
 
         foreach ($this->flattenFiles($request->allFiles()) as $name => $file) {
@@ -126,7 +134,7 @@ class ProxyController extends Controller
         $result = [];
 
         foreach ($fields as $key => $value) {
-            $name = $prefix !== '' ? "{$prefix}[{$key}]" : (string) $key;
+            $name = $prefix !== '' ? "{$prefix}[$key]" : (string) $key;
 
             if (is_array($value)) {
                 $result += $this->flattenFields($value, $name);
@@ -150,7 +158,7 @@ class ProxyController extends Controller
         $result = [];
 
         foreach ($files as $key => $value) {
-            $name = $prefix !== '' ? "{$prefix}[{$key}]" : (string) $key;
+            $name = $prefix !== '' ? "{$prefix}[$key]" : (string) $key;
 
             if (is_array($value)) {
                 $result += $this->flattenFiles($value, $name);

@@ -10,12 +10,15 @@ use GuzzleHttp\Exception\GuzzleException;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
+use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Support\HmacSigner;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Random\RandomException;
+use Throwable;
 
 class ServiceClient
 {
@@ -46,10 +49,10 @@ class ServiceClient
 
             $handler->push(Middleware::retry(
                 function (
-                    int $retries,
-                    RequestInterface $request,
+                    int                $retries,
+                    RequestInterface   $request,
                     ?ResponseInterface $response = null,
-                    ?\Throwable $exception = null,
+                    ?Throwable         $exception = null,
                 ) use ($maxRetries): bool {
                     if ($retries >= $maxRetries) {
                         return false;
@@ -68,6 +71,10 @@ class ServiceClient
         return new Client(['handler' => $handler]);
     }
 
+    /**
+     * @param string $name
+     * @return PendingServiceRequest
+     */
     public function service(string $name): PendingServiceRequest
     {
         return new PendingServiceRequest($this, $name);
@@ -189,6 +196,14 @@ class ServiceClient
         throw new ServiceUnavailableException($service, "Cannot resolve base URL for service [$service]. Make sure the service has registered its manifest.");
     }
 
+    /**
+     * @param PendingServiceRequest $request
+     * @param string $baseUrl
+     * @param int $timeout
+     * @return ServiceResponse
+     * @throws GuzzleException
+     * @throws RandomException
+     */
     protected function executeRequest(PendingServiceRequest $request, string $baseUrl, int $timeout): ServiceResponse
     {
         return new ServiceResponse(
@@ -200,7 +215,14 @@ class ServiceClient
         );
     }
 
-    protected function executeRequestAsync(PendingServiceRequest $request, string $baseUrl, int $timeout): \GuzzleHttp\Promise\PromiseInterface
+    /**
+     * @param PendingServiceRequest $request
+     * @param string $baseUrl
+     * @param int $timeout
+     * @return PromiseInterface
+     * @throws RandomException
+     */
+    protected function executeRequestAsync(PendingServiceRequest $request, string $baseUrl, int $timeout): PromiseInterface
     {
         return $this->httpClient->requestAsync(
             $request->getMethod(),
@@ -209,11 +231,23 @@ class ServiceClient
         );
     }
 
+    /**
+     * @param string $baseUrl
+     * @param string $path
+     * @return string
+     */
     protected function buildUrl(string $baseUrl, string $path): string
     {
         return rtrim($baseUrl, '/').'/'.ltrim($path, '/');
     }
 
+    /**
+     * @param PendingServiceRequest $request
+     * @param int $timeout
+     * @return array
+     * @throws RandomException
+     * @throws RandomException
+     */
     protected function buildOptions(PendingServiceRequest $request, int $timeout): array
     {
         $method = $request->getMethod();
@@ -246,9 +280,15 @@ class ServiceClient
     }
 
     /**
-     * @param array<string, string> $customHeaders  Per-request headers (e.g. X-Request-Id). Service
+     * @param string $method
+     * @param string $path
+     * @param string|null $body
+     * @param array<string, string> $customHeaders Per-request headers (e.g. X-Request-Id). Service
      *                                               identity headers are added after, so they cannot
      *                                               be overridden by the caller.
+     * @param bool $multipart
+     * @return array
+     * @throws RandomException
      */
     protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = [], bool $multipart = false): array
     {
@@ -289,7 +329,7 @@ class ServiceClient
             return;
         }
 
-        $key = $this->redisPrefix()."circuit:{$service}";
+        $key = $this->redisPrefix()."circuit:$service";
         $state = $this->redis()->get($key);
 
         if ($state === 'open') {
@@ -297,7 +337,7 @@ class ServiceClient
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
 
             if (time() - $openedAt < $timeout) {
-                throw new ServiceUnavailableException($service, "Circuit breaker is open for service [{$service}]");
+                throw new ServiceUnavailableException($service, "Circuit breaker is open for service [$service]");
             }
 
             $this->redis()->set($key, 'half-open');
@@ -318,7 +358,7 @@ class ServiceClient
             return;
         }
 
-        $key = $this->redisPrefix()."circuit:{$service}";
+        $key = $this->redisPrefix()."circuit:$service";
         $state = $this->redis()->get($key);
 
         if ($success) {
@@ -359,9 +399,10 @@ class ServiceClient
      * Builds W3C Trace Context headers for the outgoing request.
      *
      * If the current incoming request carries a traceparent header, a new child
-     * span is created within the same trace. Otherwise a fresh root trace is started.
+     * span is created within the same trace. Otherwise, a fresh root trace is started.
      *
      * @return array<string, string>
+     * @throws RandomException
      */
     private function buildTraceHeaders(): array
     {
@@ -374,7 +415,7 @@ class ServiceClient
         } else {
             $traceId = bin2hex(random_bytes(16));
             $spanId = bin2hex(random_bytes(8));
-            $headers['traceparent'] = "00-{$traceId}-{$spanId}-00";
+            $headers['traceparent'] = "00-$traceId-$spanId-00";
         }
 
         if ($incomingState = request()?->header('tracestate')) {
@@ -387,6 +428,9 @@ class ServiceClient
     /**
      * Derives a child span traceparent from an incoming W3C traceparent value.
      * Preserves the trace ID and flags; replaces only the parent span ID.
+     * @throws RandomException
+     * @throws RandomException
+     * @throws RandomException
      */
     private function newSpanFromTrace(string $traceparent): string
     {
@@ -396,11 +440,11 @@ class ServiceClient
             $traceId = bin2hex(random_bytes(16));
             $spanId = bin2hex(random_bytes(8));
 
-            return "00-{$traceId}-{$spanId}-00";
+            return "00-$traceId-$spanId-00";
         }
 
         $spanId = bin2hex(random_bytes(8));
 
-        return "{$parts[0]}-{$parts[1]}-{$spanId}-{$parts[3]}";
+        return "$parts[0]-$parts[1]-$spanId-$parts[3]";
     }
 }

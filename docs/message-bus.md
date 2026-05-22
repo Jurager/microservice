@@ -109,7 +109,7 @@ class ForgetSiteConfig implements MessageHandler, ShouldQueue
 
     public function __construct(public readonly int $siteId) {}
 
-    public static function fromMessage(array $payload): static
+    public static function from(array $payload): static
     {
         return new static($payload['site_id']);
     }
@@ -123,19 +123,11 @@ class ForgetSiteConfig implements MessageHandler, ShouldQueue
 
 Handlers that implement `ShouldQueue` are pushed to the Laravel queue when an event arrives, where they benefit from retries, the `failed_jobs` table, backoff, and all other queue features. Plain handlers without `ShouldQueue` are invoked synchronously in the listener process — you should only use them for cheap, idempotent operations.
 
-### Registering Handlers
+### Discovering Handlers
 
-Register your handlers in a `config/messages.php` file as a flat list of class names:
+Handlers are  registered  automatically. When the listener starts, the package picks up every concrete class that implements `MessageHandler`, and binds a queue for each. Add a new handler to your project and restart the worker — that's all.
 
-```php
-return [
-    \App\Jobs\Cache\ForgetSiteConfig::class,
-    \App\Jobs\Cache\ForgetSiteDomain::class,
-    \App\Jobs\Inventory\SyncStock::class,
-];
-```
-
-The package reads this file at boot, derives the event type from each handler's `type()` method, and registers the handler with the listener. You don't need to modify the listener command when you add a new handler — restarting the worker is enough.
+The scan happens once at boot and takes a single filesystem walk. For very large applications you may extend `Jurager\Microservice\Bus\HandlerDiscovery` and override the singleton binding to narrow the scan path or filter handlers further.
 
 ### Running the Listener
 
@@ -145,7 +137,7 @@ To start consuming events, you may use the `microservice:listen` Artisan command
 php artisan microservice:listen
 ```
 
-For each handler in `config/messages.php`, the command declares a durable queue named `{service_name}.{type}` (for example, `api.sfm.site.config`) and binds it to the topic exchange with the routing key set to the event type. The listener then enters a long-running loop, processing one message at a time.
+For each handler, the command declares a durable queue named `{service_name}.{type}` (for example, `api.sfm.site.config`) and binds it to the topic exchange with the routing key set to the event type. The listener then enters a long-running loop, processing one message at a time.
 
 The command prints a single line per message so you may follow what's happening:
 

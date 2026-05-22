@@ -63,14 +63,14 @@ class Item
     /** @return int[] */
     public function relationIds(string $name): array
     {
-        $items = data_get($this->relationships, "{$name}.data", []);
+        $items = data_get($this->relationships, "$name.data", []);
 
         return array_map('intval', array_column((array) $items, 'id'));
     }
 
     public function relationId(string $name): ?int
     {
-        $id = data_get($this->relationships, "{$name}.data.id");
+        $id = data_get($this->relationships, "$name.data.id");
 
         if ($id === null) {
             return null;
@@ -81,7 +81,7 @@ class Item
 
     public function relationshipData(string $name): array
     {
-        return data_get($this->relationships, "{$name}.data", []);
+        return data_get($this->relationships, "$name.data", []);
     }
 
     public function relationships(): array
@@ -155,6 +155,11 @@ class Item
     public function __get(string $name): mixed
     {
         return $this->attributes[$name] ?? null;
+    }
+
+    public function __set(string $name, mixed $value): void
+    {
+        $this->attributes[$name] = $value;
     }
 
     public function __isset(string $name): bool

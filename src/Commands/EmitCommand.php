@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Commands;
 
 use Illuminate\Console\Command;
+use JsonException;
 use Jurager\Microservice\Bus\MessageBus;
 
 /**
@@ -31,7 +32,7 @@ class EmitCommand extends Command
 
         try {
             $payload = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
-        } catch (\JsonException $e) {
+        } catch (JsonException $e) {
             $this->error("Invalid JSON payload: {$e->getMessage()}");
 
             return self::FAILURE;

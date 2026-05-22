@@ -7,11 +7,10 @@ return [
     | Service Name
     |--------------------------------------------------------------------------
     |
-    | Unique identifier for this microservice. Used in HMAC signing
-    | and manifest registration.
+    | Unique service identifier used for request signing,
+    | service discovery, and event metadata.
     |
     */
-
     'name' => env('SERVICE_NAME', 'app'),
 
     /*
@@ -19,12 +18,11 @@ return [
     | Debug Mode
     |--------------------------------------------------------------------------
     |
-    | When enabled, TrustGateway middleware skips HMAC signature verification
-    | and SERVICE_SECRET validation is bypassed.
-    | FOR LOCAL DEVELOPMENT ONLY. Must be disabled in production.
+    | Disables HMAC signature verification and secret validation.
+    | Intended for local development only.
+    | Never enable in production environments.
     |
     */
-
     'debug' => env('SERVICE_DEBUG', false),
 
     /*
@@ -32,20 +30,23 @@ return [
     | Service Secret
     |--------------------------------------------------------------------------
     |
-    | Shared HMAC secret for inter-service request signing.
-    | All services in the cluster must use the same value.
-    | Generate with: openssl rand -base64 32
+    | Shared secret used for HMAC signing between services.
+    | Every service in the cluster must use the same value.
+    |
+    | Generate a secure key with:
+    |   openssl rand -base64 32
     |
     */
-
     'secret' => env('SERVICE_SECRET', ''),
 
     /*
     |--------------------------------------------------------------------------
     | HMAC Algorithm
     |--------------------------------------------------------------------------
+    |
+    | Hashing algorithm used for request and message signatures.
+    |
     */
-
     'algorithm' => 'sha256',
 
     /*
@@ -53,19 +54,20 @@ return [
     | Signature Timestamp Tolerance
     |--------------------------------------------------------------------------
     |
-    | Maximum allowed age (in seconds) of an incoming signed request.
-    | Requests older than this value are rejected.
+    | Maximum allowed age (in seconds) for signed requests.
+    | Older requests are rejected to prevent replay attacks.
     |
     */
-
     'timestamp_tolerance' => 60,
 
     /*
     |--------------------------------------------------------------------------
     | Redis Configuration
     |--------------------------------------------------------------------------
+    |
+    | Redis connection and key prefix used by the package.
+    |
     */
-
     'redis' => [
         'connection' => env('SERVICE_REDIS_CONNECTION', 'default'),
         'prefix' => 'microservice:',
@@ -76,12 +78,12 @@ return [
     | Trust All Proxies
     |--------------------------------------------------------------------------
     |
-    | When true (default), the service provider calls TrustProxies::at('*')
-    | when no manifest.services are configured. Set to false to manage
-    | trusted proxies yourself.
+    | Automatically trusts all reverse proxies when no
+    | manifest services are configured.
+    |
+    | Disable this if proxy trust is managed manually.
     |
     */
-
     'trust_all_proxies' => true,
 
     /*
@@ -89,14 +91,17 @@ return [
     | Service Discovery
     |--------------------------------------------------------------------------
     |
-    | When 'pattern' is set, service URLs are resolved by substituting
-    | {service} in the pattern (e.g. Kubernetes DNS).
-    | When null, URLs are read from manifests stored in Redis.
+    | Controls how service URLs are resolved.
     |
-    | Example: 'http://{service}.default.svc.cluster.local'
+    | If a pattern is configured, `{service}` placeholders are
+    | replaced dynamically (useful for Kubernetes DNS).
+    |
+    | If null, service manifests are resolved from Redis.
+    |
+    | Example:
+    |   http://{service}.default.svc.cluster.local
     |
     */
-
     'discovery' => [
         'pattern' => env('SERVICE_DISCOVERY_PATTERN'),
     ],
@@ -106,17 +111,15 @@ return [
     | Manifest Registration
     |--------------------------------------------------------------------------
     |
-    | Configuration published by this service into Redis so the gateway
-    | and other services can discover it.
+    | Metadata published to Redis for service discovery.
     |
-    | timeout       — HTTP timeout (seconds) callers should use for this service.
-    | ttl           — How long the manifest lives in Redis (seconds).
-    | prefix        — Only routes matching this URI prefix are published.
-    | services      — Gateway-only: comma-separated list of services to sync.
-    | sync_interval — Gateway-only: how often to run microservice:sync (minutes). 0 to disable.
+    | timeout       HTTP timeout (seconds) clients should use.
+    | ttl           Manifest lifetime in Redis (seconds).
+    | prefix        Only routes matching this URI prefix are exposed.
+    | services      Gateway-only list of services to synchronize.
+    | sync_interval Gateway-only sync interval in minutes (0 disables syncing).
     |
     */
-
     'manifest' => [
         'timeout' => env('SERVICE_TIMEOUT', 30),
         'ttl' => env('SERVICE_MANIFEST_TTL', 300),
@@ -130,10 +133,10 @@ return [
     | Health Endpoint
     |--------------------------------------------------------------------------
     |
-    | Gateway-only. Exposes a health endpoint showing sync status for all configured services.
+    | Gateway-only health check endpoint exposing
+    | synchronization and service status information.
     |
     */
-
     'health' => [
         'endpoint' => env('SERVICE_HEALTH_ENDPOINT', '/microservice/health'),
     ],
@@ -143,11 +146,12 @@ return [
     | Idempotency
     |--------------------------------------------------------------------------
     |
-    | ttl          — how long responses are cached by X-Request-Id (seconds).
-    | lock_timeout — max time a request can hold the processing lock (seconds).
+    | Prevents duplicate request processing using X-Request-Id.
+    |
+    | ttl          Cached response lifetime in seconds.
+    | lock_timeout Maximum processing lock duration in seconds.
     |
     */
-
     'idempotency' => [
         'ttl' => env('SERVICE_IDEMPOTENCY_TTL', 86400),
         'lock_timeout' => 10,
@@ -158,14 +162,13 @@ return [
     | Retries
     |--------------------------------------------------------------------------
     |
-    | Automatic retry on connection failures and 5xx server errors.
+    | Automatic retries for connection failures and 5xx responses.
     |
-    | max        — maximum number of retries (0 = disabled).
-    | delay      — base delay in milliseconds before the first retry.
-    | multiplier — exponential backoff multiplier (2.0 = 100ms, 200ms, 400ms...).
+    | max        Maximum retry attempts (0 disables retries).
+    | delay      Initial retry delay in milliseconds.
+    | multiplier Exponential backoff multiplier.
     |
     */
-
     'retries' => [
         'max' => env('SERVICE_RETRIES_MAX', 0),
         'delay' => env('SERVICE_RETRIES_DELAY', 100),
@@ -177,12 +180,15 @@ return [
     | Circuit Breaker
     |--------------------------------------------------------------------------
     |
-    | Protects services from cascading failures. After `threshold` consecutive
-    | failures within `window` seconds, the circuit opens for `timeout` seconds.
-    | Set threshold to 0 to disable.
+    | Prevents cascading failures between services.
+    |
+    | The circuit opens after `threshold` consecutive failures
+    | within the configured `window`.
+    |
+    | Once opened, requests are blocked for `timeout` seconds.
+    | Set threshold to 0 to disable the breaker.
     |
     */
-
     'circuit_breaker' => [
         'threshold' => env('SERVICE_CIRCUIT_BREAKER_THRESHOLD', 0),
         'timeout' => env('SERVICE_CIRCUIT_BREAKER_TIMEOUT', 30),
@@ -194,11 +200,13 @@ return [
     | Distributed Tracing
     |--------------------------------------------------------------------------
     |
-    | W3C Trace Context propagation. When enabled, outgoing requests include
-    | traceparent and tracestate headers.
+    | Enables W3C Trace Context propagation.
+    |
+    | Outgoing requests include:
+    |   - traceparent
+    |   - tracestate
     |
     */
-
     'tracing' => [
         'enabled' => env('SERVICE_TRACING_ENABLED', true),
     ],
@@ -208,11 +216,10 @@ return [
     | Proxy Settings
     |--------------------------------------------------------------------------
     |
-    | Headers stripped from proxied responses to avoid conflicts
-    | with gateway-level headers (e.g. CORS set by nginx).
+    | Response headers removed from proxied responses
+    | to avoid conflicts with gateway or web server headers.
     |
     */
-
     'proxy' => [
         'strip_headers' => [
             'Access-Control-Allow-Origin',
@@ -229,15 +236,13 @@ return [
     | Message Bus
     |--------------------------------------------------------------------------
     |
-    | Inter-service event bus over RabbitMQ (bunny/bunny client).
+    | RabbitMQ-based inter-service event bus.
     |
-    | enabled    — when false, publish() is a no-op and listen refuses to start.
-    | exchange   — topic exchange name; all events are published to it,
-    |              routed by their type as the routing key.
-    | connection — bunny client connection parameters.
+    | enabled    Disables publishing and listeners when false.
+    | exchange   Topic exchange used for event routing.
+    | connection RabbitMQ connection settings.
     |
     */
-
     'bus' => [
         'enabled'  => env('MESSAGE_BUS_ENABLED', true),
         'exchange' => env('MESSAGE_BUS_EXCHANGE', 'events'),
@@ -253,13 +258,25 @@ return [
         ],
 
         /*
-        | Dead-letter routing for failed messages (invalid signature, malformed
-        | JSON, handler exceptions). When enabled, the listener nacks failures
-        | instead of ack-and-discard; messages route through the DLX into a
-        | per-handler dead-letter queue ({service}.{type}.dlq) for inspection.
+        |--------------------------------------------------------------------------
+        | Dead Letter Queue (DLQ)
+        |--------------------------------------------------------------------------
         |
-        | Note: enabling/disabling DLQ for an existing service requires deleting
-        | the old main queues — RabbitMQ rejects redeclares with changed args.
+        | Failed messages are routed to a dead-letter exchange instead
+        | of being acknowledged and discarded.
+        |
+        | This includes:
+        |   - invalid signatures
+        |   - malformed payloads
+        |   - handler exceptions
+        |
+        | Dead-letter queues are created per handler using:
+        |   {service}.{type}.dlq
+        |
+        | Important:
+        | Changing DLQ settings for existing queues may require
+        | deleting and recreating the original RabbitMQ queues.
+        |
         */
         'dead_letter' => [
             'enabled'  => env('MESSAGE_BUS_DLQ_ENABLED', true),

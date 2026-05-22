@@ -11,7 +11,7 @@ class ManifestRegistry
 {
     use InteractsWithRedis;
 
-    public const EXCLUDED_ACTION_KEYS = [
+    public const array EXCLUDED_ACTION_KEYS = [
         'uses', 'controller', 'middleware', 'as', 'prefix', 'namespace',
         'where', 'domain', 'excluded_middleware', 'withoutMiddleware',
     ];
@@ -111,12 +111,7 @@ class ManifestRegistry
      */
     protected function matchesPrefix(string $uri, array $prefixes): bool
     {
-        foreach ($prefixes as $prefix) {
-            if ($uri === $prefix || str_starts_with($uri, $prefix.'/')) {
-                return true;
-            }
-        }
+        return array_any($prefixes, fn ($prefix) => $uri === $prefix || str_starts_with($uri, $prefix . '/'));
 
-        return false;
     }
 }

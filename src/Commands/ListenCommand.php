@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Commands;
 
+use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
+use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
 use PhpAmqpLib\Channel\AMQPChannel;
@@ -44,7 +46,10 @@ class ListenCommand extends Command
 
     private int $processed = 0;
 
-    public function handle(MessageBus $bus, Connection $connection, Listener $listener): int
+    /**
+     * @throws Exception
+     */
+    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery): int
     {
         if (! $bus->enabled()) {
             $this->warn('MessageBus is disabled (config: microservice.bus.enabled). Refusing to start.');
@@ -52,10 +57,10 @@ class ListenCommand extends Command
             return self::FAILURE;
         }
 
-        $handlers = $this->discoverHandlers();
+        $handlers = $this->discoverHandlers($discovery);
 
         if (empty($handlers)) {
-            $this->warn('No message handlers registered in config/messages.php — nothing to listen for.');
+            $this->warn('No MessageHandler implementations found — nothing to listen for.');
 
             return self::SUCCESS;
         }
@@ -72,7 +77,7 @@ class ListenCommand extends Command
         $dlxName    = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
         if ($dlqEnabled) {
-            $channel->exchange_declare($dlxName, 'topic', passive: false, durable: true, auto_delete: false);
+            $channel->exchange_declare($dlxName, 'topic', auto_delete: false);
         }
 
         // Fair dispatch: don't pile messages on a single worker
@@ -81,20 +86,16 @@ class ListenCommand extends Command
         foreach ($handlers as $type => $class) {
             $this->declareQueues($channel, $service, $type, $exchange, $dlqEnabled, $dlxName);
 
-            $queue = "{$service}.{$type}";
+            $queue = "$service.$type";
 
             $channel->basic_consume(
                 $queue,
-                consumer_tag: "{$service}-{$type}",
-                no_local: false,
-                no_ack: false,
-                exclusive: false,
-                nowait: false,
+                consumer_tag: "$service-$type",
                 callback: function (AMQPMessage $message) use ($class, $listener, $memory, $maxJobs, $dlqEnabled): void {
                     $this->dispatch($message, $class, $listener, $dlqEnabled);
 
                     if ($maxJobs > 0 && $this->processed >= $maxJobs) {
-                        $this->info("Reached --max-jobs={$maxJobs}, stopping.");
+                        $this->info("Reached --max-jobs=$maxJobs, stopping.");
                         $this->shouldStop = true;
                     }
 
@@ -107,7 +108,7 @@ class ListenCommand extends Command
         }
 
         $this->info('Listening for events: ' . implode(', ', array_keys($handlers))
-            . ($dlqEnabled ? " (DLQ → {$dlxName})" : ''));
+            . ($dlqEnabled ? " (DLQ → $dlxName)" : ''));
 
         while (! $this->shouldStop && $channel->is_consuming()) {
             try {
@@ -127,7 +128,8 @@ class ListenCommand extends Command
         }
 
         $connection->close();
-        $this->info("Stopped. Processed {$this->processed} message(s).");
+
+        $this->info("Stopped. Processed $this->processed message(s).");
 
         return self::SUCCESS;
     }
@@ -143,13 +145,13 @@ class ListenCommand extends Command
         bool $dlqEnabled,
         string $dlxName,
     ): void {
-        $queue = "{$service}.{$type}";
+        $queue = "$service.$type";
         $args  = [];
 
         if ($dlqEnabled) {
-            $dlq = "{$queue}.dlq";
+            $dlq = "$queue.dlq";
 
-            $channel->queue_declare($dlq, passive: false, durable: true, exclusive: false, auto_delete: false);
+            $channel->queue_declare($dlq, durable: true, auto_delete: false);
             $channel->queue_bind($dlq, $dlxName, $type);
 
             $args = new AMQPTable(['x-dead-letter-exchange' => $dlxName]);
@@ -157,11 +159,8 @@ class ListenCommand extends Command
 
         $channel->queue_declare(
             $queue,
-            passive: false,
             durable: true,
-            exclusive: false,
             auto_delete: false,
-            nowait: false,
             arguments: $args,
         );
         $channel->queue_bind($queue, $exchange, $type);
@@ -170,15 +169,11 @@ class ListenCommand extends Command
     /**
      * @return array<string, class-string<MessageHandler>>
      */
-    private function discoverHandlers(): array
+    private function discoverHandlers(HandlerDiscovery $discovery): array
     {
         $map = [];
 
-        foreach ((array) config('messages', []) as $class) {
-            if (! is_string($class) || ! is_subclass_of($class, MessageHandler::class)) {
-                continue;
-            }
-
+        foreach ($discovery->discover() as $class) {
             $map[$class::type()] = $class;
         }
 
@@ -196,17 +191,19 @@ class ListenCommand extends Command
         } catch (Throwable $e) {
             Log::warning('ListenCommand: malformed JSON, rejecting message', [
                 'error' => $e->getMessage(),
-                'body'  => substr((string) $message->getBody(), 0, 256),
+                'body'  => substr($message->getBody(), 0, 256),
             ]);
-            $this->writeLine('FAIL', '(malformed JSON)', "from {$routingKey}", 'error');
+            $this->writeLine('FAIL', '(malformed JSON)', "from $routingKey", 'error');
             $this->reject($message, $dlqEnabled);
 
             return;
         }
 
         if (! is_array($envelope)) {
+
             Log::warning('ListenCommand: envelope is not an array, rejecting');
-            $this->writeLine('FAIL', '(non-array envelope)', "from {$routingKey}", 'error');
+
+            $this->writeLine('FAIL', '(non-array envelope)', "from $routingKey", 'error');
             $this->reject($message, $dlqEnabled);
 
             return;
@@ -216,7 +213,7 @@ class ListenCommand extends Command
         $service = (string) ($envelope['service'] ?? 'unknown');
         $mode    = is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync';
 
-        $this->writeLine('RECV', $type, "from {$service}");
+        $this->writeLine('RECV', $type, "from $service");
 
         $start   = microtime(true);
         $success = $listener->handle($class, $envelope);
@@ -224,13 +221,13 @@ class ListenCommand extends Command
 
         if ($success) {
             $message->ack();
-            $this->writeLine('DONE', $type, "{$mode} → {$class} ({$elapsed}ms)", 'info');
+            $this->writeLine('DONE', $type, "$mode → $class ({$elapsed}ms)", 'info');
         } else {
             $this->reject($message, $dlqEnabled);
             $this->writeLine(
                 'FAIL',
                 $type,
-                $dlqEnabled ? "{$class} → DLQ" : "{$class} — discarded (DLQ off)",
+                $dlqEnabled ? "$class → DLQ" : "$class — discarded (DLQ off)",
                 'error',
             );
         }
@@ -244,7 +241,7 @@ class ListenCommand extends Command
     private function reject(AMQPMessage $message, bool $dlqEnabled): void
     {
         if ($dlqEnabled) {
-            $message->nack(requeue: false);
+            $message->nack();
         } else {
             // No DLQ — ack to discard (avoid poison-message loops on infrastructure with no DLX configured)
             $message->ack();
@@ -254,7 +251,7 @@ class ListenCommand extends Command
     private function writeLine(string $tag, string $type, string $detail, string $tone = 'comment'): void
     {
         $timestamp = now()->format('Y-m-d H:i:s');
-        $line      = "<fg=gray>[{$timestamp}]</> <{$tone}>{$tag}</> {$type} <fg=gray>{$detail}</>";
+        $line      = "<fg=gray>[$timestamp]</> <$tone>$tag</> $type <fg=gray>$detail</>";
 
         $this->output->writeln($line);
     }

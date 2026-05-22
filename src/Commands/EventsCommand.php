@@ -6,46 +6,49 @@ namespace Jurager\Microservice\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Jurager\Microservice\Bus\Contracts\MessageHandler;
+use Jurager\Microservice\Bus\HandlerDiscovery;
 
 /**
- * Show the message types registered in config/messages.php with their handler
- * classes and execution mode (queued vs sync). Useful for diagnosing
- * configuration before starting a listener.
+ * Display discovered message handlers with their event type
+ * and execution mode (sync or queued).
  */
 class EventsCommand extends Command
 {
     protected $signature = 'microservice:events';
 
-    protected $description = 'List inter-service event types registered in config/messages.php.';
+    protected $description = 'List discovered inter-service event handlers.';
 
-    public function handle(): int
+    public function handle(HandlerDiscovery $discovery): int
     {
-        $handlers = (array) config('messages', []);
+        $handlers = $discovery->discover();
 
-        if (empty($handlers)) {
-            $this->warn('No message handlers registered in config/messages.php.');
+        if ($handlers === []) {
+            $this->components->warn('No message handlers were discovered.');
 
             return self::SUCCESS;
         }
 
-        $rows = [];
+        $rows = array_map(
+            static fn (string $handler): array => [
+                'type'    => $handler::type(),
+                'handler' => $handler,
+                'mode'    => is_subclass_of($handler, ShouldQueue::class)
+                    ? 'queued'
+                    : 'sync',
+            ],
+            $handlers,
+        );
 
-        foreach ($handlers as $class) {
-            if (! is_string($class) || ! is_subclass_of($class, MessageHandler::class)) {
-                $rows[] = [(string) $class, '<error>not a MessageHandler</error>', '—'];
+        usort($rows, static fn (array $a, array $b): int => [$a['type'], $a['handler']] <=> [$b['type'], $b['handler']]);
 
-                continue;
-            }
+        $this->table(
+            ['Type', 'Handler', 'Mode'],
+            $rows,
+        );
 
-            $rows[] = [
-                $class::type(),
-                $class,
-                is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync',
-            ];
-        }
+        $this->newLine();
 
-        $this->table(['Type', 'Handler', 'Mode'], $rows);
+        $this->components->info(sprintf('Discovered %d handler%s.', count($rows), count($rows) === 1 ? '' : 's'));
 
         return self::SUCCESS;
     }

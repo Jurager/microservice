@@ -6,13 +6,14 @@ namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
+use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Tests\TestCase;
 
 class EventsCommandTest extends TestCase
 {
-    public function test_outputs_table_of_registered_handlers(): void
+    public function test_outputs_table_of_discovered_handlers(): void
     {
-        config()->set('messages', [SampleSyncHandler::class, SampleQueuedHandler::class]);
+        $this->fakeDiscovery([SampleSyncHandler::class, SampleQueuedHandler::class]);
 
         $this->artisan('microservice:events')->assertSuccessful();
 
@@ -27,28 +28,61 @@ class EventsCommandTest extends TestCase
         $this->assertStringContainsString('queued', $output);
     }
 
-    public function test_warns_when_no_handlers_registered(): void
+    public function test_warns_when_no_handlers_discovered(): void
     {
-        config()->set('messages', []);
+        $this->fakeDiscovery([]);
 
         $this->artisan('microservice:events')
-            ->expectsOutputToContain('No message handlers registered')
+            ->expectsOutputToContain('No MessageHandler implementations found')
             ->assertSuccessful();
+    }
+
+    private function fakeDiscovery(array $classes): void
+    {
+        $this->app->instance(HandlerDiscovery::class, new class ($classes) extends HandlerDiscovery {
+            public function __construct(private array $classes)
+            {
+            }
+            public function discover(): array
+            {
+                return $this->classes;
+            }
+        });
     }
 }
 
 class SampleSyncHandler implements MessageHandler
 {
-    public function __construct(public readonly array $payload = []) {}
-    public static function type(): string { return 'test.sample.sync'; }
-    public static function fromMessage(array $payload): static { return new static($payload); }
-    public function handle(): void {}
+    public function __construct(public readonly array $payload = [])
+    {
+    }
+    public static function type(): string
+    {
+        return 'test.sample.sync';
+    }
+    public static function from(array $payload): static
+    {
+        return new static($payload);
+    }
+    public function handle(): void
+    {
+    }
 }
 
 class SampleQueuedHandler implements MessageHandler, ShouldQueue
 {
-    public function __construct(public readonly array $payload = []) {}
-    public static function type(): string { return 'test.sample.queued'; }
-    public static function fromMessage(array $payload): static { return new static($payload); }
-    public function handle(): void {}
+    public function __construct(public readonly array $payload = [])
+    {
+    }
+    public static function type(): string
+    {
+        return 'test.sample.queued';
+    }
+    public static function from(array $payload): static
+    {
+        return new static($payload);
+    }
+    public function handle(): void
+    {
+    }
 }

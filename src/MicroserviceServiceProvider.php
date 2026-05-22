@@ -9,6 +9,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\ServiceProvider;
 use Jurager\Microservice\Bus\Connection;
+use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Client\ServiceClient;
@@ -18,6 +19,8 @@ use Jurager\Microservice\Commands\ListenCommand;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Support\HmacSigner;
+use RuntimeException;
+use Throwable;
 
 class MicroserviceServiceProvider extends ServiceProvider
 {
@@ -27,6 +30,7 @@ class MicroserviceServiceProvider extends ServiceProvider
 
         // Normalize manifest.services from comma-separated string to array
         $raw = config('microservice.manifest.services', '');
+
         if (is_string($raw)) {
             $this->app['config']->set(
                 'microservice.manifest.services',
@@ -39,6 +43,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->app->singleton(Connection::class);
         $this->app->singleton(MessageBus::class);
         $this->app->singleton(Listener::class);
+        $this->app->singleton(HandlerDiscovery::class);
     }
 
     private function validateSecret(): void
@@ -50,7 +55,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $secret = config('microservice.secret');
 
         if (empty($secret)) {
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 'Invalid SERVICE_SECRET value. HMAC signing requires a non-empty shared secret'
             );
         }
@@ -61,7 +66,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->validateSecret();
 
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
-            $handler->renderable(fn (\Throwable $e) => ResponseError::fromException($e));
+            $handler->renderable(fn (Throwable $e) => ResponseError::fromException($e));
         });
 
         $this->configureTrustedProxies();

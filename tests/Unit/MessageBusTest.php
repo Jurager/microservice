@@ -62,7 +62,8 @@ class MessageBusTest extends TestCase
 
         Log::shouldReceive('error')
             ->once()
-            ->with('MessageBus: failed to publish', Mockery::on(fn (array $ctx): bool =>
+            ->with('MessageBus: failed to publish', Mockery::on(
+                fn (array $ctx): bool =>
                 $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
             ));
 
