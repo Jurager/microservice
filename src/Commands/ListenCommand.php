@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Commands;
 use Bunny\Channel;
 use Bunny\Message;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
@@ -137,6 +138,7 @@ class ListenCommand extends Command
                 'error' => $e->getMessage(),
                 'body'  => substr((string) $message->content, 0, 256),
             ]);
+            $this->writeLine('FAIL', '(malformed JSON)', "from {$message->routingKey}", 'error');
             $channel->ack($message);
 
             return;
@@ -144,23 +146,44 @@ class ListenCommand extends Command
 
         if (! is_array($envelope)) {
             Log::warning('ListenCommand: envelope is not an array, dropping');
+            $this->writeLine('FAIL', '(non-array envelope)', "from {$message->routingKey}", 'error');
             $channel->ack($message);
 
             return;
         }
 
+        $type    = (string) ($envelope['type'] ?? $message->routingKey);
+        $service = (string) ($envelope['service'] ?? 'unknown');
+        $mode    = is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync';
+
+        $this->writeLine('RECV', $type, "from {$service}");
+
+        $start   = microtime(true);
         $success = $listener->handle($class, $envelope);
+        $elapsed = (int) ((microtime(true) - $start) * 1000);
 
         // Always ack — failures are either invalid input (poison message, no point
         // requeueing) or already routed to Laravel queue (which owns retries).
         $channel->ack($message);
 
-        if (! $success) {
+        if ($success) {
+            $this->writeLine('DONE', $type, "{$mode} → {$class} ({$elapsed}ms)", 'info');
+        } else {
+            $this->writeLine('FAIL', $type, "{$class} — see logs", 'error');
+
             Log::debug('ListenCommand: message acked despite handler failure', [
                 'class' => $class,
-                'type'  => $envelope['type'] ?? null,
+                'type'  => $type,
             ]);
         }
+    }
+
+    private function writeLine(string $tag, string $type, string $detail, string $tone = 'comment'): void
+    {
+        $timestamp = now()->format('Y-m-d H:i:s');
+        $line      = "<fg=gray>[{$timestamp}]</> <{$tone}>{$tag}</> {$type} <fg=gray>{$detail}</>";
+
+        $this->output->writeln($line);
     }
 
     private function installSignalHandlers(): void
