@@ -35,7 +35,7 @@ class MetricsController extends Controller
             ),
             ...$this->dependencyMetrics($report['dependencies']),
             ...$this->serviceMetrics($report['services']),
-            ...$this->deadLetterMetrics($report['dead_letters']),
+            ...$this->deadLetterMetrics($report['dependencies']['rabbitmq']['dead_letters'] ?? []),
         ];
 
         return response(implode("\n", $lines)."\n", 200)

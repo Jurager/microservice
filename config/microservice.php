@@ -193,11 +193,13 @@ return [
 
         /*
         | Seconds to cache the detailed report (and /metrics). The heavy
-        | checks (RabbitMQ, DLQ) hit infrastructure, so a few seconds of
-        | caching protects it from frequent scrapes. 0 disables caching.
-        | The readiness probe is never cached.
+        | checks (RabbitMQ, DLQ) open a broker connection, so without caching
+        | every scrape reconnects — and stalls on the connect timeout while
+        | the broker is down. Keep this at or above your Prometheus scrape
+        | interval so periodic scrapes reuse one probe. 0 disables caching.
+        | The liveness and readiness probes are never cached.
         */
-        'cache_ttl' => env('SERVICE_HEALTH_CACHE_TTL', 0),
+        'cache_ttl' => env('SERVICE_HEALTH_CACHE_TTL', 15),
     ],
 
     /*

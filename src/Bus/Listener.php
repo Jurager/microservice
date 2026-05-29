@@ -30,15 +30,15 @@ readonly class Listener
     public function handle(string $handlerClass, array $envelope): bool
     {
         if (! is_subclass_of($handlerClass, MessageHandler::class)) {
-            Log::error('Invalid message handler.', [
-                'handler' => $handlerClass,
+            Log::error('Listener: not a MessageHandler', [
+                'class' => $handlerClass,
             ]);
 
             return false;
         }
 
         if (! $this->bus->verify($envelope)) {
-            Log::warning('Rejected message with invalid signature.', [
+            Log::warning('Listener: rejected envelope with invalid or missing signature', [
                 'type' => $envelope['type'] ?? null,
             ]);
 
@@ -58,14 +58,11 @@ readonly class Listener
 
             return true;
         } catch (Throwable $e) {
-            Log::error('Message handler execution failed.', [
-                'handler'  => $handlerClass,
-                'type'     => $envelope['type'] ?? null,
-                'exception' => $e::class,
-                'message'  => $e->getMessage(),
+            Log::error('Listener: handler threw', [
+                'class' => $handlerClass,
+                'type'  => $envelope['type'] ?? null,
+                'error' => $e->getMessage(),
             ]);
-
-            report($e);
 
             return false;
         }

@@ -62,18 +62,59 @@ class HealthChecker
     {
         $services = $this->checkServices($only, $verbose);
         $dependencies = $this->checkDependencies();
-        $deadLetters = $this->deadLetters();
 
-        return [
-            'status' => $this->overallStatus($services, $dependencies, $deadLetters),
+        // Status is derived before presentation cleanup, since it depends on
+        // the internal `critical` flag that callers never see.
+        $status = $this->overallStatus($services, $dependencies);
+
+        return $this->withoutNulls([
+            'status' => $status,
             'gateway' => config('microservice.name'),
             'instance' => $this->instance(),
             'checked_at' => Carbon::now()->toIso8601String(),
             'summary' => $this->summarize($services),
-            'dependencies' => $dependencies,
-            'dead_letters' => $deadLetters,
+            'dependencies' => $this->presentDependencies($dependencies),
             'services' => $services,
-        ];
+        ]);
+    }
+
+    /**
+     * Strip presentation-only noise from the dependency block: the internal
+     * `critical` flag (an implementation detail of status calculation) and the
+     * null `latency_ms` left behind by a failed check.
+     *
+     * @param  array<string, array<string, mixed>>  $dependencies
+     * @return array<string, array<string, mixed>>
+     */
+    private function presentDependencies(array $dependencies): array
+    {
+        foreach ($dependencies as $name => $dependency) {
+            unset($dependency['critical']);
+            $dependencies[$name] = $dependency;
+        }
+
+        return $dependencies;
+    }
+
+    /**
+     * Recursively drop null values so the payload carries only meaningful
+     * fields (e.g. an unset `version`, or `latency_ms`/`dead_letters` on a
+     * failed dependency — the `status` already conveys the failure).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function withoutNulls(array $data): array
+    {
+        foreach ($data as $key => $value) {
+            if ($value === null) {
+                unset($data[$key]);
+            } elseif (is_array($value)) {
+                $data[$key] = $this->withoutNulls($value);
+            }
+        }
+
+        return $data;
     }
 
     /**
@@ -256,36 +297,43 @@ class HealthChecker
         $start = microtime(true);
 
         try {
-            $this->busConnection()->close();
+            $connection = $this->busConnection();
+            $latency = $this->elapsedMs($start);
 
-            return [
+            $result = [
                 'status' => 'up',
                 'critical' => false,
-                'latency_ms' => $this->elapsedMs($start),
+                'latency_ms' => $latency,
+                'dead_letters' => $this->deadLetters($connection),
             ];
+
+            $connection->close();
+
+            return $result;
         } catch (Throwable $e) {
             return [
                 'status' => 'down',
                 'critical' => false,
                 'latency_ms' => null,
                 'error' => $e->getMessage(),
+                'dead_letters' => null,
             ];
         }
     }
 
     /**
-     * Depth of each dead-letter queue for the handlers this gateway consumes.
+     * Depth of each dead-letter queue for the handlers this gateway consumes,
+     * probed over an already-open broker connection.
      *
      * Uses passive queue_declare so no queues are created as a side effect.
      * A failed passive declare (queue absent) closes the channel, so each
-     * queue is probed on its own channel.
+     * queue is probed on its own channel off the shared connection.
      *
      * @return array<string, int>
      */
-    public function deadLetters(): array
+    private function deadLetters(AMQPStreamConnection $connection): array
     {
-        if (! config('microservice.bus.enabled', true)
-            || ! config('microservice.bus.dead_letter.enabled', true)) {
+        if (! config('microservice.bus.dead_letter.enabled', true)) {
             return [];
         }
 
@@ -298,26 +346,18 @@ class HealthChecker
         $service = (string) config('microservice.name', 'app');
         $result = [];
 
-        try {
-            $connection = $this->busConnection();
+        foreach ($types as $type) {
+            $dlq = "$service.$type.dlq";
 
-            foreach ($types as $type) {
-                $dlq = "$service.$type.dlq";
-
-                try {
-                    $channel = $connection->channel();
-                    $info = $channel->queue_declare($dlq, passive: true);
-                    $result[$dlq] = is_array($info) ? (int) ($info[1] ?? 0) : 0;
-                    $channel->close();
-                } catch (Throwable) {
-                    // Queue does not exist yet — nothing dead-lettered. The
-                    // failed passive declare already closed the channel.
-                }
+            try {
+                $channel = $connection->channel();
+                $info = $channel->queue_declare($dlq, passive: true);
+                $result[$dlq] = is_array($info) ? (int) ($info[1] ?? 0) : 0;
+                $channel->close();
+            } catch (Throwable) {
+                // Queue does not exist yet — nothing dead-lettered. The
+                // failed passive declare already closed the channel.
             }
-
-            $connection->close();
-        } catch (Throwable) {
-            return [];
         }
 
         return $result;
@@ -425,9 +465,8 @@ class HealthChecker
     /**
      * @param  array<string, array<string, mixed>>  $services
      * @param  array<string, array<string, mixed>>  $dependencies
-     * @param  array<string, int>                   $deadLetters
      */
-    private function overallStatus(array $services, array $dependencies, array $deadLetters): string
+    private function overallStatus(array $services, array $dependencies): string
     {
         foreach ($dependencies as $dependency) {
             if (($dependency['critical'] ?? false) && ($dependency['status'] ?? null) !== 'up') {
@@ -439,10 +478,12 @@ class HealthChecker
             return self::STATUS_UNHEALTHY;
         }
 
+        $deadLetters = $dependencies['rabbitmq']['dead_letters'] ?? [];
+
         $degraded = array_any($services, static fn (array $s) => $s['status'] === 'stale')
             || array_any($services, static fn (array $s) => ($s['circuit']['state'] ?? null) === 'open')
             || array_any($dependencies, static fn (array $d) => ($d['status'] ?? null) !== 'up')
-            || array_any($deadLetters, static fn (int $depth) => $depth > 0);
+            || array_any((array) $deadLetters, static fn (int $depth) => $depth > 0);
 
         return $degraded ? self::STATUS_DEGRADED : self::STATUS_HEALTHY;
     }

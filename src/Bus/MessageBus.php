@@ -45,13 +45,10 @@ readonly class MessageBus
                     $type,
                 );
         } catch (Throwable $e) {
-            Log::error('Failed to publish message.', [
-                'type'      => $type,
-                'exception' => $e::class,
-                'message'   => $e->getMessage(),
+            Log::error('MessageBus: failed to publish', [
+                'type'  => $type,
+                'error' => $e->getMessage(),
             ]);
-
-            report($e);
         }
     }
 

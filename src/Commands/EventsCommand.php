@@ -23,7 +23,7 @@ class EventsCommand extends Command
         $handlers = $discovery->discover();
 
         if ($handlers === []) {
-            $this->components->warn('No message handlers were discovered.');
+            $this->components->warn('No MessageHandler implementations found.');
 
             return self::SUCCESS;
         }
