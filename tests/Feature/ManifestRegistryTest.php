@@ -78,17 +78,49 @@ class ManifestRegistryTest extends TestCase
             'timestamp' => now()->toIso8601String(),
         ];
 
+        // ttl 300 with a 5-minute sync interval is floored to two sync cycles (600s)
+        // so a single late sync cannot evict the manifest.
         $this->redis->shouldReceive('setex')->once()->withArgs(function ($key, $ttl, $value) {
             $decoded = json_decode($value, true);
 
             return str_contains($key, 'manifest:pim')
-                && $ttl === 300
+                && $ttl === 600
                 && isset($decoded['synced_at']);
         });
 
         $this->redis->shouldReceive('sadd')->once();
 
         $this->registry->store($manifest);
+    }
+
+    public function test_ttl_floors_to_two_sync_cycles_when_configured_ttl_is_too_short(): void
+    {
+        config([
+            'microservice.manifest.ttl' => 300,
+            'microservice.manifest.sync_interval' => 5,
+        ]);
+
+        $this->assertSame(600, $this->registry->ttl());
+    }
+
+    public function test_ttl_honors_configured_value_when_larger_than_sync_window(): void
+    {
+        config([
+            'microservice.manifest.ttl' => 1800,
+            'microservice.manifest.sync_interval' => 5,
+        ]);
+
+        $this->assertSame(1800, $this->registry->ttl());
+    }
+
+    public function test_ttl_uses_configured_value_when_syncing_disabled(): void
+    {
+        config([
+            'microservice.manifest.ttl' => 300,
+            'microservice.manifest.sync_interval' => 0,
+        ]);
+
+        $this->assertSame(300, $this->registry->ttl());
     }
 
     public function test_store_ignores_manifest_without_service(): void

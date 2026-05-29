@@ -39,12 +39,29 @@ class ManifestRegistry
         }
 
         $prefix = $this->redisPrefix();
-        $ttl = config('microservice.manifest.ttl', 300);
 
         $manifest['synced_at'] = now()->toIso8601String();
 
-        $this->redis()->setex($prefix."manifest:$service", $ttl, json_encode($manifest));
+        $this->redis()->setex($prefix."manifest:$service", $this->ttl(), json_encode($manifest));
         $this->redis()->sadd($prefix.'manifests', $service);
+    }
+
+    /**
+     * Effective Redis lifetime for a stored manifest.
+     *
+     * The manifest must outlive the gap between sync cycles: with
+     * ttl == sync_interval a single late or skipped run evicts it, which
+     * breaks route resolution and trips the health endpoint. The configured
+     * ttl is kept as a floor, but the stored lifetime is never shorter than
+     * two sync cycles so a missed run cannot open a gap. This lets the
+     * default SERVICE_MANIFEST_TTL stay untouched while remaining safe.
+     */
+    public function ttl(): int
+    {
+        $ttl = (int) config('microservice.manifest.ttl', 300);
+        $interval = (int) config('microservice.manifest.sync_interval', 5) * 60;
+
+        return $interval > 0 ? max($ttl, $interval * 2) : $ttl;
     }
 
     /**

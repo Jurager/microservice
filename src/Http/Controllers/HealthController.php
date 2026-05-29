@@ -5,59 +5,50 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Jurager\Microservice\Support\HealthChecker;
 
 class HealthController extends Controller
 {
-    use InteractsWithRedis;
+    public function __construct(private readonly HealthChecker $checker) {}
 
-    public function __invoke(): JsonResponse
+    /**
+     * Detailed health report (human/dashboard oriented).
+     */
+    public function __invoke(Request $request): JsonResponse
     {
-        $services = config('microservice.manifest.services', []);
-        $ttl = config('microservice.manifest.ttl', 300);
-        $prefix = $this->redisPrefix();
+        $report = $this->checker->report(
+            only: $request->query('service'),
+            verbose: $request->boolean('verbose', config('microservice.health.verbose', false)),
+        );
 
-        $result = [];
+        return $this->respond($report, $this->checker->httpStatus($report['status']));
+    }
 
-        foreach ($services as $service) {
-            $raw = $this->redis()->get($prefix."manifest:$service");
+    /**
+     * Liveness probe — the process is up. No external dependencies touched.
+     */
+    public function live(): JsonResponse
+    {
+        return $this->respond(['status' => HealthChecker::STATUS_HEALTHY], 200);
+    }
 
-            if ($raw === null || $raw === false) {
-                $result[$service] = [
-                    'status' => 'missing',
-                    'synced_at' => null,
-                    'routes_count' => 0,
-                    'base_url' => null,
-                    'timeout' => null,
-                ];
+    /**
+     * Readiness probe — the gateway can serve traffic.
+     */
+    public function ready(): JsonResponse
+    {
+        $report = $this->checker->readiness();
 
-                continue;
-            }
+        return $this->respond($report, $this->checker->httpStatus($report['status']));
+    }
 
-            $manifest = json_decode($raw, true);
-            $syncedAt = $manifest['synced_at'] ?? null;
-            $remainingTtl = $this->redis()->ttl($prefix."manifest:$service");
-
-            $status = 'ok';
-
-            if ($remainingTtl !== -1 && $remainingTtl < ($ttl * 0.5)) {
-                $status = 'stale';
-            }
-
-            $result[$service] = [
-                'status' => $status,
-                'synced_at' => $syncedAt,
-                'expires_in' => $remainingTtl > 0 ? $remainingTtl : null,
-                'routes_count' => count($manifest['routes'] ?? []),
-                'base_url' => $manifest['base_url'] ?? null,
-                'timeout' => $manifest['timeout'] ?? null,
-            ];
-        }
-
-        return response()->json([
-            'gateway' => config('microservice.name'),
-            'services' => $result,
-        ]);
+    private function respond(array $payload, int $status): JsonResponse
+    {
+        return response()
+            ->json($payload, $status)
+            ->header('Content-Type', 'application/health+json')
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 }

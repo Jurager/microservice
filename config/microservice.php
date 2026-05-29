@@ -15,6 +15,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Service Version
+    |--------------------------------------------------------------------------
+    |
+    | Optional build/release identifier surfaced in the health report's
+    | instance block. Useful for spotting a misbehaving replica.
+    |
+    */
+    'version' => env('SERVICE_VERSION'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Debug Mode
     |--------------------------------------------------------------------------
     |
@@ -138,7 +149,55 @@ return [
     |
     */
     'health' => [
+        /*
+        | Detailed health report (human/dashboard oriented).
+        | Returns 200 when healthy/degraded, 503 when unhealthy.
+        | Set to null to disable.
+        */
         'endpoint' => env('SERVICE_HEALTH_ENDPOINT', '/microservice/health'),
+
+        /*
+        | Liveness probe — process is up. No external dependencies are
+        | touched, so it answers instantly. Suitable for k8s livenessProbe.
+        | Set to null to disable.
+        */
+        'liveness_endpoint' => env('SERVICE_HEALTH_LIVENESS_ENDPOINT', '/microservice/health/live'),
+
+        /*
+        | Readiness probe — gateway is able to serve traffic (Redis reachable
+        | and manifests present). Returns 503 when not ready so the
+        | orchestrator removes the instance from rotation.
+        | Set to null to disable.
+        */
+        'readiness_endpoint' => env('SERVICE_HEALTH_READINESS_ENDPOINT', '/microservice/health/ready'),
+
+        /*
+        | Prometheus metrics endpoint (text/plain exposition format).
+        | Set to null to disable.
+        */
+        'metrics_endpoint' => env('SERVICE_HEALTH_METRICS_ENDPOINT', '/microservice/metrics'),
+
+        /*
+        | Expose infrastructure config (base_url, timeout) in the detailed
+        | report. Disabled by default to avoid leaking topology; can still be
+        | requested per-call with ?verbose=1 when this is true.
+        */
+        'verbose' => env('SERVICE_HEALTH_VERBOSE', false),
+
+        /*
+        | A manifest is considered "stale" once it is older than
+        | sync_interval * stale_factor. Keep above 1.0 so a single missed
+        | sync cycle does not immediately flip the status.
+        */
+        'stale_factor' => env('SERVICE_HEALTH_STALE_FACTOR', 1.5),
+
+        /*
+        | Seconds to cache the detailed report (and /metrics). The heavy
+        | checks (RabbitMQ, DLQ) hit infrastructure, so a few seconds of
+        | caching protects it from frequent scrapes. 0 disables caching.
+        | The readiness probe is never cached.
+        */
+        'cache_ttl' => env('SERVICE_HEALTH_CACHE_TTL', 0),
     ],
 
     /*
