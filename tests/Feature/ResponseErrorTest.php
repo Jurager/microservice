@@ -90,18 +90,18 @@ class ResponseErrorTest extends TestCase
         $payload = json_decode($response->getContent(), true);
         $this->assertNotEmpty($payload['errors']);
         $this->assertSame('422', $payload['errors'][0]['status']);
-        $this->assertSame('/data/attributes/name', $payload['errors'][0]['source']['pointer']);
+        $this->assertSame('/name', $payload['errors'][0]['source']['pointer']);
         $this->assertSame('The name field is required.', $payload['errors'][0]['detail']);
     }
 
     public function test_validation_exception_with_nested_field_uses_slash_pointer(): void
     {
         $response = ResponseError::fromException(
-            ValidationException::withMessages(['data.address' => ['Invalid.']])
+            ValidationException::withMessages(['attributes.0.id' => ['Invalid.']])
         );
 
         $payload = json_decode($response->getContent(), true);
-        $this->assertSame('/data/attributes/data/address', $payload['errors'][0]['source']['pointer']);
+        $this->assertSame('/attributes/0/id', $payload['errors'][0]['source']['pointer']);
     }
 
     public function test_default_render_returns_json_api_format(): void

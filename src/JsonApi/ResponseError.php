@@ -80,13 +80,13 @@ final class ResponseError
         );
     }
 
-    /** 422 with per-field pointer sources, e.g. `/data/attributes/email`. */
+    /** 422 with an RFC 6901 JSON Pointer per field, e.g. `/email` or `/attributes/0/id`. */
     private static function validation(ValidationException $e): JsonResponse
     {
         $errors = [];
 
         foreach ($e->errors() as $field => $messages) {
-            $pointer = '/data/attributes/'.str_replace('.', '/', $field);
+            $pointer = '/'.str_replace('.', '/', $field);
 
             foreach ($messages as $message) {
                 $errors[] = [
