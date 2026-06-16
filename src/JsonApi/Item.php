@@ -81,7 +81,7 @@ class Item
 
     public function relationshipData(string $name): array
     {
-        return data_get($this->relationships, "$name.data", []);
+        return data_get($this->relationships, "$name.data") ?? [];
     }
 
     public function relationships(): array
