@@ -33,7 +33,11 @@ class HmacSigner
      */
     public function sign(string $method, string $path, string $timestamp, ?string $body = null): string
     {
-        $payload = strtoupper($method)."\n".'/'.ltrim($path, '/')."\n$timestamp\n".($body ?? '');
+        // Normalize the path - include the leading slash but omit the trailing one
+        // So that the client's URL matches the server's regardless of slashes
+        $normalizedPath = '/'.trim($path, '/');
+
+        $payload = strtoupper($method)."\n".$normalizedPath."\n$timestamp\n".($body ?? '');
 
         return hash_hmac($this->algorithm, $payload, $this->secret);
     }
