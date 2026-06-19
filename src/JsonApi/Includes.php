@@ -22,7 +22,7 @@ class Includes
 
         foreach ($included as $resource) {
             $type = $resource['type'] ?? null;
-            $id = (string) ($resource['id'] ?? '');
+            $id   = (string) ($resource['id'] ?? '');
 
             if ($type && $id) {
                 $this->index[$type][$id] = $resource;
@@ -45,21 +45,6 @@ class Includes
         return isset($this->index[$type][$id]);
     }
 
-    public function filter(callable $callback): void
-    {
-        $this->raw = array_values(array_filter($this->raw, $callback));
-        $this->index = [];
-
-        foreach ($this->raw as $resource) {
-            $type = $resource['type'] ?? null;
-            $id = (string) ($resource['id'] ?? '');
-
-            if ($type && $id) {
-                $this->index[$type][$id] = $resource;
-            }
-        }
-    }
-
     /** Raw included array for forwarding to the frontend as-is. */
     public function raw(): array
     {
@@ -67,40 +52,72 @@ class Includes
     }
 
     /**
-     * Strip orphan relationship links from every resource in `$body['data']` and
-     * `$body['included']`, then sync `$body['included']` to the current filtered state.
+     * Apply a filter predicate, clean up orphan relationship links in root items, then cascade-prune any included resources no longer reachable from those roots.
+     *
+     * @param  Item[]  $roots  primary data items (modified in place via withoutOrphanLinks)
      */
-    public function pruneOrphansInBody(array &$body): void
+    public function rebuild(callable $filter, array $roots): void
     {
-        if (isset($body['data'])) {
-            $this->pruneNode($body['data']);
-        }
+        $this->raw   = array_values(array_filter($this->raw, $filter));
+        $this->index = [];
 
-        foreach ($body['included'] as &$resource) {
-            if (isset($resource['relationships'])) {
-                $item = Item::from($resource);
-                $item->withoutOrphanLinks($this);
-                $resource = $item->toArray();
+        foreach ($this->raw as $resource) {
+            $type = $resource['type'] ?? null;
+            $id   = (string) ($resource['id'] ?? '');
+
+            if ($type && $id) {
+                $this->index[$type][$id] = $resource;
             }
         }
-        unset($resource);
 
-        $body['included'] = $this->raw();
-    }
+        foreach ($roots as $root) {
+            $root->withoutOrphanLinks($this);
+        }
 
-    private function pruneNode(array &$node): void
-    {
-        if (array_is_list($node)) {
-            foreach ($node as &$resource) {
-                $item = Item::from($resource);
-                $item->withoutOrphanLinks($this);
-                $resource = $item->toArray();
+        $reachable = [];
+        $queue     = array_map(fn (Item $item) => $item->toArray(), $roots);
+
+        while ($queue) {
+            $resource = array_shift($queue);
+
+            foreach ($resource['relationships'] ?? [] as $rel) {
+                $data = $rel['data'] ?? null;
+
+                if ($data === null) {
+                    continue;
+                }
+
+                foreach (array_is_list($data) ? $data : [$data] as $ref) {
+                    $type = $ref['type'] ?? '';
+                    $id   = (string) ($ref['id'] ?? '');
+                    $key  = "$type:$id";
+
+                    if ($type && $id && ! isset($reachable[$key])) {
+                        $reachable[$key] = true;
+                        $found           = $this->index[$type][$id] ?? null;
+
+                        if ($found) {
+                            $queue[] = $found;
+                        }
+                    }
+                }
             }
-            unset($resource);
-        } else {
-            $item = Item::from($node);
-            $item->withoutOrphanLinks($this);
-            $node = $item->toArray();
+        }
+        
+        $this->raw = array_values(array_filter(
+            $this->raw,
+            fn (array $r) => isset($reachable[($r['type'] ?? '') . ':' . ($r['id'] ?? '')]),
+        ));
+
+        $this->index = [];
+
+        foreach ($this->raw as $r) {
+            $type = $r['type'] ?? null;
+            $id   = (string) ($r['id'] ?? '');
+
+            if ($type && $id) {
+                $this->index[$type][$id] = $r;
+            }
         }
     }
 
@@ -160,8 +177,8 @@ class Includes
 
     private function resolveRef(array $ref, ?string $itemClass, array $subMap = []): ?Item
     {
-        $type = $ref['type'] ?? null;
-        $id = (string) ($ref['id'] ?? '');
+        $type     = $ref['type'] ?? null;
+        $id       = (string) ($ref['id'] ?? '');
         $resource = $type ? ($this->index[$type][$id] ?? null) : null;
 
         if (! $resource) {

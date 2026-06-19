@@ -70,9 +70,7 @@ class ItemDocument implements Responsable
 
     public function filterIncluded(callable $filter): static
     {
-        $this->included->filter($filter);
-
-        $this->withoutOrphans();
+        $this->included->rebuild($filter, [$this->item]);
 
         return $this;
     }
