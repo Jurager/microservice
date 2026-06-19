@@ -40,6 +40,11 @@ class Includes
         return $this->index[$type][$id] ?? null;
     }
 
+    public function has(string $type, string $id): bool
+    {
+        return isset($this->index[$type][$id]);
+    }
+
     public function filter(callable $callback): void
     {
         $this->raw = array_values(array_filter($this->raw, $callback));

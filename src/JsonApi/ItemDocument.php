@@ -70,6 +70,18 @@ class ItemDocument
     {
         $this->included->filter($filter);
 
+        $this->withoutOrphans();
+
+        return $this;
+    }
+
+    /**
+     * Remove relationship links that reference resources no longer in `included`.
+     */
+    public function withoutOrphans(): static
+    {
+        $this->item->withoutOrphanLinks($this->included);
+
         return $this;
     }
 

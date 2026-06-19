@@ -84,6 +84,35 @@ class Item
         return data_get($this->relationships, "$name.data") ?? [];
     }
 
+    /**
+     * Remove relationship links that reference resources no longer in `included`.
+     */
+    public function withoutOrphanLinks(Includes $included): void
+    {
+        foreach ($this->relationships as $name => &$rel) {
+            $data = $rel['data'] ?? null;
+
+            if ($data === null) {
+                continue;
+            }
+
+            $items = array_is_list($data) ? $data : [$data];
+
+            $kept = array_values(array_filter($items, fn (array $ref): bool => $included->has(
+                (string) ($ref['type'] ?? ''),
+                (string) ($ref['id'] ?? ''),
+            )));
+
+            if ($kept === []) {
+                unset($this->relationships[$name]);
+            } else {
+                $rel['data'] = array_is_list($data) ? $kept : $kept[0];
+            }
+        }
+
+        unset($rel);
+    }
+
     public function relationships(): array
     {
         return $this->relationships;

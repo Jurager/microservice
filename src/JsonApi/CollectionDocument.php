@@ -85,6 +85,18 @@ class CollectionDocument
     {
         $this->included->filter($filter);
 
+        $this->withoutOrphans();
+
+        return $this;
+    }
+
+    /**
+     * Remove relationship links that reference resources no longer in `included`.
+     */
+    public function withoutOrphans(): static
+    {
+        $this->items->each(fn (Item $item) => $item->withoutOrphanLinks($this->included));
+
         return $this;
     }
 
