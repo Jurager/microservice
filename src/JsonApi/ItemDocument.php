@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\JsonApi;
 
+use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 /**
  * Represents a JSON:API single-resource response.
  *
  * @template T of Item
  */
-class ItemDocument
+class ItemDocument implements Responsable
 {
     /** @var T */
     private Item $item;
@@ -91,6 +93,21 @@ class ItemDocument
     }
 
     /**
+     * Responsable: apply any registered included filter, then serialize.
+     */
+    public function toResponse($request): JsonResponse
+    {
+        if ($request instanceof Request && ! $this->included->isEmpty()) {
+            $filter = $request->attributes->get(Includes::class);
+            if ($filter) {
+                $this->filterIncluded($filter);
+            }
+        }
+
+        return $this->toJsonResponse();
+    }
+
+    /**
      * Serialize to a JSON:API JsonResponse.
      *
      * Without a callback: item is serialized as-is.
@@ -99,7 +116,7 @@ class ItemDocument
      *
      * @param  callable(T): array|null  $transform
      */
-    public function toResponse(?callable $transform = null): JsonResponse
+    public function toJsonResponse(?callable $transform = null): JsonResponse
     {
         $data = $transform ? $transform($this->item) : $this->item->toArray();
 

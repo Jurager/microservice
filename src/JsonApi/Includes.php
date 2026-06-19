@@ -67,6 +67,44 @@ class Includes
     }
 
     /**
+     * Strip orphan relationship links from every resource in `$body['data']` and
+     * `$body['included']`, then sync `$body['included']` to the current filtered state.
+     */
+    public function pruneOrphansInBody(array &$body): void
+    {
+        if (isset($body['data'])) {
+            $this->pruneNode($body['data']);
+        }
+
+        foreach ($body['included'] as &$resource) {
+            if (isset($resource['relationships'])) {
+                $item = Item::from($resource);
+                $item->withoutOrphanLinks($this);
+                $resource = $item->toArray();
+            }
+        }
+        unset($resource);
+
+        $body['included'] = $this->raw();
+    }
+
+    private function pruneNode(array &$node): void
+    {
+        if (array_is_list($node)) {
+            foreach ($node as &$resource) {
+                $item = Item::from($resource);
+                $item->withoutOrphanLinks($this);
+                $resource = $item->toArray();
+            }
+            unset($resource);
+        } else {
+            $item = Item::from($node);
+            $item->withoutOrphanLinks($this);
+            $node = $item->toArray();
+        }
+    }
+
+    /**
      * Auto-resolve all relationships present in this included pool using Item::class.
      * Skips relationships already resolved via withRelations().
      */

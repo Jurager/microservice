@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\JsonApi;
 
+use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -13,7 +14,7 @@ use Illuminate\Support\Collection;
  *
  * @template T of Item
  */
-class CollectionDocument
+class CollectionDocument implements Responsable
 {
     /** @var Collection<int, T> */
     private Collection $items;
@@ -106,6 +107,21 @@ class CollectionDocument
     }
 
     /**
+     * Responsable: apply any registered included filter, then serialize.
+     */
+    public function toResponse($request): JsonResponse
+    {
+        if ($request instanceof Request && ! $this->included->isEmpty()) {
+            $filter = $request->attributes->get(Includes::class);
+            if ($filter) {
+                $this->filterIncluded($filter);
+            }
+        }
+
+        return $this->toJsonResponse();
+    }
+
+    /**
      * Serialize to a JSON:API JsonResponse.
      *
      * Without a callback: items are serialized as-is.
@@ -114,7 +130,7 @@ class CollectionDocument
      *
      * @param  callable(T): array|null  $transform
      */
-    public function toResponse(?callable $transform = null): JsonResponse
+    public function toJsonResponse(?callable $transform = null): JsonResponse
     {
         $data = $this->items->map(
             fn (Item $item) => $transform ? $transform($item) : $item->toArray()
