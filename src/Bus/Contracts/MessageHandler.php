@@ -6,7 +6,7 @@ namespace Jurager\Microservice\Bus\Contracts;
 
 interface MessageHandler
 {
-    public static function type(): string;
+    public static function type(): string|array;
 
     public static function from(array $payload): static;
 }

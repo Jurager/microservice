@@ -174,7 +174,9 @@ class ListenCommand extends Command
         $map = [];
 
         foreach ($discovery->discover() as $class) {
-            $map[$class::type()] = $class;
+            foreach ((array) $class::type() as $type) {
+                $map[$type] = $class;
+            }
         }
 
         return $map;
