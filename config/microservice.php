@@ -230,6 +230,18 @@ return [
     | multiplier Exponential backoff multiplier.
     |
     */
+    /*
+    |--------------------------------------------------------------------------
+    | Connection Timeout
+    |--------------------------------------------------------------------------
+    |
+    | Maximum seconds to wait while establishing a TCP connection.
+    | Keeps this short so a dead service fails fast instead of
+    | holding a PHP-FPM worker for the full request timeout.
+    |
+    */
+    'connect_timeout' => env('SERVICE_CONNECT_TIMEOUT', 5),
+
     'retries' => [
         'max' => env('SERVICE_RETRIES_MAX', 0),
         'delay' => env('SERVICE_RETRIES_DELAY', 100),

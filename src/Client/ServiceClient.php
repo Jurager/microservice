@@ -260,10 +260,11 @@ class ServiceClient
             : null;
 
         $options = [
-            'timeout' => $timeout,
-            'http_errors' => false,
-            'stream' => true,
-            'headers' => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
+            'timeout'         => $timeout,
+            'connect_timeout' => (int) config('microservice.connect_timeout', 5),
+            'http_errors'     => false,
+            'stream'          => true,
+            'headers'         => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
         ];
 
         if ($query = $request->getQuery()) {
