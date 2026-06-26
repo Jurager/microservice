@@ -132,11 +132,9 @@ class ManifestRegistryTest extends TestCase
 
     public function test_build_includes_route_metadata(): void
     {
-        $route = Route::get('api/products', fn () => 'ok')->name('products.index');
-        $route->setAction(array_merge($route->getAction(), [
-            'permissions' => ['products.view'],
-            'rate_limit' => 100,
-        ]));
+        Route::get('api/products', fn () => 'ok')
+            ->name('products.index')
+            ->metadata(['permissions' => ['products.view'], 'rate_limit' => 100]);
 
         $manifest = $this->registry->build();
 
@@ -145,21 +143,6 @@ class ManifestRegistryTest extends TestCase
         $this->assertNotNull($found);
         $this->assertSame(['products.view'], $found['permissions']);
         $this->assertSame(100, $found['rate_limit']);
-    }
-
-    public function test_build_excludes_laravel_internal_action_keys(): void
-    {
-        Route::get('api/items', fn () => 'ok')->name('items.index');
-
-        $manifest = $this->registry->build();
-
-        $route = collect($manifest['routes'])->firstWhere('name', 'items.index');
-
-        $this->assertNotNull($route);
-        $this->assertArrayNotHasKey('uses', $route);
-        $this->assertArrayNotHasKey('controller', $route);
-        $this->assertArrayNotHasKey('middleware', $route);
-        $this->assertArrayNotHasKey('as', $route);
     }
 
     public function test_build_adds_leading_slash_to_uri(): void

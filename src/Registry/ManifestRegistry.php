@@ -11,11 +11,6 @@ class ManifestRegistry
 {
     use InteractsWithRedis;
 
-    public const array EXCLUDED_ACTION_KEYS = [
-        'uses', 'controller', 'middleware', 'as', 'prefix', 'namespace',
-        'where', 'domain', 'excluded_middleware', 'withoutMiddleware',
-    ];
-
     public function build(): array
     {
         return [
@@ -79,13 +74,7 @@ class ManifestRegistry
                 continue;
             }
 
-            $metadata = array_merge(
-                $route->defaults ?? [],
-                array_diff_key(
-                    $route->getAction(),
-                    array_flip(self::EXCLUDED_ACTION_KEYS),
-                ),
-            );
+            $metadata = $route->getMetadata() ?? [];
 
             foreach ($route->methods() as $method) {
                 if ($method === 'HEAD') {
