@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Redis\Connections\Connection;
-use Illuminate\Support\Facades\Redis;
 use Jurager\Microservice\Http\Middleware\Idempotency;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
@@ -21,7 +21,11 @@ class IdempotencyMiddlewareTest extends TestCase
         $this->app['config']->set('microservice.idempotency.ttl', 86400);
 
         $this->redis = Mockery::mock(Connection::class);
-        Redis::shouldReceive('connection')->andReturn($this->redis);
+
+        $factory = Mockery::mock(Factory::class);
+        $factory->shouldReceive('connection')->andReturn($this->redis);
+
+        $this->app->instance(Factory::class, $factory);
     }
 
     protected function defineRoutes($router): void

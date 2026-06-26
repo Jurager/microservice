@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Registry;
 
+use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 
 class ManifestRegistry
 {
     use InteractsWithRedis;
+
+    public function __construct(private readonly Factory $redisFactory) {}
 
     public function build(): array
     {

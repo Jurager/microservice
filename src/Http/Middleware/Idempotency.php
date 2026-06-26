@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Http\Middleware;
 
 use Closure;
+use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Http\Request;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Events\IdempotentRequestDetected;
@@ -16,6 +17,8 @@ use Symfony\Component\HttpFoundation\Response;
 class Idempotency
 {
     use InteractsWithRedis;
+
+    public function __construct(private readonly Factory $redisFactory) {}
 
     public function handle(Request $request, Closure $next): Response
     {

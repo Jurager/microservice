@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Registry;
 
+use Illuminate\Contracts\Redis\Factory;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 
 class RouteRegistry
 {
     use InteractsWithRedis;
+
+    public function __construct(private readonly Factory $redisFactory) {}
 
     /**
      * Get all registered manifests from Redis.

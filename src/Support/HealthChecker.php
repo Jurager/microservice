@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Support;
 
+use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
@@ -24,6 +25,11 @@ use Throwable;
 class HealthChecker
 {
     use InteractsWithRedis;
+
+    public function __construct(
+        private readonly Factory $redisFactory,
+        private readonly Repository $cache,
+    ) {}
 
     public const string STATUS_HEALTHY = 'healthy';
 
@@ -51,7 +57,7 @@ class HealthChecker
             return $build();
         }
 
-        return Cache::remember(
+        return $this->cache->remember(
             'microservice:health:'.($only ?? 'all').':'.($verbose ? 'v' : 'n'),
             $ttl,
             $build,

@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Unit;
 
-use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Message\AMQPMessage;
+use Psr\Log\LoggerInterface;
 
 class MessageBusTest extends TestCase
 {
@@ -47,7 +47,9 @@ class MessageBusTest extends TestCase
         $connection->shouldNotReceive('channel');
         $this->app->instance(Connection::class, $connection);
 
-        Log::shouldReceive('debug')->once();
+        $logger = Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('debug')->once();
+        $this->app->instance(LoggerInterface::class, $logger);
 
         app(MessageBus::class)->publish('test', ['x' => 1]);
 
@@ -60,12 +62,14 @@ class MessageBusTest extends TestCase
         $channel->shouldReceive('basic_publish')->andThrow(new \RuntimeException('AMQP down'));
         $this->bindChannel($channel);
 
-        Log::shouldReceive('error')
+        $logger = Mockery::mock(LoggerInterface::class);
+        $logger->shouldReceive('error')
             ->once()
             ->with('MessageBus: failed to publish', Mockery::on(
                 fn (array $ctx): bool =>
                 $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
             ));
+        $this->app->instance(LoggerInterface::class, $logger);
 
         app(MessageBus::class)->publish('sfm.site.deleted', []);
     }

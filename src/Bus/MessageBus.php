@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Bus;
 
-use Illuminate\Support\Facades\Log;
 use JsonException;
 use Jurager\Microservice\Support\HmacSigner;
 use PhpAmqpLib\Message\AMQPMessage;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
@@ -18,6 +18,7 @@ readonly class MessageBus
     public function __construct(
         private HmacSigner $signer,
         private Connection $connection,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -27,7 +28,7 @@ readonly class MessageBus
     public function publish(string $type, array $payload, ?string $queue = null): void
     {
         if (! $this->enabled()) {
-            Log::debug('Message bus publishing skipped.', [
+            $this->logger->debug('Message bus publishing skipped.', [
                 'type' => $type,
             ]);
 
@@ -45,7 +46,7 @@ readonly class MessageBus
                     $type,
                 );
         } catch (Throwable $e) {
-            Log::error('MessageBus: failed to publish', [
+            $this->logger->error('MessageBus: failed to publish', [
                 'type'  => $type,
                 'error' => $e->getMessage(),
             ]);

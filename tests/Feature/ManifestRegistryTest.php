@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Registry\ManifestRegistry;
@@ -22,11 +23,10 @@ class ManifestRegistryTest extends TestCase
 
         $this->redis = Mockery::mock(Connection::class);
 
-        $this->registry = Mockery::mock(ManifestRegistry::class)
-            ->makePartial()
-            ->shouldAllowMockingProtectedMethods();
+        $factory = Mockery::mock(Factory::class);
+        $factory->shouldReceive('connection')->andReturn($this->redis);
 
-        $this->registry->shouldReceive('redis')->andReturn($this->redis);
+        $this->registry = new ManifestRegistry($factory);
     }
 
     public function test_build_returns_manifest_with_service_and_routes(): void
