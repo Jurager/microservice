@@ -6,6 +6,7 @@ namespace Jurager\Microservice\JsonApi\Concerns;
 
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\JsonApi\JsonApiRequest;
@@ -30,53 +31,21 @@ trait WithEagerIncludes
                 : $resource;
 
             if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
-                $first  = $models->first();
-                $loaded = $first->getRelations();
-                $toLoad = [];
-                $nested = [];
+                $first = $models->first();
 
-                foreach ($sparseIncluded as $relation => $subRelations) {
-                    $subs = array_values(array_filter((array) $subRelations));
-
-                    if (isset($loaded[$relation]) && $subs) {
-                        $nested[$relation] = $subs;
-                    } elseif (! isset($loaded[$relation])) {
-                        $toLoad[$relation] = $subRelations;
-                    }
-                }
+                [$toLoad, $nested] = static::classifyIncludes($first, $sparseIncluded);
 
                 if ($toLoad) {
-                    foreach (array_keys($toLoad) as $relation) {
-                        if (! $first->isRelation($relation)) {
-                            abort(400, "Unknown include: \"$relation\".");
-                        }
-                    }
-
                     $models->loadMissing(static::buildEagerLoad($toLoad, $first));
                 }
 
                 foreach ($nested as $relation => $subs) {
-                    $allRelated = new EloquentCollection();
-
-                    foreach ($models as $model) {
-                        $related = $model->getRelation($relation);
-
-                        if ($related instanceof EloquentCollection) {
-                            $allRelated = $allRelated->merge($related);
-                        } elseif ($related !== null) {
-                            $allRelated->push($related);
-                        }
-                    }
+                    $allRelated = $models
+                        ->map(fn ($m) => $m->getRelation($relation))
+                        ->filter()
+                        ->flatMap(fn ($r) => $r instanceof EloquentCollection ? $r->all() : [$r]);
 
                     if ($allRelated->isNotEmpty()) {
-                        $firstRelated = $allRelated->first();
-
-                        foreach ($subs as $sub) {
-                            if (! $firstRelated->isRelation($sub)) {
-                                abort(400, "Unknown include: \"{$relation}.{$sub}\".");
-                            }
-                        }
-
                         $allRelated->loadMissing($subs);
                     }
                 }
@@ -95,29 +64,12 @@ trait WithEagerIncludes
             array_map(fn ($r) => $jsonApiRequest->sparseIncluded($r), $relations)
         );
 
-        if ($sparseIncluded && $this->resource instanceof \Illuminate\Database\Eloquent\Model) {
-            $model  = $this->resource;
-            $loaded = $model->getRelations();
-            $toLoad = [];
-            $nested = [];
+        if ($sparseIncluded && $this->resource instanceof Model) {
+            $model = $this->resource;
 
-            foreach ($sparseIncluded as $relation => $subRelations) {
-                $subs = array_values(array_filter((array) $subRelations));
-
-                if (isset($loaded[$relation]) && $subs) {
-                    $nested[$relation] = $subs;
-                } elseif (! isset($loaded[$relation])) {
-                    $toLoad[$relation] = $subRelations;
-                }
-            }
+            [$toLoad, $nested] = static::classifyIncludes($model, $sparseIncluded);
 
             if ($toLoad) {
-                foreach (array_keys($toLoad) as $relation) {
-                    if (! $model->isRelation($relation)) {
-                        abort(400, "Unknown include: \"$relation\".");
-                    }
-                }
-
                 $model->loadMissing(static::buildEagerLoad($toLoad, $model));
             }
 
@@ -128,20 +80,44 @@ trait WithEagerIncludes
                     : new EloquentCollection($related !== null ? [$related] : []);
 
                 if ($allRelated->isNotEmpty()) {
-                    $firstRelated = $allRelated->first();
-
-                    foreach ($subs as $sub) {
-                        if (! $firstRelated->isRelation($sub)) {
-                            abort(400, "Unknown include: \"{$relation}.{$sub}\".");
-                        }
-                    }
-
                     $allRelated->loadMissing($subs);
                 }
             }
         }
 
         return parent::toResponse($request);
+    }
+
+    protected static function classifyIncludes(Model $first, array $sparseIncluded): array
+    {
+        $loaded = $first->getRelations();
+        $toLoad = [];
+        $nested = [];
+
+        foreach ($sparseIncluded as $relation => $subRelations) {
+            if (! $first->isRelation($relation)) {
+                abort(400, "Unknown include: \"$relation\".");
+            }
+
+            $subs = array_values(array_filter((array) $subRelations));
+
+            if ($subs) {
+                $related = $first->$relation()->getRelated();
+                foreach ($subs as $sub) {
+                    if (! $related->isRelation($sub)) {
+                        abort(400, "Unknown include: \"{$relation}.{$sub}\".");
+                    }
+                }
+            }
+
+            if (isset($loaded[$relation]) && $subs) {
+                $nested[$relation] = $subs;
+            } elseif (! isset($loaded[$relation])) {
+                $toLoad[$relation] = $subRelations;
+            }
+        }
+
+        return [$toLoad, $nested];
     }
 
     protected static function buildEagerLoad(array $sparseIncluded, object $first): array
