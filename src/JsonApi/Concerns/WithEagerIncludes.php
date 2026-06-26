@@ -40,14 +40,7 @@ trait WithEagerIncludes
                 }
 
                 foreach ($nested as $relation => $subs) {
-                    $allRelated = $models
-                        ->map(fn ($m) => $m->getRelation($relation))
-                        ->filter()
-                        ->flatMap(fn ($r) => $r instanceof EloquentCollection ? $r->all() : [$r]);
-
-                    if ($allRelated->isNotEmpty()) {
-                        $allRelated->loadMissing($subs);
-                    }
+                    $models->loadMissing(array_map(fn ($sub) => "$relation.$sub", $subs));
                 }
             }
         }
@@ -74,14 +67,7 @@ trait WithEagerIncludes
             }
 
             foreach ($nested as $relation => $subs) {
-                $related    = $model->getRelation($relation);
-                $allRelated = $related instanceof EloquentCollection
-                    ? $related
-                    : new EloquentCollection($related !== null ? [$related] : []);
-
-                if ($allRelated->isNotEmpty()) {
-                    $allRelated->loadMissing($subs);
-                }
+                $model->loadMissing(array_map(fn ($sub) => "$relation.$sub", $subs));
             }
         }
 
