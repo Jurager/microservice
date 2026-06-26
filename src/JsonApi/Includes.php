@@ -52,22 +52,29 @@ class Includes
     }
 
     /**
-     * Apply a filter predicate, clean up orphan relationship links in root items, then cascade-prune any included resources no longer reachable from those roots.
+     * Filter included resources in-place without orphan/reachability pruning.
+     * Use this when you simply want to reduce the included set by a predicate.
+     */
+    public function filter(callable $predicate): void
+    {
+        $this->raw = array_values(array_filter($this->raw, $predicate));
+        $this->rebuildIndex();
+    }
+
+    /**
+     * Apply a filter predicate, clean up orphan relationship links in root items,
+     * then cascade-prune any included resources no longer reachable from those roots.
+     *
+     * When roots is empty the BFS step is skipped and only the filter is applied.
      *
      * @param  Item[]  $roots  primary data items (modified in place via withoutOrphanLinks)
      */
     public function rebuild(callable $filter, array $roots): void
     {
-        $this->raw   = array_values(array_filter($this->raw, $filter));
-        $this->index = [];
+        $this->filter($filter);
 
-        foreach ($this->raw as $resource) {
-            $type = $resource['type'] ?? null;
-            $id   = (string) ($resource['id'] ?? '');
-
-            if ($type && $id) {
-                $this->index[$type][$id] = $resource;
-            }
+        if (empty($roots)) {
+            return;
         }
 
         foreach ($roots as $root) {
@@ -103,22 +110,13 @@ class Includes
                 }
             }
         }
-        
+
         $this->raw = array_values(array_filter(
             $this->raw,
             fn (array $r) => isset($reachable[($r['type'] ?? '') . ':' . ($r['id'] ?? '')]),
         ));
 
-        $this->index = [];
-
-        foreach ($this->raw as $r) {
-            $type = $r['type'] ?? null;
-            $id   = (string) ($r['id'] ?? '');
-
-            if ($type && $id) {
-                $this->index[$type][$id] = $r;
-            }
-        }
+        $this->rebuildIndex();
     }
 
     /**
@@ -192,5 +190,19 @@ class Includes
         }
 
         return $resolved;
+    }
+
+    private function rebuildIndex(): void
+    {
+        $this->index = [];
+
+        foreach ($this->raw as $resource) {
+            $type = $resource['type'] ?? null;
+            $id   = (string) ($resource['id'] ?? '');
+
+            if ($type && $id) {
+                $this->index[$type][$id] = $resource;
+            }
+        }
     }
 }

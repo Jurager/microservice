@@ -18,30 +18,13 @@ trait WithEagerIncludes
 {
     public static function collection($resource): AnonymousResourceCollection
     {
-        $jsonApiRequest = JsonApiRequest::createFrom(request());
-        $relations      = $jsonApiRequest->sparseIncluded() ?? [];
-        $sparseIncluded = array_combine(
-            $relations,
-            array_map(fn ($r) => $jsonApiRequest->sparseIncluded($r), $relations)
-        );
+        $sparseIncluded = self::sparseIncludeMap(JsonApiRequest::createFrom(request()));
 
         if ($sparseIncluded) {
-            $models = $resource instanceof Paginator
-                ? $resource->getCollection()
-                : $resource;
+            $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
 
             if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
-                $first = $models->first();
-
-                [$toLoad, $nested] = static::classifyIncludes($first, $sparseIncluded);
-
-                if ($toLoad) {
-                    $models->loadMissing(static::buildEagerLoad($toLoad, $first));
-                }
-
-                foreach ($nested as $relation => $subs) {
-                    $models->loadMissing(array_map(fn ($sub) => "$relation.$sub", $subs));
-                }
+                static::loadIncludes($models, $models->first(), $sparseIncluded);
             }
         }
 
@@ -50,16 +33,10 @@ trait WithEagerIncludes
 
     public function toResponse($request): JsonResponse
     {
-        $jsonApiRequest = JsonApiRequest::createFrom($request);
-        $relations      = $jsonApiRequest->sparseIncluded() ?? [];
-        $sparseIncluded = array_combine(
-            $relations,
-            array_map(fn ($r) => $jsonApiRequest->sparseIncluded($r), $relations)
-        );
+        $sparseIncluded = self::sparseIncludeMap(JsonApiRequest::createFrom($request));
 
         if ($sparseIncluded && $this->resource instanceof Model) {
             $model = $this->resource;
-
             [$toLoad, $nested] = static::classifyIncludes($model, $sparseIncluded);
 
             if ($toLoad) {
@@ -72,6 +49,28 @@ trait WithEagerIncludes
         }
 
         return parent::toResponse($request);
+    }
+
+    private static function sparseIncludeMap(JsonApiRequest $request): array
+    {
+        $relations = $request->sparseIncluded() ?? [];
+
+        return $relations
+            ? array_combine($relations, array_map(fn ($r) => $request->sparseIncluded($r), $relations))
+            : [];
+    }
+
+    private static function loadIncludes(EloquentCollection $models, Model $first, array $sparseIncluded): void
+    {
+        [$toLoad, $nested] = static::classifyIncludes($first, $sparseIncluded);
+
+        if ($toLoad) {
+            $models->loadMissing(static::buildEagerLoad($toLoad, $first));
+        }
+
+        foreach ($nested as $relation => $subs) {
+            $models->loadMissing(array_map(fn ($sub) => "$relation.$sub", $subs));
+        }
     }
 
     protected static function classifyIncludes(Model $first, array $sparseIncluded): array

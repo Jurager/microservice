@@ -84,7 +84,8 @@ class CollectionDocument implements Responsable
 
     public function filterIncluded(callable $filter): static
     {
-        $this->included->rebuild($filter, $this->items->all());
+        $this->included->filter($filter);
+        $this->items->each(fn (Item $item) => $item->withoutOrphanLinks($this->included));
 
         return $this;
     }
@@ -105,30 +106,40 @@ class CollectionDocument implements Responsable
     }
 
     /**
-     * Responsable: apply any registered included filter, then serialize.
+     * Build a JSON:API response.
+     *
+     * Accepts three call forms:
+     *   toResponse()              — serialize items as-is
+     *   toResponse($request)      — apply any filter registered on the request, then serialize
+     *   toResponse($transform)    — serialize each item through a callable transform
+     *
+     * @param  Request|callable(T): array|null  $requestOrTransform
      */
-    public function toResponse($request): JsonResponse
+    public function toResponse(mixed $requestOrTransform = null): JsonResponse
     {
-        if ($request instanceof Request && ! $this->included->isEmpty()) {
-            $filter = $request->attributes->get(Includes::class);
-            if ($filter) {
-                $this->filterIncluded($filter);
+        $transform = null;
+
+        if ($requestOrTransform instanceof Request) {
+            if (! $this->included->isEmpty()) {
+                $filter = $requestOrTransform->attributes->get(Includes::class);
+                if ($filter) {
+                    $this->filterIncluded($filter);
+                }
             }
+        } elseif (is_callable($requestOrTransform)) {
+            $transform = $requestOrTransform;
         }
 
-        return $this->toJsonResponse();
+        return $this->buildResponse($transform);
     }
 
-    /**
-     * Serialize to a JSON:API JsonResponse.
-     *
-     * Without a callback: items are serialized as-is.
-     * With a callback: each item is passed through the callable,
-     * which must return a JSON:API resource array.
-     *
-     * @param  callable(T): array|null  $transform
-     */
+    /** @param  callable(T): array|null  $transform */
     public function toJsonResponse(?callable $transform = null): JsonResponse
+    {
+        return $this->buildResponse($transform);
+    }
+
+    private function buildResponse(?callable $transform): JsonResponse
     {
         $data = $this->items->map(
             fn (Item $item) => $transform ? $transform($item) : $item->toArray()
