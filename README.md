@@ -16,8 +16,8 @@ Features:
 
 ## Requirements
 
-- PHP 8.2+
-- Laravel 11+
+- PHP 8.4+
+- Laravel 13.17+
 - Redis
 - Guzzle 7+
 

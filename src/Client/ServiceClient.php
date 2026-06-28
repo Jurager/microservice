@@ -26,13 +26,26 @@ class ServiceClient
 
     protected Client $httpClient;
 
-    /** @var array<string, array{string, int}> In-memory cache: service → [baseUrl, timeout] */
+    /** @var array<string, array{string, int, int}> In-memory cache: service → [baseUrl, timeout, cachedAt] */
     protected array $resolvedConfigs = [];
+
+    protected string $serviceName;
+
+    protected int $connectTimeout;
+
+    protected bool $tracingEnabled;
+
+    protected int $circuitThreshold;
 
     public function __construct(
         protected readonly HmacSigner $signer,
         ?Client $httpClient = null,
     ) {
+        $this->serviceName      = (string) config('microservice.name', 'app');
+        $this->connectTimeout   = (int) config('microservice.connect_timeout', 5);
+        $this->tracingEnabled   = (bool) config('microservice.tracing.enabled', true);
+        $this->circuitThreshold = (int) config('microservice.circuit_breaker.threshold', 0);
+
         $this->httpClient = $httpClient ?? $this->createDefaultClient();
     }
 
@@ -173,9 +186,11 @@ class ServiceClient
         }
 
         if (isset($this->resolvedConfigs[$service])) {
-            [$baseUrl, $defaultTimeout] = $this->resolvedConfigs[$service];
+            [$baseUrl, $defaultTimeout, $cachedAt] = $this->resolvedConfigs[$service];
 
-            return [$baseUrl, $requestTimeout ?? $defaultTimeout];
+            if (time() - $cachedAt < 60) {
+                return [$baseUrl, $requestTimeout ?? $defaultTimeout];
+            }
         }
 
         $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
@@ -187,7 +202,7 @@ class ServiceClient
             if ($url) {
                 $defaultTimeout = isset($manifest['timeout']) ? (int) $manifest['timeout'] : 30;
 
-                $this->resolvedConfigs[$service] = [$url, $defaultTimeout];
+                $this->resolvedConfigs[$service] = [$url, $defaultTimeout, time()];
 
                 return [$url, $requestTimeout ?? $defaultTimeout];
             }
@@ -261,7 +276,7 @@ class ServiceClient
 
         $options = [
             'timeout'         => $timeout,
-            'connect_timeout' => (int) config('microservice.connect_timeout', 5),
+            'connect_timeout' => $this->connectTimeout,
             'http_errors'     => false,
             'stream'          => true,
             'headers'         => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
@@ -297,7 +312,7 @@ class ServiceClient
 
         $headers = [
             ...$customHeaders,
-            'X-Service-Name' => config('microservice.name'),
+            'X-Service-Name' => $this->serviceName,
             'X-Timestamp' => $timestamp,
             // Multipart body is excluded from the signature because its boundary changes per request.
             'X-Signature' => $this->signer->sign($method, $path, $timestamp, $multipart ? '' : ($body ?? '')),
@@ -307,7 +322,7 @@ class ServiceClient
             $headers['Content-Type'] = 'application/json';
         }
 
-        if (config('microservice.tracing.enabled', true)) {
+        if ($this->tracingEnabled) {
             // Trace headers are prepended so service headers take precedence on name collision.
             $headers = [...$this->buildTraceHeaders(), ...$headers];
         }
@@ -324,11 +339,11 @@ class ServiceClient
      */
     protected function checkCircuitBreaker(string $service): void
     {
-        $threshold = (int) config('microservice.circuit_breaker.threshold', 0);
-
-        if ($threshold <= 0) {
+        if ($this->circuitThreshold <= 0) {
             return;
         }
+
+        $threshold = $this->circuitThreshold;
 
         $key = $this->redisPrefix()."circuit:$service";
         $state = $this->redis()->get($key);
@@ -353,11 +368,11 @@ class ServiceClient
      */
     protected function recordCircuitResult(string $service, bool $success): void
     {
-        $threshold = (int) config('microservice.circuit_breaker.threshold', 0);
-
-        if ($threshold <= 0) {
+        if ($this->circuitThreshold <= 0) {
             return;
         }
+
+        $threshold = $this->circuitThreshold;
 
         $key = $this->redisPrefix()."circuit:$service";
         $state = $this->redis()->get($key);
@@ -372,27 +387,33 @@ class ServiceClient
 
         if ($state === 'half-open') {
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
-            $this->redis()->set($key, 'open');
-            $this->redis()->set($key.':opened', (string) time());
-            $this->redis()->expire($key, $timeout);
-            $this->redis()->expire($key.':opened', $timeout);
+            $now = (string) time();
+            $this->redis()->pipeline(function ($pipe) use ($key, $timeout, $now): void {
+                $pipe->setex($key, $timeout, 'open');
+                $pipe->setex($key.':opened', $timeout, $now);
+            });
 
             return;
         }
 
         $window = (int) config('microservice.circuit_breaker.window', 60);
-        $failures = $this->redis()->incr($key.':failures');
 
-        if ($failures === 1) {
-            $this->redis()->expire($key.':failures', $window);
-        }
+        // Pipeline eliminates the crash window between INCR and EXPIRE that
+        // would leave the counter key without a TTL. Using a sliding window
+        // (expire refreshes on each failure) is intentional: we count failures
+        // within the last $window seconds of activity.
+        [$failures] = $this->redis()->pipeline(function ($pipe) use ($key, $window): void {
+            $pipe->incr($key.':failures');
+            $pipe->expire($key.':failures', $window);
+        });
 
         if ($failures >= $threshold) {
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
-            $this->redis()->set($key, 'open');
-            $this->redis()->set($key.':opened', (string) time());
-            $this->redis()->expire($key, $timeout);
-            $this->redis()->expire($key.':opened', $timeout);
+            $now = (string) time();
+            $this->redis()->pipeline(function ($pipe) use ($key, $timeout, $now): void {
+                $pipe->setex($key, $timeout, 'open');
+                $pipe->setex($key.':opened', $timeout, $now);
+            });
         }
     }
 

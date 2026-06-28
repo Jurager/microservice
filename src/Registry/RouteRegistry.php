@@ -23,11 +23,16 @@ class RouteRegistry
         $prefix = $this->redisPrefix();
         $services = $this->redis()->smembers($prefix.'manifests') ?: [];
 
+        if ($services === []) {
+            return [];
+        }
+
+        $keys = array_map(static fn (string $s) => $prefix."manifest:$s", $services);
+        $raws = $this->redis()->mget($keys);
+
         $manifests = [];
 
-        foreach ($services as $service) {
-            $raw = $this->redis()->get($prefix."manifest:$service");
-
+        foreach ($raws as $raw) {
             if ($raw === null || $raw === false) {
                 continue;
             }

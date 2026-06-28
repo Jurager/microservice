@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Closure;
 use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Route;
@@ -80,15 +81,22 @@ class ManifestRegistryTest extends TestCase
 
         // ttl 300 with a 5-minute sync interval is floored to two sync cycles (600s)
         // so a single late sync cannot evict the manifest.
-        $this->redis->shouldReceive('setex')->once()->withArgs(function ($key, $ttl, $value) {
-            $decoded = json_decode($value, true);
+        $this->redis->shouldReceive('pipeline')
+            ->once()
+            ->andReturnUsing(function (Closure $closure): array {
+                $pipe = Mockery::mock();
+                $pipe->shouldReceive('setex')->once()->withArgs(function ($key, $ttl, $value) {
+                    $decoded = json_decode($value, true);
 
-            return str_contains($key, 'manifest:pim')
-                && $ttl === 600
-                && isset($decoded['synced_at']);
-        });
+                    return str_contains($key, 'manifest:pim')
+                        && $ttl === 600
+                        && isset($decoded['synced_at']);
+                });
+                $pipe->shouldReceive('sadd')->once();
+                $closure($pipe);
 
-        $this->redis->shouldReceive('sadd')->once();
+                return [];
+            });
 
         $this->registry->store($manifest);
     }
@@ -125,7 +133,7 @@ class ManifestRegistryTest extends TestCase
 
     public function test_store_ignores_manifest_without_service(): void
     {
-        $this->redis->shouldNotReceive('setex');
+        $this->redis->shouldNotReceive('pipeline');
 
         $this->registry->store(['routes' => []]);
     }

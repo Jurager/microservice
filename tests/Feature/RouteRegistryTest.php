@@ -39,9 +39,9 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn($manifest);
+            ->andReturn([$manifest]);
 
         $result = $this->registry->getAllManifests();
 
@@ -64,23 +64,22 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim', 'oms']);
 
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:pim$/'))
-            ->andReturn(json_encode([
-                'service' => 'pim',
-                'routes' => [
-                    ['method' => 'GET', 'uri' => '/api/products', 'name' => 'products.index'],
-                ],
-            ]));
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:oms$/'))
-            ->andReturn(json_encode([
-                'service' => 'oms',
-                'routes' => [
-                    ['method' => 'POST', 'uri' => '/api/orders', 'name' => 'orders.store'],
-                ],
-            ]));
+        $this->redis->shouldReceive('mget')
+            ->once()
+            ->andReturn([
+                json_encode([
+                    'service' => 'pim',
+                    'routes' => [
+                        ['method' => 'GET', 'uri' => '/api/products', 'name' => 'products.index'],
+                    ],
+                ]),
+                json_encode([
+                    'service' => 'oms',
+                    'routes' => [
+                        ['method' => 'POST', 'uri' => '/api/orders', 'name' => 'orders.store'],
+                    ],
+                ]),
+            ]);
 
         $routes = $this->registry->getAllRoutes();
 
@@ -97,14 +96,14 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode([
+            ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
                     ['method' => 'GET', 'uri' => '/api/products'],
                 ],
-            ]));
+            ])]);
 
         $match = $this->registry->resolve('GET', '/api/products');
 
@@ -118,14 +117,14 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode([
+            ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
                     ['method' => 'GET', 'uri' => '/api/products/{product}'],
                 ],
-            ]));
+            ])]);
 
         $match = $this->registry->resolve('GET', '/api/products/123');
 
@@ -139,14 +138,14 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode([
+            ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
                     ['method' => 'GET', 'uri' => '/api/products'],
                 ],
-            ]));
+            ])]);
 
         $this->assertNull($this->registry->resolve('GET', '/api/unknown'));
     }
@@ -157,14 +156,14 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['oms']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode([
+            ->andReturn([json_encode([
                 'service' => 'oms',
                 'routes' => [
                     ['method' => 'POST', 'uri' => '/api/orders'],
                 ],
-            ]));
+            ])]);
 
         $this->assertNull($this->registry->resolve('GET', '/api/orders'));
     }
@@ -175,17 +174,13 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['a', 'b', 'c']);
 
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:a$/'))
-            ->andReturn(json_encode(['service' => 'a', 'routes' => []]));
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:b$/'))
-            ->andReturn(json_encode(['service' => 'b', 'routes' => []]));
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:c$/'))
-            ->andReturn(json_encode(['service' => 'c', 'routes' => []]));
+        $this->redis->shouldReceive('mget')
+            ->once()
+            ->andReturn([
+                json_encode(['service' => 'a', 'routes' => []]),
+                json_encode(['service' => 'b', 'routes' => []]),
+                json_encode(['service' => 'c', 'routes' => []]),
+            ]);
 
         $manifests = $this->registry->getAllManifests();
 
@@ -198,17 +193,13 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim', 'gone1', 'gone2']);
 
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:pim$/'))
-            ->andReturn(json_encode(['service' => 'pim', 'routes' => []]));
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:gone1$/'))
-            ->andReturn(null);
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:gone2$/'))
-            ->andReturn(false);
+        $this->redis->shouldReceive('mget')
+            ->once()
+            ->andReturn([
+                json_encode(['service' => 'pim', 'routes' => []]),
+                null,
+                false,
+            ]);
 
         $manifests = $this->registry->getAllManifests();
 
@@ -222,13 +213,12 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['bad', 'oms']);
 
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:bad$/'))
-            ->andReturn('not-valid-json{{{');
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:oms$/'))
-            ->andReturn(json_encode(['service' => 'oms', 'routes' => []]));
+        $this->redis->shouldReceive('mget')
+            ->once()
+            ->andReturn([
+                'not-valid-json{{{',
+                json_encode(['service' => 'oms', 'routes' => []]),
+            ]);
 
         $manifests = $this->registry->getAllManifests();
 
@@ -242,9 +232,9 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['noservice']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode(['routes' => []]));
+            ->andReturn([json_encode(['routes' => []])]);
 
         $this->assertEmpty($this->registry->getAllManifests());
     }
@@ -255,14 +245,14 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode([
+            ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
                     ['method' => 'GET', 'uri' => '/api/products'],
                 ],
-            ]));
+            ])]);
 
         $match = $this->registry->resolve('get', '/api/products');
 
@@ -276,14 +266,14 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('get')
+        $this->redis->shouldReceive('mget')
             ->once()
-            ->andReturn(json_encode([
+            ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
                     ['method' => 'GET', 'uri' => '/api/products'],
                 ],
-            ]));
+            ])]);
 
         $match = $this->registry->resolve('GET', 'api/products');
 
@@ -296,13 +286,12 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->andReturn(['zzz', 'aaa']);
 
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:zzz$/'))
-            ->andReturn(json_encode(['service' => 'zzz', 'routes' => []]));
-
-        $this->redis->shouldReceive('get')
-            ->with(Mockery::pattern('/manifest:aaa$/'))
-            ->andReturn(json_encode(['service' => 'aaa', 'routes' => []]));
+        $this->redis->shouldReceive('mget')
+            ->once()
+            ->andReturn([
+                json_encode(['service' => 'zzz', 'routes' => []]),
+                json_encode(['service' => 'aaa', 'routes' => []]),
+            ]);
 
         $manifests = $this->registry->getAllManifests();
         $keys = array_keys($manifests);

@@ -14,6 +14,8 @@ use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Commands\EmitCommand;
+use Jurager\Microservice\Registry\ManifestRegistry;
+use Jurager\Microservice\Registry\RouteRegistry;
 use Jurager\Microservice\Commands\EventsCommand;
 use Jurager\Microservice\Commands\ListenCommand;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
@@ -44,6 +46,8 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->app->singleton(MessageBus::class);
         $this->app->singleton(Listener::class);
         $this->app->singleton(HandlerDiscovery::class);
+        $this->app->singleton(RouteRegistry::class);
+        $this->app->singleton(ManifestRegistry::class);
     }
 
     private function validateSecret(): void

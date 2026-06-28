@@ -40,8 +40,10 @@ class ManifestRegistry
 
         $manifest['synced_at'] = now()->toIso8601String();
 
-        $this->redis()->setex($prefix."manifest:$service", $this->ttl(), json_encode($manifest));
-        $this->redis()->sadd($prefix.'manifests', $service);
+        $this->redis()->pipeline(function ($pipe) use ($prefix, $service, $manifest): void {
+            $pipe->setex($prefix."manifest:$service", $this->ttl(), json_encode($manifest));
+            $pipe->sadd($prefix.'manifests', $service);
+        });
     }
 
     /**

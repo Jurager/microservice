@@ -27,8 +27,13 @@ class Connection
      */
     public function channel(): AMQPChannel
     {
-        if ($this->channel !== null) {
+        if ($this->channel !== null && $this->connection !== null && $this->connection->isConnected()) {
             return $this->channel;
+        }
+
+        // Reset stale handles before reconnecting.
+        if ($this->channel !== null || $this->connection !== null) {
+            $this->close();
         }
 
         $cfg = (array) config('microservice.bus.connection', []);
