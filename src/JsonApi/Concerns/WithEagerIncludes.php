@@ -87,10 +87,22 @@ trait WithEagerIncludes
             $subs = array_values(array_filter((array) $subRelations));
 
             if ($subs) {
+
                 $related = $first->$relation()->getRelated();
+
                 foreach ($subs as $sub) {
-                    if (! $related->isRelation($sub)) {
-                        abort(400, "Unknown include: \"{$relation}.{$sub}\".");
+
+                    $current = $related;
+                    $path    = $relation;
+
+                    foreach (explode('.', $sub) as $segment) {
+
+                        if (! $current->isRelation($segment)) {
+                            abort(400, "Unknown include: \"{$path}.{$segment}\".");
+                        }
+
+                        $path   .= '.'.$segment;
+                        $current = $current->$segment()->getRelated();
                     }
                 }
             }
