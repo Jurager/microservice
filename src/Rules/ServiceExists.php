@@ -16,7 +16,7 @@ class ServiceExists implements ValidationRule
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (! is_string($value) || $value === '') {
-            $fail(__('validation.service_exists', ['attribute' => $attribute]));
+            $fail(__('microservice::validation.service_exists', ['attribute' => $attribute]));
 
             return;
         }
@@ -31,7 +31,7 @@ class ServiceExists implements ValidationRule
         $exists = Redis::connection($connection)->exists($prefix.'manifest:'.$value);
 
         if (! $exists) {
-            $fail(__('validation.service_exists', ['attribute' => $attribute]));
+            $fail(__('microservice::validation.service_exists', ['attribute' => $attribute]));
         }
     }
 }

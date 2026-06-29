@@ -75,6 +75,8 @@ class MicroserviceServiceProvider extends ServiceProvider
 
         $this->configureTrustedProxies();
 
+        $this->loadTranslationsFrom(__DIR__.'/../lang', 'microservice');
+
         $this->loadRoutesFrom(__DIR__.'/../routes/microservice.php');
 
         if ($this->app->runningInConsole()) {
