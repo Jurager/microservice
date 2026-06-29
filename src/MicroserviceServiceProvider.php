@@ -7,7 +7,6 @@ namespace Jurager\Microservice;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Middleware\TrustProxies;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\ServiceProvider;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\HandlerDiscovery;
@@ -76,8 +75,6 @@ class MicroserviceServiceProvider extends ServiceProvider
 
         $this->configureTrustedProxies();
 
-        $this->registerValidatorExtensions();
-
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'microservice');
 
         $this->loadRoutesFrom(__DIR__.'/../routes/microservice.php');
@@ -96,24 +93,6 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
 
         $this->registerSchedule();
-    }
-
-    protected function registerValidatorExtensions(): void
-    {
-        Validator::extend('service_exists', function (string $attribute, mixed $value, callable $fail): void {
-            if (! is_string($value) || $value === '') {
-                $fail(__('microservice::validation.service_exists', ['attribute' => $attribute]));
-
-                return;
-            }
-
-            $prefix = (string) config('microservice.redis.prefix', 'microservice:');
-            $connection = (string) config('microservice.redis.connection', 'default');
-
-            if (! app('redis')->connection($connection)->exists($prefix.'manifest:'.$value)) {
-                $fail(__('microservice::validation.service_exists', ['attribute' => $attribute]));
-            }
-        });
     }
 
     protected function configureTrustedProxies(): void
