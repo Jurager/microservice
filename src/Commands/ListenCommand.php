@@ -7,13 +7,13 @@ namespace Jurager\Microservice\Commands;
 use Exception;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
 use PhpAmqpLib\Channel\AMQPChannel;
+use Psr\Log\LoggerInterface;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
@@ -49,7 +49,7 @@ class ListenCommand extends Command
     /**
      * @throws Exception
      */
-    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery): int
+    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): int
     {
         if (! $bus->enabled()) {
             $this->warn('MessageBus is disabled (config: microservice.bus.enabled). Refusing to start.');
@@ -116,7 +116,7 @@ class ListenCommand extends Command
             } catch (AMQPTimeoutException) {
                 // No message in window — normal, loop and check signals
             } catch (Throwable $e) {
-                Log::error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
+                $logger->error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
                 $this->error('AMQP error: '.$e->getMessage());
 
                 return self::FAILURE;
@@ -191,7 +191,7 @@ class ListenCommand extends Command
         try {
             $envelope = json_decode($message->getBody(), true, flags: JSON_THROW_ON_ERROR);
         } catch (Throwable $e) {
-            Log::warning('ListenCommand: malformed JSON, rejecting message', [
+            $logger->warning('ListenCommand: malformed JSON, rejecting message', [
                 'error' => $e->getMessage(),
                 'body' => substr($message->getBody(), 0, 256),
             ]);
@@ -203,7 +203,7 @@ class ListenCommand extends Command
 
         if (! is_array($envelope)) {
 
-            Log::warning('ListenCommand: envelope is not an array, rejecting');
+            $logger->warning('ListenCommand: envelope is not an array, rejecting');
 
             $this->writeLine('FAIL', '(non-array envelope)', "from $routingKey", 'error');
             $this->reject($message, $dlqEnabled);

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Bus;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
 /**
@@ -17,6 +17,7 @@ readonly class Listener
 {
     public function __construct(
         private MessageBus $bus,
+        private LoggerInterface $logger,
     ) {
     }
 
@@ -30,7 +31,7 @@ readonly class Listener
     public function handle(string $handlerClass, array $envelope): bool
     {
         if (! is_subclass_of($handlerClass, MessageHandler::class)) {
-            Log::error('Listener: not a MessageHandler', [
+            $this->logger->error('Listener: not a MessageHandler', [
                 'class' => $handlerClass,
             ]);
 
@@ -38,7 +39,7 @@ readonly class Listener
         }
 
         if (! $this->bus->verify($envelope)) {
-            Log::warning('Listener: rejected envelope with invalid or missing signature', [
+            $this->logger->warning('Listener: rejected envelope with invalid or missing signature', [
                 'type' => $envelope['type'] ?? null,
             ]);
 
@@ -58,7 +59,7 @@ readonly class Listener
 
             return true;
         } catch (Throwable $e) {
-            Log::error('Listener: handler threw', [
+            $this->logger->error('Listener: handler threw', [
                 'class' => $handlerClass,
                 'type' => $envelope['type'] ?? null,
                 'error' => $e->getMessage(),

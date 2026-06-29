@@ -5,15 +5,17 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Registry;
 
 use Illuminate\Contracts\Redis\Factory;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Contracts\Routing\Registrar;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 
 class ManifestRegistry
 {
     use InteractsWithRedis;
 
-    public function __construct(private readonly Factory $redisFactory)
-    {
+    public function __construct(
+        private readonly Factory $redisFactory,
+        private readonly Registrar $router,
+    ) {
     }
 
     public function build(): array
@@ -74,7 +76,7 @@ class ManifestRegistry
         $prefixes = $this->resolvePrefixes();
         $routes = [];
 
-        foreach (Route::getRoutes() as $route) {
+        foreach ($this->router->getRoutes() as $route) {
             $uri = $route->uri();
 
             if (! empty($prefixes) && ! $this->matchesPrefix($uri, $prefixes)) {
