@@ -13,7 +13,7 @@ class ServiceExists implements ValidationRule
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         if (! is_string($value) || $value === '') {
-            $fail(__('microservice::validation.service_exists', ['attribute' => $attribute]));
+            $fail(__('validation.service_exists', ['attribute' => $attribute]));
 
             return;
         }
@@ -22,7 +22,7 @@ class ServiceExists implements ValidationRule
         $connection = (string) config('microservice.redis.connection', 'default');
 
         if (! Redis::connection($connection)->exists($prefix.'manifest:'.$value)) {
-            $fail(__('microservice::validation.service_exists', ['attribute' => $attribute]));
+            $fail(__('validation.service_exists', ['attribute' => $attribute]));
         }
     }
 }
