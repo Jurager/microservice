@@ -55,12 +55,12 @@ class ListenerTest extends TestCase
             ->with('Listener: rejected envelope with invalid or missing signature', Mockery::any());
 
         $envelope = [
-            'type'        => 'test.sync',
-            'service'     => 'attacker',
+            'type' => 'test.sync',
+            'service' => 'attacker',
             'occurred_at' => now()->toIso8601String(),
-            'request_id'  => null,
-            'payload'     => ['x' => 'tampered'],
-            'signature'   => 'fake-signature',
+            'request_id' => null,
+            'payload' => ['x' => 'tampered'],
+            'signature' => 'fake-signature',
         ];
 
         $result = app(Listener::class)->handle(FakeSyncHandler::class, $envelope);
@@ -95,8 +95,7 @@ class ListenerTest extends TestCase
         Log::shouldReceive('error')
             ->once()
             ->with('Listener: handler threw', Mockery::on(
-                fn (array $ctx): bool =>
-                $ctx['class'] === ThrowingHandler::class && $ctx['error'] === 'boom'
+                fn (array $ctx): bool => $ctx['class'] === ThrowingHandler::class && $ctx['error'] === 'boom'
             ));
 
         $envelope = $this->signedEnvelope('test.throws', []);
@@ -108,11 +107,11 @@ class ListenerTest extends TestCase
     private function signedEnvelope(string $type, array $payload): array
     {
         $envelope = [
-            'type'        => $type,
-            'service'     => 'test-service',
+            'type' => $type,
+            'service' => 'test-service',
             'occurred_at' => now()->toIso8601String(),
-            'request_id'  => null,
-            'payload'     => $payload,
+            'request_id' => null,
+            'payload' => $payload,
         ];
 
         $envelope['signature'] = app(HmacSigner::class)->signRaw(

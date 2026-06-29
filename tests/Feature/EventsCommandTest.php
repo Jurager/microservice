@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Artisan;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Tests\TestCase;
@@ -17,8 +18,8 @@ class EventsCommandTest extends TestCase
 
         $this->artisan('microservice:events')->assertSuccessful();
 
-        \Illuminate\Support\Facades\Artisan::call('microservice:events');
-        $output = \Illuminate\Support\Facades\Artisan::output();
+        Artisan::call('microservice:events');
+        $output = Artisan::output();
 
         $this->assertStringContainsString('test.sample.sync', $output);
         $this->assertStringContainsString('test.sample.queued', $output);
@@ -43,6 +44,7 @@ class EventsCommandTest extends TestCase
             public function __construct(private array $classes)
             {
             }
+
             public function discover(): array
             {
                 return $this->classes;
@@ -56,14 +58,17 @@ class SampleSyncHandler implements MessageHandler
     public function __construct(public readonly array $payload = [])
     {
     }
+
     public static function type(): string
     {
         return 'test.sample.sync';
     }
+
     public static function from(array $payload): static
     {
         return new static($payload);
     }
+
     public function handle(): void
     {
     }
@@ -74,14 +79,17 @@ class SampleQueuedHandler implements MessageHandler, ShouldQueue
     public function __construct(public readonly array $payload = [])
     {
     }
+
     public static function type(): string
     {
         return 'test.sample.queued';
     }
+
     public static function from(array $payload): static
     {
         return new static($payload);
     }
+
     public function handle(): void
     {
     }

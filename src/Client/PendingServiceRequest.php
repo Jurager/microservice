@@ -227,5 +227,4 @@ class PendingServiceRequest
     {
         return $this->timeout;
     }
-
 }

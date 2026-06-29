@@ -18,7 +18,9 @@ class Idempotency
 {
     use InteractsWithRedis;
 
-    public function __construct(private readonly Factory $redisFactory) {}
+    public function __construct(private readonly Factory $redisFactory)
+    {
+    }
 
     public function handle(Request $request, Closure $next): Response
     {

@@ -21,7 +21,9 @@ class MetricsController extends Controller
         HealthChecker::STATUS_UNHEALTHY => 0,
     ];
 
-    public function __construct(private readonly HealthChecker $checker) {}
+    public function __construct(private readonly HealthChecker $checker)
+    {
+    }
 
     public function __invoke(): Response
     {

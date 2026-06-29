@@ -93,7 +93,7 @@ trait WithEagerIncludes
                 foreach ($subs as $sub) {
 
                     $current = $related;
-                    $path    = $relation;
+                    $path = $relation;
 
                     foreach (explode('.', $sub) as $segment) {
 
@@ -101,7 +101,7 @@ trait WithEagerIncludes
                             abort(400, "Unknown include: \"{$path}.{$segment}\".");
                         }
 
-                        $path   .= '.'.$segment;
+                        $path .= '.'.$segment;
                         $current = $current->$segment()->getRelated();
                     }
                 }
@@ -126,11 +126,12 @@ trait WithEagerIncludes
         foreach ($sparseIncluded as $relation => $nested) {
             if (isset($overrides[$relation])) {
                 $prefix = $relation.'.';
-                $deep   = array_map(
+                $deep = array_map(
                     fn ($path) => str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path,
                     $overrides[$relation]
                 );
                 $load[$relation] = fn ($q) => $q->with($deep);
+
                 continue;
             }
 

@@ -47,7 +47,7 @@ readonly class MessageBus
                 );
         } catch (Throwable $e) {
             $this->logger->error('MessageBus: failed to publish', [
-                'type'  => $type,
+                'type' => $type,
                 'error' => $e->getMessage(),
             ]);
         }
@@ -95,11 +95,11 @@ readonly class MessageBus
     private function signedEnvelope(string $type, array $payload): array
     {
         $envelope = [
-            'type'        => $type,
-            'service'     => (string) config('microservice.name', 'app'),
+            'type' => $type,
+            'service' => (string) config('microservice.name', 'app'),
             'occurred_at' => now()->toIso8601String(),
-            'request_id'  => request()?->header('X-Request-Id'),
-            'payload'     => $payload,
+            'request_id' => request()?->header('X-Request-Id'),
+            'payload' => $payload,
         ];
 
         $envelope['signature'] = $this->signer->signRaw(
@@ -124,7 +124,7 @@ readonly class MessageBus
                 | JSON_THROW_ON_ERROR,
             ),
             [
-                'content_type'  => 'application/json',
+                'content_type' => 'application/json',
                 'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
             ],
         );
@@ -139,11 +139,11 @@ readonly class MessageBus
     {
         return json_encode(
             [
-                'type'        => $envelope['type'] ?? null,
-                'service'     => $envelope['service'] ?? null,
+                'type' => $envelope['type'] ?? null,
+                'service' => $envelope['service'] ?? null,
                 'occurred_at' => $envelope['occurred_at'] ?? null,
-                'request_id'  => $envelope['request_id'] ?? null,
-                'payload'     => $envelope['payload'] ?? null,
+                'request_id' => $envelope['request_id'] ?? null,
+                'payload' => $envelope['payload'] ?? null,
             ],
             JSON_UNESCAPED_UNICODE
             | JSON_UNESCAPED_SLASHES

@@ -11,7 +11,9 @@ use Jurager\Microservice\Support\HealthChecker;
 
 class HealthController extends Controller
 {
-    public function __construct(private readonly HealthChecker $checker) {}
+    public function __construct(private readonly HealthChecker $checker)
+    {
+    }
 
     /**
      * Detailed health report (human/dashboard oriented).

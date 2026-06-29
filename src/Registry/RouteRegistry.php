@@ -11,7 +11,9 @@ class RouteRegistry
 {
     use InteractsWithRedis;
 
-    public function __construct(private readonly Factory $redisFactory) {}
+    public function __construct(private readonly Factory $redisFactory)
+    {
+    }
 
     /**
      * Get all registered manifests from Redis.

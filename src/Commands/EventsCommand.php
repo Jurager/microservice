@@ -30,9 +30,9 @@ class EventsCommand extends Command
 
         $rows = array_map(
             static fn (string $handler): array => [
-                'type'    => implode(', ', (array) $handler::type()),
+                'type' => implode(', ', (array) $handler::type()),
                 'handler' => $handler,
-                'mode'    => is_subclass_of($handler, ShouldQueue::class)
+                'mode' => is_subclass_of($handler, ShouldQueue::class)
                     ? 'queued'
                     : 'sync',
             ],

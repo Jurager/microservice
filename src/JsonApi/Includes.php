@@ -22,7 +22,7 @@ class Includes
 
         foreach ($included as $resource) {
             $type = $resource['type'] ?? null;
-            $id   = (string) ($resource['id'] ?? '');
+            $id = (string) ($resource['id'] ?? '');
 
             if ($type && $id) {
                 $this->index[$type][$id] = $resource;
@@ -82,7 +82,7 @@ class Includes
         }
 
         $reachable = [];
-        $queue     = array_map(fn (Item $item) => $item->toArray(), $roots);
+        $queue = array_map(fn (Item $item) => $item->toArray(), $roots);
 
         while ($queue) {
             $resource = array_shift($queue);
@@ -96,12 +96,12 @@ class Includes
 
                 foreach (array_is_list($data) ? $data : [$data] as $ref) {
                     $type = $ref['type'] ?? '';
-                    $id   = (string) ($ref['id'] ?? '');
-                    $key  = "$type:$id";
+                    $id = (string) ($ref['id'] ?? '');
+                    $key = "$type:$id";
 
                     if ($type && $id && ! isset($reachable[$key])) {
                         $reachable[$key] = true;
-                        $found           = $this->index[$type][$id] ?? null;
+                        $found = $this->index[$type][$id] ?? null;
 
                         if ($found) {
                             $queue[] = $found;
@@ -113,7 +113,7 @@ class Includes
 
         $this->raw = array_values(array_filter(
             $this->raw,
-            fn (array $r) => isset($reachable[($r['type'] ?? '') . ':' . ($r['id'] ?? '')]),
+            fn (array $r) => isset($reachable[($r['type'] ?? '').':'.($r['id'] ?? '')]),
         ));
 
         $this->rebuildIndex();
@@ -175,8 +175,8 @@ class Includes
 
     private function resolveRef(array $ref, ?string $itemClass, array $subMap = []): ?Item
     {
-        $type     = $ref['type'] ?? null;
-        $id       = (string) ($ref['id'] ?? '');
+        $type = $ref['type'] ?? null;
+        $id = (string) ($ref['id'] ?? '');
         $resource = $type ? ($this->index[$type][$id] ?? null) : null;
 
         if (! $resource) {
@@ -198,7 +198,7 @@ class Includes
 
         foreach ($this->raw as $resource) {
             $type = $resource['type'] ?? null;
-            $id   = (string) ($resource['id'] ?? '');
+            $id = (string) ($resource['id'] ?? '');
 
             if ($type && $id) {
                 $this->index[$type][$id] = $resource;

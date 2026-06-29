@@ -66,8 +66,7 @@ class MessageBusTest extends TestCase
         $logger->shouldReceive('error')
             ->once()
             ->with('MessageBus: failed to publish', Mockery::on(
-                fn (array $ctx): bool =>
-                $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
+                fn (array $ctx): bool => $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
             ));
         $this->app->instance(LoggerInterface::class, $logger);
 
@@ -114,7 +113,7 @@ class MessageBusTest extends TestCase
     public function test_verify_rejects_envelope_without_signature(): void
     {
         $this->assertFalse(app(MessageBus::class)->verify([
-            'type'    => 'sfm.site.updated',
+            'type' => 'sfm.site.updated',
             'payload' => ['site_id' => 1],
         ]));
     }

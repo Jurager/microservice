@@ -41,9 +41,9 @@ class ServiceClient
         protected readonly HmacSigner $signer,
         ?Client $httpClient = null,
     ) {
-        $this->serviceName      = (string) config('microservice.name', 'app');
-        $this->connectTimeout   = (int) config('microservice.connect_timeout', 5);
-        $this->tracingEnabled   = (bool) config('microservice.tracing.enabled', true);
+        $this->serviceName = (string) config('microservice.name', 'app');
+        $this->connectTimeout = (int) config('microservice.connect_timeout', 5);
+        $this->tracingEnabled = (bool) config('microservice.tracing.enabled', true);
         $this->circuitThreshold = (int) config('microservice.circuit_breaker.threshold', 0);
 
         $this->httpClient = $httpClient ?? $this->createDefaultClient();
@@ -62,10 +62,10 @@ class ServiceClient
 
             $handler->push(Middleware::retry(
                 function (
-                    int                $retries,
-                    RequestInterface   $request,
+                    int $retries,
+                    RequestInterface $request,
                     ?ResponseInterface $response = null,
-                    ?Throwable         $exception = null,
+                    ?Throwable $exception = null,
                 ) use ($maxRetries): bool {
                     if ($retries >= $maxRetries) {
                         return false;
@@ -84,10 +84,6 @@ class ServiceClient
         return new Client(['handler' => $handler]);
     }
 
-    /**
-     * @param string $name
-     * @return PendingServiceRequest
-     */
     public function service(string $name): PendingServiceRequest
     {
         return new PendingServiceRequest($this, $name);
@@ -212,10 +208,6 @@ class ServiceClient
     }
 
     /**
-     * @param PendingServiceRequest $request
-     * @param string $baseUrl
-     * @param int $timeout
-     * @return ServiceResponse
      * @throws GuzzleException
      * @throws RandomException
      */
@@ -231,10 +223,6 @@ class ServiceClient
     }
 
     /**
-     * @param PendingServiceRequest $request
-     * @param string $baseUrl
-     * @param int $timeout
-     * @return PromiseInterface
      * @throws RandomException
      */
     protected function executeRequestAsync(PendingServiceRequest $request, string $baseUrl, int $timeout): PromiseInterface
@@ -246,20 +234,12 @@ class ServiceClient
         );
     }
 
-    /**
-     * @param string $baseUrl
-     * @param string $path
-     * @return string
-     */
     protected function buildUrl(string $baseUrl, string $path): string
     {
         return rtrim($baseUrl, '/').'/'.ltrim($path, '/');
     }
 
     /**
-     * @param PendingServiceRequest $request
-     * @param int $timeout
-     * @return array
      * @throws RandomException
      * @throws RandomException
      */
@@ -275,11 +255,11 @@ class ServiceClient
             : null;
 
         $options = [
-            'timeout'         => $timeout,
+            'timeout' => $timeout,
             'connect_timeout' => $this->connectTimeout,
-            'http_errors'     => false,
-            'stream'          => true,
-            'headers'         => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
+            'http_errors' => false,
+            'stream' => true,
+            'headers' => $this->buildSignedHeaders($method, $path, $bodyString, $request->getHeaders(), $multipart !== null),
         ];
 
         if ($query = $request->getQuery()) {
@@ -296,14 +276,10 @@ class ServiceClient
     }
 
     /**
-     * @param string $method
-     * @param string $path
-     * @param string|null $body
-     * @param array<string, string> $customHeaders Per-request headers (e.g. X-Request-Id). Service
-     *                                               identity headers are added after, so they cannot
-     *                                               be overridden by the caller.
-     * @param bool $multipart
-     * @return array
+     * @param  array<string, string>  $customHeaders  Per-request headers (e.g. X-Request-Id). Service
+     *                                                identity headers are added after, so they cannot
+     *                                                be overridden by the caller.
+     *
      * @throws RandomException
      */
     protected function buildSignedHeaders(string $method, string $path, ?string $body, array $customHeaders = [], bool $multipart = false): array
@@ -424,6 +400,7 @@ class ServiceClient
      * span is created within the same trace. Otherwise, a fresh root trace is started.
      *
      * @return array<string, string>
+     *
      * @throws RandomException
      */
     private function buildTraceHeaders(): array
@@ -450,6 +427,7 @@ class ServiceClient
     /**
      * Derives a child span traceparent from an incoming W3C traceparent value.
      * Preserves the trace ID and flags; replaces only the parent span ID.
+     *
      * @throws RandomException
      * @throws RandomException
      * @throws RandomException

@@ -60,7 +60,7 @@ readonly class Listener
         } catch (Throwable $e) {
             Log::error('Listener: handler threw', [
                 'class' => $handlerClass,
-                'type'  => $envelope['type'] ?? null,
+                'type' => $envelope['type'] ?? null,
                 'error' => $e->getMessage(),
             ]);
 

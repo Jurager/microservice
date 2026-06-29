@@ -28,7 +28,7 @@ class EmitCommand extends Command
     public function handle(MessageBus $bus): int
     {
         $type = (string) $this->argument('type');
-        $raw  = (string) $this->argument('payload');
+        $raw = (string) $this->argument('payload');
 
         try {
             $payload = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);

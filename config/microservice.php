@@ -317,16 +317,16 @@ return [
     |
     */
     'bus' => [
-        'enabled'  => env('MESSAGE_BUS_ENABLED', true),
+        'enabled' => env('MESSAGE_BUS_ENABLED', true),
         'exchange' => env('MESSAGE_BUS_EXCHANGE', 'events'),
 
         'connection' => [
-            'host'               => env('RABBITMQ_HOST', '127.0.0.1'),
-            'port'               => (int) env('RABBITMQ_PORT', 5672),
-            'user'               => env('RABBITMQ_USER', 'guest'),
-            'password'           => env('RABBITMQ_PASSWORD', 'guest'),
-            'vhost'              => env('RABBITMQ_VHOST', '/'),
-            'heartbeat'          => (int) env('RABBITMQ_HEARTBEAT', 60),
+            'host' => env('RABBITMQ_HOST', '127.0.0.1'),
+            'port' => (int) env('RABBITMQ_PORT', 5672),
+            'user' => env('RABBITMQ_USER', 'guest'),
+            'password' => env('RABBITMQ_PASSWORD', 'guest'),
+            'vhost' => env('RABBITMQ_VHOST', '/'),
+            'heartbeat' => (int) env('RABBITMQ_HEARTBEAT', 60),
             'connection_timeout' => (int) env('RABBITMQ_TIMEOUT', 10),
         ],
 
@@ -352,7 +352,7 @@ return [
         |
         */
         'dead_letter' => [
-            'enabled'  => env('MESSAGE_BUS_DLQ_ENABLED', true),
+            'enabled' => env('MESSAGE_BUS_DLQ_ENABLED', true),
             'exchange' => env('MESSAGE_BUS_DLQ_EXCHANGE', 'events.dlx'),
         ],
     ],

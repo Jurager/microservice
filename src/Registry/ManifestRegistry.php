@@ -12,7 +12,9 @@ class ManifestRegistry
 {
     use InteractsWithRedis;
 
-    public function __construct(private readonly Factory $redisFactory) {}
+    public function __construct(private readonly Factory $redisFactory)
+    {
+    }
 
     public function build(): array
     {
@@ -122,7 +124,7 @@ class ManifestRegistry
      */
     protected function matchesPrefix(string $uri, array $prefixes): bool
     {
-        return array_any($prefixes, fn ($prefix) => $uri === $prefix || str_starts_with($uri, $prefix . '/'));
+        return array_any($prefixes, fn ($prefix) => $uri === $prefix || str_starts_with($uri, $prefix.'/'));
 
     }
 }

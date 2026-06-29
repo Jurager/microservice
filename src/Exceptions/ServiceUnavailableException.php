@@ -11,8 +11,8 @@ class ServiceUnavailableException extends RuntimeException
 {
     public function __construct(
         public readonly string $service,
-        string                 $message = '',
-        ?Throwable             $previous = null,
+        string $message = '',
+        ?Throwable $previous = null,
     ) {
         parent::__construct(
             $message ?: "Service [$service] is unavailable: all instances failed.",

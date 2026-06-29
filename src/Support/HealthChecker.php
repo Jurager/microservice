@@ -29,7 +29,8 @@ class HealthChecker
     public function __construct(
         private readonly Factory $redisFactory,
         private readonly Repository $cache,
-    ) {}
+    ) {
+    }
 
     public const string STATUS_HEALTHY = 'healthy';
 
@@ -43,8 +44,8 @@ class HealthChecker
      * Heavy checks (RabbitMQ, DLQ) are optionally cached for a few seconds so
      * frequent scrapes of /health and /metrics don't hammer the infrastructure.
      *
-     * @param  string|null  $only     Limit the report to a single service.
-     * @param  bool|null    $verbose  Expose infrastructure config (base_url, timeout).
+     * @param  string|null  $only  Limit the report to a single service.
+     * @param  bool|null  $verbose  Expose infrastructure config (base_url, timeout).
      */
     public function report(?string $only = null, ?bool $verbose = null): array
     {

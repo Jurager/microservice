@@ -39,11 +39,11 @@ class Connection
         $cfg = (array) config('microservice.bus.connection', []);
 
         $this->connection = new AMQPStreamConnection(
-            $cfg['host']               ?? '127.0.0.1',
-            (int) ($cfg['port']        ?? 5672),
-            $cfg['user']               ?? 'guest',
-            $cfg['password']           ?? 'guest',
-            $cfg['vhost']              ?? '/',
+            $cfg['host'] ?? '127.0.0.1',
+            (int) ($cfg['port'] ?? 5672),
+            $cfg['user'] ?? 'guest',
+            $cfg['password'] ?? 'guest',
+            $cfg['vhost'] ?? '/',
             insist: false,
             login_method: 'AMQPLAIN',
             login_response: null,

@@ -67,7 +67,7 @@ class HandlerDiscovery
     protected function classFromFile(SplFileInfo $file): ?string
     {
         $basePath = base_path();
-        $appPath  = app_path();
+        $appPath = app_path();
 
         $class = trim(str_replace($basePath, '', $file->getRealPath()), DIRECTORY_SEPARATOR);
         $class = str_replace(['.php', DIRECTORY_SEPARATOR], ['', '\\'], $class);

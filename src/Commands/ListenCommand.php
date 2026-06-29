@@ -67,14 +67,14 @@ class ListenCommand extends Command
 
         $this->installSignalHandlers();
 
-        $channel  = $connection->channel();
+        $channel = $connection->channel();
         $exchange = $connection->exchange();
-        $service  = (string) config('microservice.name', 'app');
-        $memory   = (int) $this->option('memory');
-        $maxJobs  = (int) $this->option('max-jobs');
+        $service = (string) config('microservice.name', 'app');
+        $memory = (int) $this->option('memory');
+        $maxJobs = (int) $this->option('max-jobs');
 
         $dlqEnabled = (bool) config('microservice.bus.dead_letter.enabled', true);
-        $dlxName    = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
+        $dlxName = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
         if ($dlqEnabled) {
             $channel->exchange_declare($dlxName, 'topic', durable: true, auto_delete: false);
@@ -107,8 +107,8 @@ class ListenCommand extends Command
             );
         }
 
-        $this->info('Listening for events: ' . implode(', ', array_keys($handlers))
-            . ($dlqEnabled ? " (DLQ → $dlxName)" : ''));
+        $this->info('Listening for events: '.implode(', ', array_keys($handlers))
+            .($dlqEnabled ? " (DLQ → $dlxName)" : ''));
 
         while (! $this->shouldStop && $channel->is_consuming()) {
             try {
@@ -117,7 +117,7 @@ class ListenCommand extends Command
                 // No message in window — normal, loop and check signals
             } catch (Throwable $e) {
                 Log::error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
-                $this->error('AMQP error: ' . $e->getMessage());
+                $this->error('AMQP error: '.$e->getMessage());
 
                 return self::FAILURE;
             }
@@ -146,7 +146,7 @@ class ListenCommand extends Command
         string $dlxName,
     ): void {
         $queue = "$service.$type";
-        $args  = [];
+        $args = [];
 
         if ($dlqEnabled) {
             $dlq = "$queue.dlq";
@@ -193,7 +193,7 @@ class ListenCommand extends Command
         } catch (Throwable $e) {
             Log::warning('ListenCommand: malformed JSON, rejecting message', [
                 'error' => $e->getMessage(),
-                'body'  => substr($message->getBody(), 0, 256),
+                'body' => substr($message->getBody(), 0, 256),
             ]);
             $this->writeLine('FAIL', '(malformed JSON)', "from $routingKey", 'error');
             $this->reject($message, $dlqEnabled);
@@ -211,13 +211,13 @@ class ListenCommand extends Command
             return;
         }
 
-        $type    = (string) ($envelope['type'] ?? $routingKey);
+        $type = (string) ($envelope['type'] ?? $routingKey);
         $service = (string) ($envelope['service'] ?? 'unknown');
-        $mode    = is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync';
+        $mode = is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync';
 
         $this->writeLine('RECV', $type, "from $service");
 
-        $start   = microtime(true);
+        $start = microtime(true);
         $success = $listener->handle($class, $envelope);
         $elapsed = (int) ((microtime(true) - $start) * 1000);
 
@@ -253,7 +253,7 @@ class ListenCommand extends Command
     private function writeLine(string $tag, string $type, string $detail, string $tone = 'comment'): void
     {
         $timestamp = now()->format('Y-m-d H:i:s');
-        $line      = "<fg=gray>[$timestamp]</> <$tone>$tag</> $type <fg=gray>$detail</>";
+        $line = "<fg=gray>[$timestamp]</> <$tone>$tag</> $type <fg=gray>$detail</>";
 
         $this->output->writeln($line);
     }
