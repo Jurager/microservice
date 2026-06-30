@@ -120,6 +120,14 @@ class ManifestRegistry
     }
 
     /**
+     * Check if a service manifest exists in Redis.
+     */
+    public function has(string $service): bool
+    {
+        return $this->redis()->exists($this->redisPrefix().'manifest:'.$service);
+    }
+
+    /**
      * Check if a URI matches any of the given prefixes.
      *
      * @param  string[]  $prefixes

@@ -6,7 +6,7 @@ namespace Jurager\Microservice\Rules;
 
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Support\Facades\Redis;
+use Jurager\Microservice\Registry\ManifestRegistry;
 
 class ServiceExists implements ValidationRule
 {
@@ -18,10 +18,7 @@ class ServiceExists implements ValidationRule
             return;
         }
 
-        $prefix = (string) config('microservice.redis.prefix', 'microservice:');
-        $connection = (string) config('microservice.redis.connection', 'default');
-
-        if (! Redis::connection($connection)->exists($prefix.'manifest:'.$value)) {
+        if (! app(ManifestRegistry::class)->has($value)) {
             $fail(__('validation.service_exists', ['attribute' => $attribute]));
         }
     }
