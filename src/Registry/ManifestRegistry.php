@@ -124,7 +124,7 @@ class ManifestRegistry
      */
     public function has(string $service): bool
     {
-        return $this->redis()->exists($this->redisPrefix().'manifest:'.$service);
+        return (bool) $this->redis()->exists($this->redisPrefix().'manifest:'.$service);
     }
 
     /**
