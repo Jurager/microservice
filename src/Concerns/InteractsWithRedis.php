@@ -14,7 +14,6 @@ trait InteractsWithRedis
 {
     protected function redis(): Connection
     {
-        /** @var Connection */
         return $this->redisFactory->connection(config('microservice.redis.connection', 'default'));
     }
 

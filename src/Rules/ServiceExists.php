@@ -6,7 +6,8 @@ namespace Jurager\Microservice\Rules;
 
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
-use Jurager\Microservice\Registry\ManifestRegistry;
+use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 
 class ServiceExists implements ValidationRule
 {
@@ -18,7 +19,12 @@ class ServiceExists implements ValidationRule
             return;
         }
 
-        if (! app(ManifestRegistry::class)->has($value)) {
+        try {
+            app(ServiceClient::class)->service($value)
+                ->withMethod('HEAD', '/')
+                ->timeout(3)
+                ->send();
+        } catch (ServiceUnavailableException) {
             $fail(__('validation.service_exists', ['attribute' => $attribute]));
         }
     }
