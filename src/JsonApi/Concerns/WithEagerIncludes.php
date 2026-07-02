@@ -130,6 +130,21 @@ trait WithEagerIncludes
                     fn ($path) => str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path,
                     $overrides[$relation]
                 );
+
+                $subs = array_values(array_filter((array) $nested, fn ($s) => $s !== null));
+
+                if ($subs) {
+                    $deep = array_values(array_filter($deep, function ($path) use ($subs) {
+                        foreach ($subs as $sub) {
+                            if ($path === $sub || str_starts_with($path, $sub.'.')) {
+                                return true;
+                            }
+                        }
+
+                        return false;
+                    }));
+                }
+
                 $load[$relation] = fn ($q) => $q->with($deep);
 
                 continue;

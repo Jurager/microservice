@@ -11,6 +11,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Redis\Connections\Connection;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
@@ -31,7 +32,7 @@ class ServiceClientTest extends TestCase
 
         $httpClient = new Client(['handler' => $stack]);
 
-        $client = Mockery::mock(ServiceClient::class, [$this->app->make(HmacSigner::class)])
+        $client = Mockery::mock(ServiceClient::class, [$this->app->make(HmacSigner::class), Mockery::mock(Factory::class)])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 

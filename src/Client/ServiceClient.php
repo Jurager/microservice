@@ -12,6 +12,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils;
+use Illuminate\Contracts\Redis\Factory;
 use Jurager\Microservice\Concerns\InteractsWithRedis;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Support\HmacSigner;
@@ -39,6 +40,7 @@ class ServiceClient
 
     public function __construct(
         protected readonly HmacSigner $signer,
+        private readonly Factory $redisFactory,
         ?Client $httpClient = null,
     ) {
         $this->serviceName = (string) config('microservice.name', 'app');
