@@ -134,15 +134,7 @@ trait WithEagerIncludes
                 $subs = array_values(array_filter((array) $nested, fn ($s) => $s !== null));
 
                 if ($subs) {
-                    $deep = array_values(array_filter($deep, function ($path) use ($subs) {
-                        foreach ($subs as $sub) {
-                            if ($path === $sub || str_starts_with($path, $sub.'.')) {
-                                return true;
-                            }
-                        }
-
-                        return false;
-                    }));
+                    $deep = array_values(array_unique(array_merge($deep, $subs)));
                 }
 
                 $load[$relation] = fn ($q) => $q->with($deep);
