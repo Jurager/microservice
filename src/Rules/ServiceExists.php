@@ -7,7 +7,6 @@ namespace Jurager\Microservice\Rules;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Jurager\Microservice\Client\ServiceClient;
-use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 
 class ServiceExists implements ValidationRule
 {
@@ -20,11 +19,13 @@ class ServiceExists implements ValidationRule
         }
 
         try {
+            $endpoint = config('microservice.health.liveness_endpoint', '/microservice/health/live');
+
             app(ServiceClient::class)->service($value)
-                ->withMethod('HEAD', '/')
+                ->get($endpoint)
                 ->timeout(3)
                 ->send();
-        } catch (ServiceUnavailableException) {
+        } catch (\Throwable) {
             $fail(__('validation.service_exists', ['attribute' => $attribute]));
         }
     }
