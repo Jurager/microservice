@@ -16,14 +16,14 @@ class SyncManifestsCommand extends Command
 
     protected $description = 'Pull and store route manifests from configured microservices';
 
-    public function handle(ServiceClient $client, ManifestRegistry $registry): int
+    public function handle(ServiceClient $client, ManifestRegistry $registry): void
     {
         $services = $this->argument('services') ?: config('microservice.manifest.services', []);
 
         if (empty($services)) {
             $this->components->warn('No services configured. Set manifest.services in config.');
 
-            return self::SUCCESS;
+            return;
         }
 
         $failed = [];
@@ -68,13 +68,10 @@ class SyncManifestsCommand extends Command
             });
         }
 
-        if (! empty($failed)) {
-            $this->components->error('Failed to sync: '.implode(', ', $failed));
-
-            return self::FAILURE;
+        foreach ($failed as $service) {
+            $stale = $registry->has($service) ? ' (stale manifest retained)' : ' (no manifest stored)';
+            $this->components->warn("Could not sync [$service]$stale.");
         }
-
-        return self::SUCCESS;
     }
 
     private function pull(string $service, ServiceClient $client): ?array
