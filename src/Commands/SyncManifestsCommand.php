@@ -38,13 +38,15 @@ class SyncManifestsCommand extends Command
                 continue;
             }
 
-            if ($this->routesChanged($registry->get($service), $manifest)) {
+            $old = $registry->get($service);
+
+            if ($this->routesChanged($old, $manifest)) {
                 $routesChanged = true;
+                $registry->store($manifest);
+                ManifestReceived::dispatch($service, $manifest, count($manifest['routes']));
+            } else {
+                $registry->touch($service);
             }
-
-            $registry->store($manifest);
-
-            ManifestReceived::dispatch($service, $manifest, count($manifest['routes']));
 
             $this->printRoutes($manifest);
         }

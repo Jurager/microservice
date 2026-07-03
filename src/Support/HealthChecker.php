@@ -163,22 +163,15 @@ class HealthChecker
         }
 
         $prefix = $this->redisPrefix();
-        $syncInterval = (int) config('microservice.manifest.sync_interval', 5) * 60;
-        $staleFactor = (float) config('microservice.health.stale_factor', 1.5);
         $result = [];
 
         foreach ($services as $service) {
-            $key = $prefix."manifest:$service";
-            $raw = $this->safeRedis(fn () => $this->redis()->get($key));
+            $raw = $this->safeRedis(fn () => $this->redis()->get($prefix."manifest:$service"));
             $circuit = $this->circuitState($service);
 
             if ($raw === null || $raw === false) {
                 $result[$service] = array_filter([
                     'status' => 'missing',
-                    'reason' => 'manifest_missing',
-                    'synced_at' => null,
-                    'age_seconds' => null,
-                    'expires_at' => null,
                     'routes_count' => 0,
                     'circuit' => $circuit,
                 ], static fn ($v) => $v !== null);
@@ -187,22 +180,10 @@ class HealthChecker
             }
 
             $manifest = json_decode((string) $raw, true) ?: [];
-            $syncedAt = $manifest['synced_at'] ?? null;
-            $age = $syncedAt ? (int) abs(Carbon::parse($syncedAt)->diffInSeconds(Carbon::now())) : null;
-            $remainingTtl = (int) $this->safeRedis(fn () => $this->redis()->ttl($key), -2);
-
-            // "stale" means the manifest is older than the gateway expects given
-            // the configured sync interval — not merely "past half its TTL".
-            $stale = $syncInterval > 0 && $age !== null && $age > $syncInterval * $staleFactor;
 
             $entry = array_filter([
-                'status' => $stale ? 'stale' : 'healthy',
-                'reason' => $stale ? 'manifest_stale' : null,
-                'synced_at' => $syncedAt,
-                'age_seconds' => $age,
-                'expires_at' => $remainingTtl > 0
-                    ? Carbon::now()->addSeconds($remainingTtl)->toIso8601String()
-                    : null,
+                'status' => 'healthy',
+                'synced_at' => $manifest['synced_at'] ?? null,
                 'routes_count' => count($manifest['routes'] ?? []),
                 'circuit' => $circuit,
             ], static fn ($v) => $v !== null);
@@ -464,7 +445,6 @@ class HealthChecker
         return [
             'total' => count($services),
             'healthy' => $count('healthy'),
-            'stale' => $count('stale'),
             'missing' => $count('missing'),
         ];
     }
@@ -487,8 +467,7 @@ class HealthChecker
 
         $deadLetters = $dependencies['rabbitmq']['dead_letters'] ?? [];
 
-        $degraded = array_any($services, static fn (array $s) => $s['status'] === 'stale')
-            || array_any($services, static fn (array $s) => ($s['circuit']['state'] ?? null) === 'open')
+        $degraded = array_any($services, static fn (array $s) => ($s['circuit']['state'] ?? null) === 'open')
             || array_any($dependencies, static fn (array $d) => ($d['status'] ?? null) !== 'up')
             || array_any((array) $deadLetters, static fn (int $depth) => $depth > 0);
 

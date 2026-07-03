@@ -133,7 +133,6 @@ return [
     */
     'manifest' => [
         'timeout' => env('SERVICE_TIMEOUT', 30),
-        'ttl' => env('SERVICE_MANIFEST_TTL', 300),
         'prefix' => env('SERVICE_MANIFEST_PREFIX', 'api'),
         'services' => env('SERVICE_MANIFEST_SERVICES', ''),
         'sync_interval' => env('SERVICE_MANIFEST_SYNC_INTERVAL', 5),
@@ -183,13 +182,6 @@ return [
         | requested per-call with ?verbose=1 when this is true.
         */
         'verbose' => env('SERVICE_HEALTH_VERBOSE', false),
-
-        /*
-        | A manifest is considered "stale" once it is older than
-        | sync_interval * stale_factor. Keep above 1.0 so a single missed
-        | sync cycle does not immediately flip the status.
-        */
-        'stale_factor' => env('SERVICE_HEALTH_STALE_FACTOR', 1.5),
 
         /*
         | Seconds to cache the detailed report (and /metrics). The heavy
