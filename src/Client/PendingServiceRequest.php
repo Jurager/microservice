@@ -29,6 +29,8 @@ class PendingServiceRequest
 
     protected bool $exposeError = true;
 
+    protected bool $bypassCircuitBreaker = false;
+
     public function __construct(
         protected readonly ServiceClient $client,
         protected readonly string $service,
@@ -142,6 +144,18 @@ class PendingServiceRequest
         $this->exposeError = false;
 
         return $this;
+    }
+
+    public function withoutCircuitBreaker(): static
+    {
+        $this->bypassCircuitBreaker = true;
+
+        return $this;
+    }
+
+    public function getBypassCircuitBreaker(): bool
+    {
+        return $this->bypassCircuitBreaker;
     }
 
     public function timeout(int $seconds): static

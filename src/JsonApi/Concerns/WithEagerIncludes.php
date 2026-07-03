@@ -131,7 +131,7 @@ trait WithEagerIncludes
                     $overrides[$relation]
                 );
 
-                $subs = array_values(array_filter((array) $nested, fn ($s) => $s !== null));
+                $subs = array_values(array_filter((array) $nested));
 
                 if ($subs) {
                     $deep = array_values(array_unique(array_merge($deep, $subs)));
@@ -142,7 +142,7 @@ trait WithEagerIncludes
                 continue;
             }
 
-            $subs = array_values(array_filter((array) $nested, fn ($s) => $s !== null));
+            $subs = array_values(array_filter((array) $nested));
 
             $subs
                 ? $load[$relation] = fn ($q) => $q->with($subs)

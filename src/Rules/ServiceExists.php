@@ -7,6 +7,8 @@ namespace Jurager\Microservice\Rules;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
+use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 
 class ServiceExists implements ValidationRule
 {
@@ -24,8 +26,9 @@ class ServiceExists implements ValidationRule
             app(ServiceClient::class)->service($value)
                 ->get($endpoint)
                 ->timeout(3)
+                ->withoutCircuitBreaker()
                 ->send();
-        } catch (\Throwable) {
+        } catch (ServiceUnavailableException | ServiceRequestException) {
             $fail(__('validation.service_exists', ['attribute' => $attribute]));
         }
     }

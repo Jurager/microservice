@@ -97,23 +97,32 @@ class ServiceClient
     public function send(PendingServiceRequest $request): ServiceResponse
     {
         $service = $request->getService();
+        $trackCircuit = ! $request->getBypassCircuitBreaker();
 
-        $this->checkCircuitBreaker($service);
+        if ($trackCircuit) {
+            $this->checkCircuitBreaker($service);
+        }
 
         [$baseUrl, $timeout] = $this->resolveServiceConfig($service, $request->getTimeout());
 
         try {
             $response = $this->executeRequest($request, $baseUrl, $timeout);
 
-            $this->recordCircuitResult($service, true);
+            if ($trackCircuit) {
+                $this->recordCircuitResult($service, true);
+            }
 
             return $response;
         } catch (GuzzleException $e) {
-            $this->recordCircuitResult($service, false);
+            if ($trackCircuit) {
+                $this->recordCircuitResult($service, false);
+            }
 
             throw new ServiceUnavailableException($service, previous: $e);
         } catch (ServiceUnavailableException $e) {
-            $this->recordCircuitResult($service, false);
+            if ($trackCircuit) {
+                $this->recordCircuitResult($service, false);
+            }
 
             throw $e;
         }
