@@ -30,6 +30,16 @@ class ManifestRegistry
     }
 
     /**
+     * Get a stored manifest from Redis, or null if not present.
+     */
+    public function get(string $service): ?array
+    {
+        $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
+
+        return $raw ? json_decode($raw, true) : null;
+    }
+
+    /**
      * Store a manifest in Redis.
      */
     public function store(array $manifest): void

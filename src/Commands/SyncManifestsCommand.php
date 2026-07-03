@@ -18,9 +18,7 @@ class SyncManifestsCommand extends Command
 
     public function handle(ServiceClient $client, ManifestRegistry $registry): int
     {
-        $configured = config('microservice.manifest.services', []);
-
-        $services = $this->argument('services') ?: $configured;
+        $services = $this->argument('services') ?: config('microservice.manifest.services', []);
 
         if (empty($services)) {
             $this->components->warn('No services configured. Set manifest.services in config.');
@@ -29,69 +27,43 @@ class SyncManifestsCommand extends Command
         }
 
         $failed = [];
+        $routesChanged = false;
 
         foreach ($services as $service) {
-            $reason = null;
-            $synced = null;
+            $manifest = $this->pull($service, $client);
 
-            $this->components->task("Syncing [$service]", function () use ($service, $client, $registry, &$failed, &$reason, &$synced) {
+            if ($manifest === null) {
+                $failed[] = $service;
+
+                continue;
+            }
+
+            if ($this->routesChanged($registry->get($service), $manifest)) {
+                $routesChanged = true;
+            }
+
+            $registry->store($manifest);
+
+            ManifestReceived::dispatch($service, $manifest, count($manifest['routes']));
+
+            $this->printRoutes($manifest);
+        }
+
+        $succeeded = array_diff($services, $failed);
+
+        if (! empty($succeeded) && $this->laravel->routesAreCached()) {
+            $this->components->task('Refreshing route cache', fn () => $this->call('route:cache') === 0);
+        }
+
+        if ($routesChanged && class_exists(\Laravel\Octane\Commands\ReloadCommand::class)) {
+
+            $this->components->task('Reloading Octane workers', function () {
                 try {
-                    $response = $client->service($service)->get('/microservice/manifest')->send();
-
-                    if ($response->failed()) {
-                        $reason = "HTTP {$response->status()}";
-                        $failed[] = $service;
-
-                        return false;
-                    }
-
-                    $manifest = $response->json();
-
-                    if (! is_array($manifest) || ! isset($manifest['service'], $manifest['routes'])) {
-                        $reason = 'Invalid manifest structure';
-                        $failed[] = $service;
-
-                        return false;
-                    }
-
-                    $registry->store($manifest);
-
-                    ManifestReceived::dispatch($service, $manifest, count($manifest['routes']));
-
-                    $synced = $manifest;
-
-                    return true;
-                } catch (ServiceUnavailableException $e) {
-                    $reason = $e->getMessage();
-                    $failed[] = $service;
-
+                    return $this->call('octane:reload') === 0;
+                } catch (\Throwable) {
                     return false;
                 }
             });
-
-            if ($reason !== null) {
-                $this->components->bulletList([$reason]);
-            }
-
-            if ($synced !== null) {
-                $routes = $synced['routes'];
-
-                $this->components->info(count($routes).' route(s) registered for ['.$synced['service'].'].');
-
-                if (! empty($routes)) {
-                    $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
-                        $route['method'],
-                        $route['uri'],
-                        $route['name'] ?? '-',
-                    ], $routes));
-                }
-            }
-        }
-
-        $synced = array_diff($services, $failed);
-
-        if (! empty($synced) && $this->laravel->routesAreCached()) {
-            $this->components->task('Refreshing route cache', fn () => $this->call('route:cache') === 0);
         }
 
         if (! empty($failed)) {
@@ -101,5 +73,74 @@ class SyncManifestsCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    private function pull(string $service, ServiceClient $client): ?array
+    {
+        $manifest = null;
+        $error = null;
+
+        $this->components->task("Syncing [$service]", function () use ($service, $client, &$manifest, &$error) {
+
+            try {
+                $response = $client->service($service)->get('/microservice/manifest')->send();
+
+                if ($response->failed()) {
+                    $error = "HTTP {$response->status()}";
+
+                    return false;
+                }
+
+                $data = $response->json();
+
+                if (! is_array($data) || ! isset($data['service'], $data['routes'])) {
+                    $error = 'Invalid manifest structure';
+
+                    return false;
+                }
+
+                $manifest = $data;
+
+                return true;
+
+            } catch (ServiceUnavailableException $e) {
+                $error = $e->getMessage();
+
+                return false;
+            }
+        });
+
+        if ($error !== null) {
+            $this->components->bulletList([$error]);
+        }
+
+        return $manifest;
+    }
+
+    private function printRoutes(array $manifest): void
+    {
+        $routes = $manifest['routes'];
+
+        $this->components->info(count($routes).' route(s) registered for ['.$manifest['service'].'].');
+
+        if (! empty($routes)) {
+            $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
+                $route['method'],
+                $route['uri'],
+                $route['name'] ?? '-',
+            ], $routes));
+        }
+    }
+
+    private function routesChanged(?array $old, array $new): bool
+    {
+        $fingerprint = static function (array $routes): string {
+            $entries = array_map(static fn ($r) => $r['method'].'|'.$r['uri'], $routes);
+            sort($entries);
+
+            return md5(implode(',', $entries));
+        };
+
+        return $fingerprint($old['routes'] ?? []) !== $fingerprint($new['routes']);
     }
 }
