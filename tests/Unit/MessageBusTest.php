@@ -60,7 +60,12 @@ class MessageBusTest extends TestCase
     {
         $channel = Mockery::mock(AMQPChannel::class);
         $channel->shouldReceive('basic_publish')->andThrow(new \RuntimeException('AMQP down'));
-        $this->bindChannel($channel);
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+        $connection->shouldReceive('close')->once();
+        $this->app->instance(Connection::class, $connection);
 
         $logger = Mockery::mock(LoggerInterface::class);
         $logger->shouldReceive('error')

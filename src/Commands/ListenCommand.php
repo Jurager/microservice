@@ -91,8 +91,8 @@ class ListenCommand extends Command
             $channel->basic_consume(
                 $queue,
                 consumer_tag: "$service-$type",
-                callback: function (AMQPMessage $message) use ($class, $listener, $memory, $maxJobs, $dlqEnabled): void {
-                    $this->dispatch($message, $class, $listener, $dlqEnabled);
+                callback: function (AMQPMessage $message) use ($class, $listener, $logger, $memory, $maxJobs, $dlqEnabled): void {
+                    $this->dispatch($message, $class, $listener, $logger, $dlqEnabled);
 
                     if ($maxJobs > 0 && $this->processed >= $maxJobs) {
                         $this->info("Reached --max-jobs=$maxJobs, stopping.");
@@ -182,7 +182,7 @@ class ListenCommand extends Command
         return $map;
     }
 
-    private function dispatch(AMQPMessage $message, string $class, Listener $listener, bool $dlqEnabled): void
+    private function dispatch(AMQPMessage $message, string $class, Listener $listener, LoggerInterface $logger, bool $dlqEnabled): void
     {
         $this->processed++;
 

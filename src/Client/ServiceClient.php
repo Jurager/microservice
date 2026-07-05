@@ -189,7 +189,7 @@ class ServiceClient
         if ($pattern) {
             $baseUrl = str_replace('{service}', $service, $pattern);
 
-            return [$baseUrl, $requestTimeout ?? 30];
+            return [$baseUrl, $requestTimeout ?? (int) config('microservice.manifest.timeout', 30)];
         }
 
         if (isset($this->resolvedConfigs[$service])) {

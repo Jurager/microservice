@@ -46,6 +46,10 @@ readonly class MessageBus
                     $type,
                 );
         } catch (Throwable $e) {
+            // Drop the handle so the next publish reconnects instead of reusing
+            // a connection the broker (or network) has already torn down.
+            $this->connection->close();
+
             $this->logger->error('MessageBus: failed to publish', [
                 'type' => $type,
                 'error' => $e->getMessage(),
