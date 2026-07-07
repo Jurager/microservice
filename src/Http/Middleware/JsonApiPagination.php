@@ -18,9 +18,32 @@ class JsonApiPagination
             static fn (): int => max(1, (int) $request->input('page.number', 1))
         );
 
+        $path = $this->resolveCurrentPath($request);
+
+        AbstractPaginator::currentPathResolver(static fn (): string => $path);
+
         $this->registerPaginationMacro();
 
         return $next($request);
+    }
+
+    /**
+     * Resolve the pagination base URL, honoring reverse-proxy headers.
+     */
+    protected function resolveCurrentPath(Request $request): string
+    {
+        $host = $request->header('X-Forwarded-Host');
+
+        if ($host === null) {
+            return $request->url();
+        }
+
+        $scheme = $request->header('X-Forwarded-Proto', $request->getScheme());
+        $prefix = trim((string) $request->header('X-Forwarded-Prefix'), '/');
+
+        $path = ($prefix !== '' ? "/{$prefix}" : '') . $request->getPathInfo();
+
+        return "{$scheme}://{$host}{$path}";
     }
 
     protected function registerPaginationMacro(): void
@@ -29,37 +52,12 @@ class JsonApiPagination
             return;
         }
 
-        AnonymousResourceCollection::macro(
-            'paginationInformation',
-            static function (Request $request, array $paginated, array $default): array {
-                $links = array_map(
+        $normalize = self::normalizePaginationUrl(...);
 
-                    static function (?string $url): ?string {
-
-                        if ($url === null) {
-                            return null;
-                        }
-
-                        [$base] = explode('?', $url, 2);
-
-                        parse_str((string) parse_url($url, PHP_URL_QUERY), $params);
-
-                        if (isset($params['page']) && is_scalar($params['page'])) {
-                            $params['page'] = ['number' => (string) $params['page']];
-                        }
-
-                        if ($params === []) {
-                            return $base;
-                        }
-
-                        $query = str_replace(['%5B', '%5D'], ['[', ']'], http_build_query($params));
-
-                        return $base.'?'.$query;
-                    },
-                    $default['links'] ?? []
-                );
-
-                $response = ['links' => $links];
+        AnonymousResourceCollection::macro('paginationInformation', function (Request $request, array $paginated, array $default) use ($normalize): array {
+                $response = [
+                    'links' => array_map($normalize, $default['links'] ?? []),
+                ];
 
                 if (isset($paginated['total'])) {
                     $response['meta'] = ['total' => (int) $paginated['total']];
@@ -68,5 +66,29 @@ class JsonApiPagination
                 return $response;
             }
         );
+    }
+
+    /**
+     * Rewrite ?page=N into the JSON:API ?page[number]=N format.
+     */
+    protected static function normalizePaginationUrl(?string $url): ?string
+    {
+        if ($url === null) {
+            return null;
+        }
+
+        [$base, $query] = explode('?', $url, 2) + [1 => ''];
+
+        parse_str($query, $params);
+
+        if (isset($params['page']) && is_scalar($params['page'])) {
+            $params['page'] = ['number' => (string) $params['page']];
+        }
+
+        if ($params === []) {
+            return $base;
+        }
+
+        return $base . '?' . str_replace(['%5B', '%5D'], ['[', ']'], http_build_query($params));
     }
 }
