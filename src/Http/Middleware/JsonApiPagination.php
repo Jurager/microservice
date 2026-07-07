@@ -32,6 +32,10 @@ class JsonApiPagination
      */
     protected function resolveCurrentPath(Request $request): string
     {
+        if ($gatewayUrl = $request->header('X-Gateway-Base-Url')) {
+            return $gatewayUrl;
+        }
+
         $host = $request->header('X-Forwarded-Host');
 
         if ($host === null) {
