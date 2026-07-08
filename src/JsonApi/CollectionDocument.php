@@ -90,6 +90,21 @@ class CollectionDocument implements Responsable
         return $this;
     }
 
+    public function transformIncluded(callable $transformer): static
+    {
+        $this->included->transform($transformer);
+
+        return $this;
+    }
+
+    public function applyPolicy(callable $policy): static
+    {
+        $this->included->applyPolicy($policy);
+        $this->items->each(fn (Item $item) => $item->withoutOrphanLinks($this->included));
+
+        return $this;
+    }
+
     /**
      * Remove relationship links that reference resources no longer in `included`.
      */
@@ -110,7 +125,7 @@ class CollectionDocument implements Responsable
      *
      * Accepts three call forms:
      *   toResponse()              — serialize items as-is
-     *   toResponse($request)      — apply any filter registered on the request, then serialize
+     *   toResponse($request)      — apply included policy registered on the request, then serialize
      *   toResponse($transform)    — serialize each item through a callable transform
      *
      * @param  Request|callable(T): array|null  $requestOrTransform
@@ -121,9 +136,9 @@ class CollectionDocument implements Responsable
 
         if ($requestOrTransform instanceof Request) {
             if (! $this->included->isEmpty()) {
-                $filter = $requestOrTransform->attributes->get(Includes::class);
-                if ($filter) {
-                    $this->filterIncluded($filter);
+                $policy = $requestOrTransform->attributes->get(Includes::class);
+                if ($policy) {
+                    $this->applyPolicy($policy);
                 }
             }
         } elseif (is_callable($requestOrTransform)) {

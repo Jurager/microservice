@@ -4,11 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\JsonApi;
 
-/**
- * Holds the top-level `included` array from a JSON:API response.
- * Indexes resources by [type][id] for O(1) lookup and resolves
- * relationship linkage into typed Item objects.
- */
 class Includes
 {
     /** @var array<string, array<string, array>> */
@@ -45,30 +40,38 @@ class Includes
         return isset($this->index[$type][$id]);
     }
 
-    /** Raw included array for forwarding to the frontend as-is. */
     public function raw(): array
     {
         return $this->raw;
     }
-
-    /**
-     * Filter included resources in-place without orphan/reachability pruning.
-     * Use this when you simply want to reduce the included set by a predicate.
-     */
     public function filter(callable $predicate): void
     {
         $this->raw = array_values(array_filter($this->raw, $predicate));
         $this->rebuildIndex();
     }
 
-    /**
-     * Apply a filter predicate, clean up orphan relationship links in root items,
-     * then cascade-prune any included resources no longer reachable from those roots.
-     *
-     * When roots is empty the BFS step is skipped and only the filter is applied.
-     *
-     * @param  Item[]  $roots  primary data items (modified in place via withoutOrphanLinks)
-     */
+    public function transform(callable $transformer): void
+    {
+        $this->raw = array_map($transformer, $this->raw);
+        $this->rebuildIndex();
+    }
+
+    public function applyPolicy(callable $policy): void
+    {
+        $result = [];
+
+        foreach ($this->raw as $resource) {
+            $processed = $policy($resource);
+
+            if ($processed !== null) {
+                $result[] = $processed;
+            }
+        }
+
+        $this->raw = $result;
+        $this->rebuildIndex();
+    }
+
     public function rebuild(callable $filter, array $roots): void
     {
         $this->filter($filter);
@@ -118,11 +121,7 @@ class Includes
 
         $this->rebuildIndex();
     }
-
-    /**
-     * Auto-resolve all relationships present in this included pool using Item::class.
-     * Skips relationships already resolved via withRelations().
-     */
+    
     public function autoAttach(Item $item): void
     {
         if ($this->isEmpty()) {
