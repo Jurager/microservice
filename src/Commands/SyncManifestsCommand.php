@@ -4,21 +4,27 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Commands;
 
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Console\Isolatable;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
 
-class SyncManifestsCommand extends Command
+#[Signature('microservice:sync {services?* : Service names to sync (defaults to all configured)}')]
+#[Description('Pull and store route manifests from configured microservices.')]
+class SyncManifestsCommand extends Command implements Isolatable
 {
-    protected $signature = 'microservice:sync {services?* : Service names to sync (defaults to all configured)}';
-
-    protected $description = 'Pull and store route manifests from configured microservices';
+    public function isolatableId(): string
+    {
+        return implode(',', (array) $this->input('services', []));
+    }
 
     public function handle(ServiceClient $client, ManifestRegistry $registry): void
     {
-        $services = $this->argument('services') ?: config('microservice.manifest.services', []);
+        $services = $this->input('services', []) ?: config('microservice.manifest.services', []);
 
         if (empty($services)) {
             $this->components->warn('No services configured. Set manifest.services in config.');
@@ -54,14 +60,13 @@ class SyncManifestsCommand extends Command
         $succeeded = array_diff($services, $failed);
 
         if (! empty($succeeded) && $this->laravel->routesAreCached()) {
-            $this->components->task('Refreshing route cache', fn () => $this->call('route:cache') === 0);
+            $this->components->task('Refreshing route cache', fn () => $this->callSilently('route:cache') === 0);
         }
 
         if ($routesChanged && class_exists(\Laravel\Octane\Commands\ReloadCommand::class)) {
-
             $this->components->task('Reloading Octane workers', function () {
                 try {
-                    return $this->call('octane:reload') === 0;
+                    return $this->callSilently('octane:reload') === 0;
                 } catch (\Throwable) {
                     return false;
                 }
@@ -80,7 +85,6 @@ class SyncManifestsCommand extends Command
         $error = null;
 
         $this->components->task("Syncing [$service]", function () use ($service, $client, &$manifest, &$error) {
-
             try {
                 $response = $client->service($service)->get('/microservice/manifest')->send();
 
@@ -101,7 +105,6 @@ class SyncManifestsCommand extends Command
                 $manifest = $data;
 
                 return true;
-
             } catch (ServiceUnavailableException $e) {
                 $error = $e->getMessage();
 
@@ -118,16 +121,14 @@ class SyncManifestsCommand extends Command
 
     private function printRoutes(array $manifest): void
     {
-        $routes = $manifest['routes'];
+        $this->components->info(count($manifest['routes']).' route(s) registered for ['.$manifest['service'].'].');
 
-        $this->components->info(count($routes).' route(s) registered for ['.$manifest['service'].'].');
-
-        if (! empty($routes)) {
+        if (! empty($manifest['routes'])) {
             $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
                 $route['method'],
                 $route['uri'],
                 $route['name'] ?? '-',
-            ], $routes));
+            ], $manifest['routes']));
         }
     }
 

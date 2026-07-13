@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Commands;
 
-use Exception;
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Jurager\Microservice\Bus\Connection;
@@ -13,66 +14,50 @@ use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
 use PhpAmqpLib\Channel\AMQPChannel;
-use Psr\Log\LoggerInterface;
+use PhpAmqpLib\Exception\AMQPConnectionClosedException;
+use PhpAmqpLib\Exception\AMQPDataReadException;
+use PhpAmqpLib\Exception\AMQPIOException;
+use PhpAmqpLib\Exception\AMQPIOWaitException;
+use PhpAmqpLib\Exception\AMQPSocketException;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 use PhpAmqpLib\Wire\AMQPTable;
+use Psr\Log\LoggerInterface;
 use Throwable;
 
-/**
- * Consume events from RabbitMQ and dispatch to handlers registered in
- * config/messages.php. For each handler type a durable queue is declared,
- * bound to the topic exchange by routing key = type.
- *
- * When DLQ is enabled (config: microservice.bus.dead_letter.enabled), failed
- * messages (bad signature, malformed JSON, handler exception) are nacked and
- * routed via the DLX into a per-handler dead-letter queue for inspection.
- *
- * Usage:
- *   php artisan microservice:listen
- *   php artisan microservice:listen --memory=256 --max-jobs=1000
- *
- * Graceful shutdown: SIGTERM/SIGINT stops the loop after the current message.
- */
+#[Signature('microservice:listen
+             {--memory=128 : Memory limit in MB; the worker stops when exceeded}
+             {--max-jobs=0 : Stop after this many messages (0 = unlimited)}')]
+#[Description('Listen for inter-service events from RabbitMQ.')]
 class ListenCommand extends Command
 {
-    protected $signature = 'microservice:listen
-                            {--memory=128 : Memory limit in MB; the worker stops when exceeded}
-                            {--max-jobs=0 : Stop after this many messages (0 = unlimited)}';
-
-    protected $description = 'Listen for inter-service events from RabbitMQ.';
-
     private bool $shouldStop = false;
 
     private int $processed = 0;
 
-    /**
-     * @throws Exception
-     */
-    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): int
+    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): void
     {
         if (! $bus->enabled()) {
-            $this->warn('MessageBus is disabled (config: microservice.bus.enabled). Refusing to start.');
-
-            return self::FAILURE;
+            $this->fail('MessageBus is disabled (config: microservice.bus.enabled).');
         }
 
         $handlers = $this->discoverHandlers($discovery);
 
         if (empty($handlers)) {
-            $this->warn('No MessageHandler implementations found — nothing to listen for.');
-
-            return self::SUCCESS;
+            return;
         }
 
-        $this->installSignalHandlers();
+        $this->trap([SIGTERM, SIGINT], fn () => $this->shouldStop = true);
 
-        $channel = $connection->channel();
+        try {
+            $channel = $connection->channel();
+        } catch (\Throwable $e) {
+            $this->fail("Failed to connect to RabbitMQ: {$e->getMessage()}");
+        }
         $exchange = $connection->exchange();
         $service = (string) config('microservice.name', 'app');
-        $memory = (int) $this->option('memory');
-        $maxJobs = (int) $this->option('max-jobs');
-
+        $memory = (int) $this->input('memory', 128);
+        $maxJobs = (int) $this->input('max-jobs', 0);
         $dlqEnabled = (bool) config('microservice.bus.dead_letter.enabled', true);
         $dlxName = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
@@ -80,16 +65,13 @@ class ListenCommand extends Command
             $channel->exchange_declare($dlxName, 'topic', durable: true, auto_delete: false);
         }
 
-        // Fair dispatch: don't pile messages on a single worker
         $channel->basic_qos(prefetch_size: 0, prefetch_count: 1, a_global: false);
 
         foreach ($handlers as $type => $class) {
             $this->declareQueues($channel, $service, $type, $exchange, $dlqEnabled, $dlxName);
 
-            $queue = "$service.$type";
-
             $channel->basic_consume(
-                $queue,
+                "$service.$type",
                 consumer_tag: "$service-$type",
                 callback: function (AMQPMessage $message) use ($class, $listener, $logger, $memory, $maxJobs, $dlqEnabled): void {
                     $this->dispatch($message, $class, $listener, $logger, $dlqEnabled);
@@ -115,23 +97,19 @@ class ListenCommand extends Command
                 $channel->wait(null, false, 1);
             } catch (AMQPTimeoutException) {
                 // No message in window — normal, loop and check signals
+            } catch (AMQPConnectionClosedException | AMQPDataReadException | AMQPSocketException | AMQPIOException | AMQPIOWaitException $e) {
+                $logger->warning('ListenCommand: connection lost', ['error' => $e->getMessage()]);
+                $connection->close();
+                $this->fail("Connection lost: {$e->getMessage()}");
             } catch (Throwable $e) {
                 $logger->error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
-                $this->error('AMQP error: '.$e->getMessage());
-
-                return self::FAILURE;
-            }
-
-            if (function_exists('pcntl_signal_dispatch')) {
-                pcntl_signal_dispatch();
+                $this->fail($e->getMessage());
             }
         }
 
         $connection->close();
 
-        $this->info("Stopped. Processed $this->processed message(s).");
-
-        return self::SUCCESS;
+        $this->info("Stopped. Processed {$this->processed} message(s).");
     }
 
     /**
@@ -157,12 +135,7 @@ class ListenCommand extends Command
             $args = new AMQPTable(['x-dead-letter-exchange' => $dlxName]);
         }
 
-        $channel->queue_declare(
-            $queue,
-            durable: true,
-            auto_delete: false,
-            arguments: $args,
-        );
+        $channel->queue_declare($queue, durable: true, auto_delete: false, arguments: $args);
         $channel->queue_bind($queue, $exchange, $type);
     }
 
@@ -202,9 +175,7 @@ class ListenCommand extends Command
         }
 
         if (! is_array($envelope)) {
-
             $logger->warning('ListenCommand: envelope is not an array, rejecting');
-
             $this->writeLine('FAIL', '(non-array envelope)', "from $routingKey", 'error');
             $this->reject($message, $dlqEnabled);
 
@@ -226,12 +197,7 @@ class ListenCommand extends Command
             $this->writeLine('DONE', $type, "$mode → $class ({$elapsed}ms)", 'info');
         } else {
             $this->reject($message, $dlqEnabled);
-            $this->writeLine(
-                'FAIL',
-                $type,
-                $dlqEnabled ? "$class → DLQ" : "$class — discarded (DLQ off)",
-                'error',
-            );
+            $this->writeLine('FAIL', $type, $dlqEnabled ? "$class → DLQ" : "$class — discarded (DLQ off)", 'error');
         }
     }
 
@@ -242,34 +208,11 @@ class ListenCommand extends Command
      */
     private function reject(AMQPMessage $message, bool $dlqEnabled): void
     {
-        if ($dlqEnabled) {
-            $message->nack();
-        } else {
-            // No DLQ — ack to discard (avoid poison-message loops on infrastructure with no DLX configured)
-            $message->ack();
-        }
+        $dlqEnabled ? $message->nack() : $message->ack();
     }
 
     private function writeLine(string $tag, string $type, string $detail, string $tone = 'comment'): void
     {
-        $timestamp = now()->format('Y-m-d H:i:s');
-        $line = "<fg=gray>[$timestamp]</> <$tone>$tag</> $type <fg=gray>$detail</>";
-
-        $this->output->writeln($line);
-    }
-
-    private function installSignalHandlers(): void
-    {
-        if (! function_exists('pcntl_signal')) {
-            return;
-        }
-
-        $stop = function (): void {
-            $this->info('Signal received, stopping after current message...');
-            $this->shouldStop = true;
-        };
-
-        pcntl_signal(SIGTERM, $stop);
-        pcntl_signal(SIGINT, $stop);
+        $this->line(sprintf('<fg=gray>[%s]</> <%s>%s</> %s <fg=gray>%s</>', now()->format('Y-m-d H:i:s'), $tone, $tag, $type, $detail));
     }
 }

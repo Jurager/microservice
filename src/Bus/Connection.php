@@ -49,9 +49,9 @@ class Connection
             login_response: null,
             locale: 'en_US',
             connection_timeout: (float) ($cfg['connection_timeout'] ?? 10),
-            read_write_timeout: (float) ($cfg['read_write_timeout'] ?? 30),
+            read_write_timeout: (float) ($cfg['read_write_timeout'] ?? ((int) ($cfg['heartbeat'] ?? 60) * 2 + 10)),
             context: null,
-            keepalive: false,
+            keepalive: (bool) ($cfg['keepalive'] ?? true),
             heartbeat: (int) ($cfg['heartbeat'] ?? 60),
         );
 

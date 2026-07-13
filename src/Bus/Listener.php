@@ -47,7 +47,7 @@ readonly class Listener
         }
 
         try {
-            $handler = $handlerClass::from($this->payload($envelope));
+            $handler = $handlerClass::from($this->payload($envelope), (string) ($envelope['type'] ?? ''));
 
             if ($handler instanceof ShouldQueue) {
                 dispatch($handler);

@@ -4,50 +4,44 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Commands;
 
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Console\PromptsForMissingInput;
 use JsonException;
 use Jurager\Microservice\Bus\MessageBus;
 
-/**
- * Manually publish an event to the bus for debugging.
- *
- * Example:
- *   php artisan microservice:emit sfm.site.updated '{"site_id":1,"domain":"example.com"}'
- *
- * The payload goes through MessageBus, so envelope/signature/logging are
- * identical to a real publish from application code.
- */
-class EmitCommand extends Command
+#[Signature('microservice:emit
+             {type    : Event type (e.g. "sfm.site.updated")}
+             {payload : JSON-encoded payload (e.g. \'{"site_id":1}\')}')]
+#[Description('Manually publish an event to the bus (for testing).')]
+class EmitCommand extends Command implements PromptsForMissingInput
 {
-    protected $signature = 'microservice:emit
-                            {type    : Event type (e.g. "sfm.site.updated")}
-                            {payload : JSON-encoded payload (e.g. \'{"site_id":1}\')}';
-
-    protected $description = 'Manually publish an event to the bus (for testing).';
-
-    public function handle(MessageBus $bus): int
+    protected function promptForMissingArgumentsUsing(): array
     {
-        $type = (string) $this->argument('type');
-        $raw = (string) $this->argument('payload');
+        return [
+            'type'    => ['What event type would you like to emit?', 'e.g. sfm.site.updated'],
+            'payload' => ['What payload should be sent?', 'e.g. {"site_id":1}'],
+        ];
+    }
+
+    public function handle(MessageBus $bus): void
+    {
+        $type = (string) $this->input('type');
+        $raw = (string) $this->input('payload');
 
         try {
             $payload = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
         } catch (JsonException $e) {
-            $this->error("Invalid JSON payload: {$e->getMessage()}");
-
-            return self::FAILURE;
+            $this->fail("Invalid JSON payload: {$e->getMessage()}");
         }
 
         if (! is_array($payload)) {
-            $this->error('Payload must be a JSON object/array.');
-
-            return self::FAILURE;
+            $this->fail('Payload must be a JSON object/array.');
         }
 
         $bus->publish($type, $payload);
 
-        $this->info("Published event [$type].");
-
-        return self::SUCCESS;
+        $this->components->info("Published event [$type].");
     }
 }
