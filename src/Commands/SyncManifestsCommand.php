@@ -12,6 +12,7 @@ use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
+use Throwable;
 
 #[Signature('microservice:sync {services?* : Service names to sync (defaults to all configured)}')]
 #[Description('Pull and store route manifests from configured microservices.')]
@@ -19,7 +20,11 @@ class SyncManifestsCommand extends Command implements Isolatable
 {
     public function isolatableId(): string
     {
-        return implode(',', (array) $this->input('services', []));
+        $services = (array) $this->input('services', []);
+
+        sort($services);
+
+        return implode(',', $services);
     }
 
     public function handle(ServiceClient $client, ManifestRegistry $registry): void
@@ -57,9 +62,7 @@ class SyncManifestsCommand extends Command implements Isolatable
             $this->printRoutes($manifest);
         }
 
-        $succeeded = array_diff($services, $failed);
-
-        if (! empty($succeeded) && $this->laravel->routesAreCached()) {
+        if ($routesChanged && $this->laravel->routesAreCached()) {
             $this->components->task('Refreshing route cache', fn () => $this->callSilently('route:cache') === 0);
         }
 
@@ -67,7 +70,7 @@ class SyncManifestsCommand extends Command implements Isolatable
             $this->components->task('Reloading Octane workers', function () {
                 try {
                     return $this->callSilently('octane:reload') === 0;
-                } catch (\Throwable) {
+                } catch (Throwable) {
                     return false;
                 }
             });
@@ -76,6 +79,10 @@ class SyncManifestsCommand extends Command implements Isolatable
         foreach ($failed as $service) {
             $stale = $registry->has($service) ? ' (stale manifest retained)' : ' (no manifest stored)';
             $this->components->warn("Could not sync [$service]$stale.");
+        }
+
+        if (! empty($failed)) {
+            $this->fail('Failed to sync: '.implode(', ', $failed).'.');
         }
     }
 
@@ -96,7 +103,7 @@ class SyncManifestsCommand extends Command implements Isolatable
 
                 $data = $response->json();
 
-                if (! is_array($data) || ! isset($data['service'], $data['routes'])) {
+                if (! is_array($data) || ! isset($data['service'], $data['routes']) || ! is_array($data['routes'])) {
                     $error = 'Invalid manifest structure';
 
                     return false;
@@ -107,6 +114,10 @@ class SyncManifestsCommand extends Command implements Isolatable
                 return true;
             } catch (ServiceUnavailableException $e) {
                 $error = $e->getMessage();
+
+                return false;
+            } catch (Throwable $e) {
+                $error = get_class($e).': '.$e->getMessage();
 
                 return false;
             }
@@ -125,8 +136,8 @@ class SyncManifestsCommand extends Command implements Isolatable
 
         if (! empty($manifest['routes'])) {
             $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
-                $route['method'],
-                $route['uri'],
+                $route['method'] ?? '?',
+                $route['uri'] ?? '?',
                 $route['name'] ?? '-',
             ], $manifest['routes']));
         }
@@ -135,10 +146,13 @@ class SyncManifestsCommand extends Command implements Isolatable
     private function routesChanged(?array $old, array $new): bool
     {
         $fingerprint = static function (array $routes): string {
-            $entries = array_map(static fn ($r) => $r['method'].'|'.$r['uri'], $routes);
+            $entries = array_map(
+                static fn (array $r) => ($r['method'] ?? '').'|'.($r['uri'] ?? '').'|'.($r['name'] ?? ''),
+                $routes,
+            );
             sort($entries);
 
-            return md5(implode(',', $entries));
+            return md5(implode("\n", $entries));
         };
 
         return $fingerprint($old['routes'] ?? []) !== $fingerprint($new['routes']);

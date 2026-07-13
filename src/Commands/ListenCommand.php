@@ -35,6 +35,10 @@ class ListenCommand extends Command
 
     private int $processed = 0;
 
+    private int $memoryLimit = 0;
+
+    private int $maxJobs = 0;
+
     public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): void
     {
         if (! $bus->enabled()) {
@@ -43,7 +47,9 @@ class ListenCommand extends Command
 
         $handlers = $this->discoverHandlers($discovery);
 
-        if (empty($handlers)) {
+        if ($handlers === []) {
+            $this->warn('No message handlers discovered — nothing to listen for.');
+
             return;
         }
 
@@ -51,13 +57,14 @@ class ListenCommand extends Command
 
         try {
             $channel = $connection->channel();
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             $this->fail("Failed to connect to RabbitMQ: {$e->getMessage()}");
         }
+
         $exchange = $connection->exchange();
         $service = (string) config('microservice.name', 'app');
-        $memory = (int) $this->input('memory', 128);
-        $maxJobs = (int) $this->input('max-jobs', 0);
+        $this->memoryLimit = (int) $this->input('memory');
+        $this->maxJobs = (int) $this->input('max-jobs');
         $dlqEnabled = (bool) config('microservice.bus.dead_letter.enabled', true);
         $dlxName = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
@@ -73,18 +80,9 @@ class ListenCommand extends Command
             $channel->basic_consume(
                 "$service.$type",
                 consumer_tag: "$service-$type",
-                callback: function (AMQPMessage $message) use ($class, $listener, $logger, $memory, $maxJobs, $dlqEnabled): void {
+                callback: function (AMQPMessage $message) use ($class, $listener, $logger, $dlqEnabled): void {
                     $this->dispatch($message, $class, $listener, $logger, $dlqEnabled);
-
-                    if ($maxJobs > 0 && $this->processed >= $maxJobs) {
-                        $this->info("Reached --max-jobs=$maxJobs, stopping.");
-                        $this->shouldStop = true;
-                    }
-
-                    if ($memory > 0 && (memory_get_usage(true) / 1024 / 1024) >= $memory) {
-                        $this->warn("Memory limit {$memory}MB reached, stopping.");
-                        $this->shouldStop = true;
-                    }
+                    $this->checkStopConditions();
                 },
             );
         }
@@ -99,15 +97,20 @@ class ListenCommand extends Command
                 // No message in window — normal, loop and check signals
             } catch (AMQPConnectionClosedException | AMQPDataReadException | AMQPSocketException | AMQPIOException | AMQPIOWaitException $e) {
                 $logger->warning('ListenCommand: connection lost', ['error' => $e->getMessage()]);
-                $connection->close();
+                $this->closeQuietly($connection);
                 $this->fail("Connection lost: {$e->getMessage()}");
             } catch (Throwable $e) {
                 $logger->error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
+                $this->closeQuietly($connection);
                 $this->fail($e->getMessage());
             }
+
+            // Memory can also grow while idle (e.g. queued dispatch buffers) —
+            // re-check between wait windows, not only after a message.
+            $this->checkStopConditions();
         }
 
-        $connection->close();
+        $this->closeQuietly($connection);
 
         $this->info("Stopped. Processed {$this->processed} message(s).");
     }
@@ -148,6 +151,10 @@ class ListenCommand extends Command
 
         foreach ($discovery->discover() as $class) {
             foreach ((array) $class::type() as $type) {
+                if (isset($map[$type]) && $map[$type] !== $class) {
+                    $this->warn("Duplicate handler for '$type': {$map[$type]} replaced by $class.");
+                }
+
                 $map[$type] = $class;
             }
         }
@@ -169,7 +176,7 @@ class ListenCommand extends Command
                 'body' => substr($message->getBody(), 0, 256),
             ]);
             $this->writeLine('FAIL', '(malformed JSON)', "from $routingKey", 'error');
-            $this->reject($message, $dlqEnabled);
+            $message->nack();
 
             return;
         }
@@ -177,7 +184,7 @@ class ListenCommand extends Command
         if (! is_array($envelope)) {
             $logger->warning('ListenCommand: envelope is not an array, rejecting');
             $this->writeLine('FAIL', '(non-array envelope)', "from $routingKey", 'error');
-            $this->reject($message, $dlqEnabled);
+            $message->nack();
 
             return;
         }
@@ -188,27 +195,57 @@ class ListenCommand extends Command
 
         $this->writeLine('RECV', $type, "from $service");
 
-        $start = microtime(true);
-        $success = $listener->handle($class, $envelope);
-        $elapsed = (int) ((microtime(true) - $start) * 1000);
+        $start = hrtime(true);
+
+        try {
+            $success = $listener->handle($class, $envelope);
+        } catch (Throwable $e) {
+            $logger->error('ListenCommand: handler threw', [
+                'handler' => $class,
+                'type' => $type,
+                'error' => $e->getMessage(),
+            ]);
+
+            $success = false;
+        }
+
+        $elapsed = intdiv(hrtime(true) - $start, 1_000_000);
 
         if ($success) {
             $message->ack();
             $this->writeLine('DONE', $type, "$mode → $class ({$elapsed}ms)", 'info');
         } else {
-            $this->reject($message, $dlqEnabled);
+            $message->nack();
             $this->writeLine('FAIL', $type, $dlqEnabled ? "$class → DLQ" : "$class — discarded (DLQ off)", 'error');
         }
     }
 
-    /**
-     * Negative-ack with no requeue. When DLQ is configured, RabbitMQ routes
-     * the message through the queue's x-dead-letter-exchange. Without DLQ,
-     * the message is simply discarded.
-     */
-    private function reject(AMQPMessage $message, bool $dlqEnabled): void
+    private function checkStopConditions(): void
     {
-        $dlqEnabled ? $message->nack() : $message->ack();
+        if ($this->shouldStop) {
+            return;
+        }
+
+        if ($this->maxJobs > 0 && $this->processed >= $this->maxJobs) {
+            $this->info("Reached --max-jobs={$this->maxJobs}, stopping.");
+            $this->shouldStop = true;
+
+            return;
+        }
+
+        if ($this->memoryLimit > 0 && (memory_get_usage(true) / 1024 / 1024) >= $this->memoryLimit) {
+            $this->warn("Memory limit {$this->memoryLimit}MB reached, stopping.");
+            $this->shouldStop = true;
+        }
+    }
+
+    private function closeQuietly(Connection $connection): void
+    {
+        try {
+            $connection->close();
+        } catch (Throwable) {
+            // Connection may already be gone — nothing useful to do.
+        }
     }
 
     private function writeLine(string $tag, string $type, string $detail, string $tone = 'comment'): void
