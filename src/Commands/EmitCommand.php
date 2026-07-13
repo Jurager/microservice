@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\PromptsForMissingInput;
 use JsonException;
 use Jurager\Microservice\Bus\MessageBus;
+use Throwable;
 
 #[Signature('microservice:emit
              {type    : Event type (e.g. "sfm.site.updated")}
@@ -27,7 +28,16 @@ class EmitCommand extends Command implements PromptsForMissingInput
 
     public function handle(MessageBus $bus): void
     {
-        $type = (string) $this->input('type');
+        if (! $bus->enabled()) {
+            $this->fail('MessageBus is disabled (config: microservice.bus.enabled).');
+        }
+
+        $type = trim((string) $this->input('type'));
+
+        if ($type === '') {
+            $this->fail('Event type cannot be empty.');
+        }
+
         $raw = (string) $this->input('payload');
 
         try {
@@ -40,7 +50,11 @@ class EmitCommand extends Command implements PromptsForMissingInput
             $this->fail('Payload must be a JSON object/array.');
         }
 
-        $bus->publish($type, $payload);
+        try {
+            $bus->publish($type, $payload);
+        } catch (Throwable $e) {
+            $this->fail("Failed to publish [$type]: {$e->getMessage()}");
+        }
 
         $this->components->info("Published event [$type].");
     }

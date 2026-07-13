@@ -7,55 +7,76 @@ namespace Jurager\Microservice\Commands;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Contracts\Console\PromptsForMissingInput;
-use JsonException;
-use Jurager\Microservice\Bus\MessageBus;
-use Throwable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Jurager\Microservice\Bus\HandlerDiscovery;
 
-#[Signature('microservice:emit
-             {type    : Event type (e.g. "sfm.site.updated")}
-             {payload : JSON-encoded payload (e.g. \'{"site_id":1}\')}')]
-#[Description('Manually publish an event to the bus (for testing).')]
-class EmitCommand extends Command implements PromptsForMissingInput
+#[Signature('microservice:events')]
+#[Description('List discovered inter-service event handlers.')]
+class EventsCommand extends Command
 {
-    protected function promptForMissingArgumentsUsing(): array
+    public function handle(HandlerDiscovery $discovery): void
     {
-        return [
-            'type'    => ['What event type would you like to emit?', 'e.g. sfm.site.updated'],
-            'payload' => ['What payload should be sent?', 'e.g. {"site_id":1}'],
-        ];
-    }
+        $handlers = $discovery->discover();
 
-    public function handle(MessageBus $bus): void
-    {
-        if (! $bus->enabled()) {
-            $this->fail('MessageBus is disabled (config: microservice.bus.enabled).');
+        if ($handlers === []) {
+            $this->components->warn('No MessageHandler implementations found.');
+
+            return;
         }
 
-        $type = trim((string) $this->input('type'));
+        $service = (string) config('microservice.name', 'app');
 
-        if ($type === '') {
-            $this->fail('Event type cannot be empty.');
+        // type => list of handlers, in discovery order
+        // mirrors ListenCommand, where the last discovered handler for a type wins.
+        $map = [];
+
+        foreach ($handlers as $handler) {
+            foreach ((array) $handler::type() as $type) {
+                $map[$type][] = $handler;
+            }
         }
 
-        $raw = (string) $this->input('payload');
+        ksort($map);
 
-        try {
-            $payload = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
-        } catch (JsonException $e) {
-            $this->fail("Invalid JSON payload: {$e->getMessage()}");
+        $rows = [];
+        $conflicts = [];
+
+        foreach ($map as $type => $classes) {
+            $active = end($classes);
+
+            foreach ($classes as $class) {
+                $shadowed = $class !== $active;
+
+                if ($shadowed) {
+                    $conflicts[] = $type;
+                }
+
+                $rows[] = [
+                    $type,
+                    "$service.$type",
+                    $class.($shadowed ? ' <fg=yellow>(shadowed)</>' : ''),
+                    is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync',
+                ];
+            }
         }
 
-        if (! is_array($payload)) {
-            $this->fail('Payload must be a JSON object/array.');
-        }
+        $this->table(['Type', 'Queue', 'Handler', 'Mode'], $rows);
 
-        try {
-            $bus->publish($type, $payload);
-        } catch (Throwable $e) {
-            $this->fail("Failed to publish [$type]: {$e->getMessage()}");
-        }
+        $this->newLine();
 
-        $this->components->info("Published event [$type].");
+        $this->components->info(sprintf(
+            'Discovered %d handler%s covering %d event type%s.',
+            count($handlers),
+            count($handlers) === 1 ? '' : 's',
+            count($map),
+            count($map) === 1 ? '' : 's',
+        ));
+
+        if ($conflicts !== []) {
+            $this->components->warn(sprintf(
+                'Multiple handlers registered for: %s. Only the last discovered handler will receive messages.',
+                implode(', ', array_unique($conflicts)),
+            ));
+        }
     }
 }
