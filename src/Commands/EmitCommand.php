@@ -21,7 +21,7 @@ class EmitCommand extends Command implements PromptsForMissingInput
     protected function promptForMissingArgumentsUsing(): array
     {
         return [
-            'type'    => ['What event type would you like to emit?', 'e.g. sfm.site.updated'],
+            'type' => ['What event type would you like to emit?', 'e.g. sfm.site.updated'],
             'payload' => ['What payload should be sent?', 'e.g. {"site_id":1}'],
         ];
     }

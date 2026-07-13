@@ -12,6 +12,7 @@ use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
+use Laravel\Octane\Commands\ReloadCommand;
 use Throwable;
 
 #[Signature('microservice:sync {services?* : Service names to sync (defaults to all configured)}')]
@@ -66,7 +67,7 @@ class SyncManifestsCommand extends Command implements Isolatable
             $this->components->task('Refreshing route cache', fn () => $this->callSilently('route:cache') === 0);
         }
 
-        if ($routesChanged && class_exists(\Laravel\Octane\Commands\ReloadCommand::class)) {
+        if ($routesChanged && class_exists(ReloadCommand::class)) {
             $this->components->task('Reloading Octane workers', function () {
                 try {
                     return $this->callSilently('octane:reload') === 0;

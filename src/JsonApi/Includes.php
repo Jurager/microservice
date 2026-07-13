@@ -44,6 +44,7 @@ class Includes
     {
         return $this->raw;
     }
+
     public function filter(callable $predicate): void
     {
         $this->raw = array_values(array_filter($this->raw, $predicate));
@@ -121,7 +122,7 @@ class Includes
 
         $this->rebuildIndex();
     }
-    
+
     public function autoAttach(Item $item): void
     {
         if ($this->isEmpty()) {

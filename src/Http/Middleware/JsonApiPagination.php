@@ -45,7 +45,7 @@ class JsonApiPagination
         $scheme = $request->header('X-Forwarded-Proto', $request->getScheme());
         $prefix = trim((string) $request->header('X-Forwarded-Prefix'), '/');
 
-        $path = ($prefix !== '' ? "/{$prefix}" : '') . $request->getPathInfo();
+        $path = ($prefix !== '' ? "/{$prefix}" : '').$request->getPathInfo();
 
         return "{$scheme}://{$host}{$path}";
     }
@@ -58,7 +58,9 @@ class JsonApiPagination
 
         $normalize = self::normalizePaginationUrl(...);
 
-        AnonymousResourceCollection::macro('paginationInformation', function (Request $request, array $paginated, array $default) use ($normalize): array {
+        AnonymousResourceCollection::macro(
+            'paginationInformation',
+            function (Request $request, array $paginated, array $default) use ($normalize): array {
                 $response = [
                     'links' => array_map($normalize, $default['links'] ?? []),
                 ];
@@ -93,6 +95,6 @@ class JsonApiPagination
             return $base;
         }
 
-        return $base . '?' . str_replace(['%5B', '%5D'], ['[', ']'], http_build_query($params));
+        return $base.'?'.str_replace(['%5B', '%5D'], ['[', ']'], http_build_query($params));
     }
 }

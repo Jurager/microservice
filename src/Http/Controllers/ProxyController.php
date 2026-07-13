@@ -55,9 +55,9 @@ class ProxyController extends Controller
         $prefix = $request->route()->getAction('_service_prefix') ?? '';
 
         $headers = [
-            'X-Forwarded-Host'   => $request->getHttpHost(),
-            'X-Forwarded-Proto'  => $request->getScheme(),
-            'X-Forwarded-Port'   => (string) $request->getPort(),
+            'X-Forwarded-Host' => $request->getHttpHost(),
+            'X-Forwarded-Proto' => $request->getScheme(),
+            'X-Forwarded-Port' => (string) $request->getPort(),
             'X-Gateway-Base-Url' => $request->url(),
         ];
 

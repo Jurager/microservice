@@ -95,7 +95,7 @@ class ListenCommand extends Command
                 $channel->wait(null, false, 1);
             } catch (AMQPTimeoutException) {
                 // No message in window — normal, loop and check signals
-            } catch (AMQPConnectionClosedException | AMQPDataReadException | AMQPSocketException | AMQPIOException | AMQPIOWaitException $e) {
+            } catch (AMQPConnectionClosedException|AMQPDataReadException|AMQPSocketException|AMQPIOException|AMQPIOWaitException $e) {
                 $logger->warning('ListenCommand: connection lost', ['error' => $e->getMessage()]);
                 $this->closeQuietly($connection);
                 $this->fail("Connection lost: {$e->getMessage()}");

@@ -28,7 +28,7 @@ class ServiceExists implements ValidationRule
                 ->timeout(3)
                 ->withoutCircuitBreaker()
                 ->send();
-        } catch (ServiceUnavailableException | ServiceRequestException) {
+        } catch (ServiceUnavailableException|ServiceRequestException) {
             $fail(__('validation.service_exists', ['attribute' => $attribute]));
         }
     }
