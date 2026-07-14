@@ -101,7 +101,7 @@ class Idempotency
         );
 
         return response($data['content'], $data['status'])
-            ->withHeaders($data['headers'] ?? [])
+            ->headers($data['headers'] ?? [])
             ->header('X-Idempotency-Cache-Hit', 'true');
     }
 

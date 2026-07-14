@@ -101,7 +101,7 @@ class ServiceClientTest extends TestCase
         $requestId = '550e8400-e29b-41d4-a716-446655440000';
         $client->service('oms')
             ->get('/api/orders')
-            ->withHeaders(['X-Request-Id' => $requestId])
+            ->headers(['X-Request-Id' => $requestId])
             ->send();
 
         $request = $this->history[0]['request'];

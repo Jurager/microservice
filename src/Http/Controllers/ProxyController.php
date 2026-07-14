@@ -65,7 +65,7 @@ class ProxyController extends Controller
             $headers['X-Forwarded-Prefix'] = '/'.trim($prefix, '/');
         }
 
-        $pending->withHeaders($headers);
+        $pending->headers($headers);
 
         if ($query = $request->query()) {
             $pending->with($query);

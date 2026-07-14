@@ -75,11 +75,16 @@ class PendingServiceRequest
         return $this;
     }
 
-    public function withHeaders(array $headers): static
+    public function headers(array $headers): static
     {
         $this->headers = array_merge($this->headers, $headers);
 
         return $this;
+    }
+
+    public function withHeaders(array $headers): static
+    {
+        return $this->headers($headers);
     }
 
     public function with(array $query): static
@@ -109,6 +114,8 @@ class PendingServiceRequest
 
     public function merge(array $query): static
     {
+        $query = $this->stripEmpty($query);
+
         foreach ($query as $key => $value) {
             if (isset($this->query[$key]) && is_string($value) && is_string($this->query[$key])) {
                 $this->query[$key] = implode(',', array_unique(array_filter([
@@ -165,6 +172,18 @@ class PendingServiceRequest
         return $this;
     }
 
+    private array $afterHooks = [];
+
+    /**
+     * @param  callable(array): array|object  $processor
+     */
+    public function after(callable|object $processor): static
+    {
+        $this->afterHooks[] = $processor;
+
+        return $this;
+    }
+
     /**
      * @throws ServiceUnavailableException
      * @throws ServiceRequestException
@@ -183,13 +202,29 @@ class PendingServiceRequest
     /** @param class-string<T> $itemClass @template T of Item @return CollectionDocument<T> */
     public function collect(string $itemClass = Item::class): CollectionDocument
     {
-        return $this->send()->collect($itemClass);
+        $this->runPrepare();
+
+        $body = $this->json();
+
+        if ($this->afterHooks !== []) {
+            $body = $this->applyAfterHooks($body);
+        }
+
+        return new CollectionDocument($body, $itemClass);
     }
 
     /** @param class-string<T> $itemClass @template T of Item @return ItemDocument<T> */
     public function item(string $itemClass = Item::class): ItemDocument
     {
-        return $this->send()->item($itemClass);
+        $this->runPrepare();
+
+        $body = $this->json();
+
+        if ($this->afterHooks !== []) {
+            $body = $this->applyAfterHooks($body);
+        }
+
+        return new ItemDocument($body, $itemClass);
     }
 
     public function json(?string $key = null, mixed $default = null): mixed
@@ -200,6 +235,24 @@ class PendingServiceRequest
     public function status(): int
     {
         return $this->send()->status();
+    }
+
+    private function runPrepare(): void
+    {
+        foreach ($this->afterHooks as $hook) {
+            if (is_object($hook) && method_exists($hook, 'prepare')) {
+                $this->query = $hook->prepare($this->query);
+            }
+        }
+    }
+
+    private function applyAfterHooks(array $body): array
+    {
+        foreach ($this->afterHooks as $hook) {
+            $body = $hook($body);
+        }
+
+        return $body;
     }
 
     public function getService(): string

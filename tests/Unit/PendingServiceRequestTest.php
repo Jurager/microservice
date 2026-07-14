@@ -72,7 +72,7 @@ class PendingServiceRequestTest extends TestCase
 
     public function test_with_headers_merges_headers(): void
     {
-        $this->request->withHeaders(['X-Foo' => 'bar'])->withHeaders(['X-Baz' => 'qux']);
+        $this->request->headers(['X-Foo' => 'bar'])->headers(['X-Baz' => 'qux']);
 
         $this->assertSame(['X-Foo' => 'bar', 'X-Baz' => 'qux'], $this->request->getHeaders());
     }
