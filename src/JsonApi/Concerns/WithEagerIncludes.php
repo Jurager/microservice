@@ -64,6 +64,7 @@ trait WithEagerIncludes
         $template = $models->first();
         $tree = static::buildRelationTree($includes, $template);
 
+        static::validateRelationTree($template, $tree);
         static::loadRelationLevel($models, $template, $tree);
     }
 
@@ -74,10 +75,6 @@ trait WithEagerIncludes
         $tree = [];
 
         foreach ($includes as $relation => $nested) {
-            if (! $owner->isRelation($relation)) {
-                throw new UnknownIncludeException($relation);
-            }
-
             $nestedRelations = array_values(array_filter((array) $nested));
 
             if (isset($overrides[$relation])) {
@@ -98,7 +95,23 @@ trait WithEagerIncludes
         return $tree;
     }
 
-    /** Recursively load a single level of the relation tree onto the models. */
+    /** Recursively validate every path in the tree before any query runs. */
+    protected static function validateRelationTree(Model $template, array $tree, string $prefix = ''): void
+    {
+        foreach ($tree as $relation => $children) {
+            $path = $prefix === '' ? $relation : "$prefix.$relation";
+
+            if (! $template->isRelation($relation)) {
+                throw new UnknownIncludeException($path);
+            }
+
+            if (! empty($children)) {
+                static::validateRelationTree($template->{$relation}()->getRelated(), $children, $path);
+            }
+        }
+    }
+
+    /** Recursively load a single level of the (already validated) relation tree onto the models. */
     protected static function loadRelationLevel(EloquentCollection $models, Model $template, array $tree): void
     {
         if ($models->isEmpty() || empty($tree)) {
@@ -108,10 +121,6 @@ trait WithEagerIncludes
         $loaded = $template->getRelations();
 
         foreach ($tree as $relation => $children) {
-            if (! $template->isRelation($relation)) {
-                throw new UnknownIncludeException($relation);
-            }
-
             if (! array_key_exists($relation, $loaded)) {
                 $models->loadMissing($relation);
             }

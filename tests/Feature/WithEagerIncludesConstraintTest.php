@@ -92,6 +92,17 @@ class WithEagerIncludesConstraintTest extends TestCase
 
         TestPostResource::collection(TestPost::query()->get());
     }
+
+    public function test_unknown_nested_include_throws_with_full_path(): void
+    {
+        $request = Request::create('/posts?include=values.bogus');
+        app()->instance('request', $request);
+
+        $this->expectException(UnknownIncludeException::class);
+        $this->expectExceptionMessage('Unknown include: "values.bogus".');
+
+        TestPostResource::collection(TestPost::query()->get());
+    }
 }
 
 class TestTagLabel extends Model
