@@ -171,7 +171,7 @@ class HealthChecker
                 continue;
             }
 
-            $manifest = json_decode((string) $raw, true) ?: [];
+            $manifest = is_array($raw) ? $raw : (json_decode((string) $raw, true) ?: []);
 
             $entry = array_filter([
                 'status' => 'healthy',
