@@ -34,7 +34,7 @@ class Item
         $this->type = (string) ($resource['type'] ?? '');
         $this->attributes = $resource['attributes'] ?? [];
         $this->relationships = $resource['relationships'] ?? [];
-        $this->links = $resource['links'] ?? [];
+        $this->links = LinkRewriter::rewriteAll($resource['links'] ?? []);
         $this->meta = $resource['meta'] ?? [];
     }
 

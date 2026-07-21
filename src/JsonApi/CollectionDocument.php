@@ -177,28 +177,7 @@ class CollectionDocument implements Responsable
 
     private function resolveLinks(): array
     {
-        /** @var Request|null $request */
-        $request = request();
-
-        if (! $request instanceof Request) {
-            return $this->links;
-        }
-
-        return array_map(fn ($link) => $this->rewritePaginationLink($request, $link), $this->links);
-    }
-
-    private function rewritePaginationLink(Request $request, mixed $link): mixed
-    {
-        if (! is_string($link) || $link === '') {
-            return $link;
-        }
-
-        $query = [];
-        parse_str((string) parse_url($link, PHP_URL_QUERY), $query);
-
-        return isset($query['page'])
-            ? $request->fullUrlWithQuery(['page' => $query['page']])
-            : $request->fullUrl();
+        return LinkRewriter::rewriteAll($this->links);
     }
 
     public function isEmpty(): bool
