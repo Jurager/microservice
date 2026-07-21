@@ -8,17 +8,14 @@ use Illuminate\Http\Request;
 
 class HmacSigner
 {
-    private string $algorithm;
-
-    private string $secret;
-
-    private int $tolerance;
-
-    public function __construct()
-    {
-        $this->algorithm = config('microservice.algorithm', 'sha256');
-        $this->secret = (string) config('microservice.secret', '');
-        $this->tolerance = (int) config('microservice.timestamp_tolerance', 60);
+    public function __construct(
+        private ?string $algorithm = null,
+        private ?string $secret = null,
+        private ?int $tolerance = null,
+    ) {
+        $this->algorithm ??= config('microservice.algorithm', 'sha256');
+        $this->secret ??= config('microservice.secret', '');
+        $this->tolerance ??= (int) config('microservice.timestamp_tolerance', 60);
     }
 
     /**

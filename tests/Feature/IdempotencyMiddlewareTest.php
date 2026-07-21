@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
-use Illuminate\Contracts\Redis\Factory;
-use Illuminate\Redis\Connections\Connection;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Http\Middleware\Idempotency;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
 class IdempotencyMiddlewareTest extends TestCase
 {
-    private Connection $redis;
+    private Cache $cache;
 
     protected function setUp(): void
     {
@@ -20,12 +19,8 @@ class IdempotencyMiddlewareTest extends TestCase
 
         $this->app['config']->set('microservice.idempotency.ttl', 86400);
 
-        $this->redis = Mockery::mock(Connection::class);
-
-        $factory = Mockery::mock(Factory::class);
-        $factory->shouldReceive('connection')->andReturn($this->redis);
-
-        $this->app->instance(Factory::class, $factory);
+        $this->cache = Mockery::mock(Cache::class);
+        $this->app->instance(Cache::class, $this->cache);
     }
 
     protected function defineRoutes($router): void
@@ -46,7 +41,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
     public function test_safe_methods_bypass_idempotency(): void
     {
-        $this->redis->shouldNotReceive('get');
+        $this->cache->shouldNotReceive('get');
 
         $this->getJson('/test/idempotent', ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440001'])
             ->assertOk();
@@ -54,7 +49,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
     public function test_non_safe_method_without_request_id_bypasses(): void
     {
-        $this->redis->shouldNotReceive('get');
+        $this->cache->shouldNotReceive('get');
 
         $this->postJson('/test/idempotent')
             ->assertStatus(201);
@@ -64,19 +59,19 @@ class IdempotencyMiddlewareTest extends TestCase
     {
         $requestId = '550e8400-e29b-41d4-a716-446655440002';
 
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn(null);
 
-        $this->redis->shouldReceive('set')
+        $this->cache->shouldReceive('add')
             ->once()
             ->andReturn(true);
 
-        $this->redis->shouldReceive('setex')
+        $this->cache->shouldReceive('put')
             ->once()
-            ->withArgs(fn ($key, $ttl) => str_contains($key, "idempotency:$requestId") && $ttl === 86400);
+            ->withArgs(fn ($key, $data, $ttl) => str_contains($key, "idempotency:$requestId") && $ttl === 86400);
 
-        $this->redis->shouldReceive('del')->once();
+        $this->cache->shouldReceive('forget')->once();
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => $requestId])
             ->assertStatus(201);
@@ -92,7 +87,7 @@ class IdempotencyMiddlewareTest extends TestCase
             'content' => '{"created":true}',
         ]);
 
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn($cached);
 
@@ -103,11 +98,11 @@ class IdempotencyMiddlewareTest extends TestCase
 
     public function test_returns_409_when_lock_held(): void
     {
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->twice()
             ->andReturn(null);
 
-        $this->redis->shouldReceive('set')
+        $this->cache->shouldReceive('add')
             ->once()
             ->andReturn(false);
 
@@ -119,17 +114,17 @@ class IdempotencyMiddlewareTest extends TestCase
     {
         $requestId = '550e8400-e29b-41d4-a716-446655440005';
 
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn(null);
 
-        $this->redis->shouldReceive('set')
+        $this->cache->shouldReceive('add')
             ->once()
             ->andReturn(true);
 
-        $this->redis->shouldNotReceive('setex');
+        $this->cache->shouldNotReceive('put');
 
-        $this->redis->shouldReceive('del')->once();
+        $this->cache->shouldReceive('forget')->once();
 
         $this->postJson('/test/idempotent-fail', [], ['X-Request-Id' => $requestId])
             ->assertStatus(422);
@@ -137,7 +132,7 @@ class IdempotencyMiddlewareTest extends TestCase
 
     public function test_returns_500_for_invalid_cached_data(): void
     {
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn('not-valid-json{{{');
 
@@ -150,7 +145,7 @@ class IdempotencyMiddlewareTest extends TestCase
     {
         $cached = json_encode(['some' => 'data']);
 
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn($cached);
 
@@ -161,17 +156,17 @@ class IdempotencyMiddlewareTest extends TestCase
 
     public function test_lock_released_on_exception_in_handler(): void
     {
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn(null);
 
-        $this->redis->shouldReceive('set')
+        $this->cache->shouldReceive('add')
             ->once()
             ->andReturn(true);
 
-        $this->redis->shouldReceive('del')->once();
+        $this->cache->shouldReceive('forget')->once();
 
-        $this->redis->shouldNotReceive('setex');
+        $this->cache->shouldNotReceive('put');
 
         try {
             $this->postJson('/test/idempotent-error', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440008']);
@@ -179,7 +174,7 @@ class IdempotencyMiddlewareTest extends TestCase
             // Expected — the exception propagates
         }
 
-        // Mockery will verify 'del' was called once (lock released in finally)
+        // Mockery will verify 'forget' was called once (lock released in finally)
     }
 
     public function test_cached_response_restores_original_headers(): void
@@ -195,7 +190,7 @@ class IdempotencyMiddlewareTest extends TestCase
             'content' => '{"ok":true}',
         ]);
 
-        $this->redis->shouldReceive('get')
+        $this->cache->shouldReceive('get')
             ->once()
             ->andReturn($cached);
 
@@ -207,21 +202,10 @@ class IdempotencyMiddlewareTest extends TestCase
 
     public function test_rejects_invalid_uuid(): void
     {
-        $this->redis->shouldNotReceive('get');
+        $this->cache->shouldNotReceive('get');
 
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => 'not-a-uuid'])
             ->assertStatus(400)
-            ->assertJson(['errors' => [['detail' => 'X-Request-Id must be a valid UUID v4. Received: not-a-uuid']]]);
-    }
-
-    public function test_rejects_non_v4_uuid(): void
-    {
-        $this->redis->shouldNotReceive('get');
-
-        // UUID v1 format (time-based)
-        $invalidUuid = '550e8400-e29b-11d4-a716-446655440000';
-        $this->postJson('/test/idempotent', [], ['X-Request-Id' => $invalidUuid])
-            ->assertStatus(400)
-            ->assertJson(['errors' => [['detail' => "X-Request-Id must be a valid UUID v4. Received: $invalidUuid"]]]);
+            ->assertJson(['errors' => [['detail' => 'X-Request-Id must be a valid UUID. Received: not-a-uuid']]]);
     }
 }

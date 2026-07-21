@@ -75,6 +75,9 @@ class MessageBusTest extends TestCase
             ));
         $this->app->instance(LoggerInterface::class, $logger);
 
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('AMQP down');
+
         app(MessageBus::class)->publish('sfm.site.deleted', []);
     }
 

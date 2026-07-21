@@ -54,6 +54,8 @@ readonly class MessageBus
                 'type' => $type,
                 'error' => $e->getMessage(),
             ]);
+
+            throw $e;
         }
     }
 

@@ -73,7 +73,7 @@ class ProxyController extends Controller
 
         try {
             $response = $pending->send();
-        } catch (Throwable $e) {
+        } finally {
             if ($multipart !== null) {
                 foreach ($multipart as $part) {
                     if (isset($part['contents']) && is_resource($part['contents'])) {
@@ -81,8 +81,6 @@ class ProxyController extends Controller
                     }
                 }
             }
-
-            throw $e;
         }
 
         $outHeaders = $this->filterHeaders($response->headers());
@@ -182,9 +180,7 @@ class ProxyController extends Controller
         $path = $serviceUri;
 
         foreach ($request->route()->parameters() as $key => $value) {
-            // Use regex to match exact parameter tokens (including optional {param?})
-            // and avoid partial matches inside longer parameter names.
-            $path = preg_replace('/\{'.preg_quote($key, '/').'(?:\?)?\}/', (string) $value, $path);
+            $path = str_replace(['{'.$key.'}', '{'.$key.'?}'], (string) $value, $path);
         }
 
         return $path;

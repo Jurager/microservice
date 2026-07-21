@@ -4,16 +4,13 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Registry;
 
-use Illuminate\Contracts\Redis\Factory;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Routing\Registrar;
-use Jurager\Microservice\Concerns\InteractsWithRedis;
 
 class ManifestRegistry
 {
-    use InteractsWithRedis;
-
     public function __construct(
-        private readonly Factory $redisFactory,
+        private readonly Cache $cache,
         private readonly Registrar $router,
     ) {
     }
@@ -34,9 +31,13 @@ class ManifestRegistry
      */
     public function get(string $service): ?array
     {
-        $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
+        $raw = $this->cache->get("microservice:manifest:$service");
 
-        return $raw ? json_decode($raw, true) : null;
+        if (!$raw) {
+            return null;
+        }
+
+        return is_array($raw) ? $raw : json_decode($raw, true);
     }
 
     /**
@@ -50,14 +51,23 @@ class ManifestRegistry
             return;
         }
 
-        $prefix = $this->redisPrefix();
-
         $manifest['synced_at'] = now()->toIso8601String();
 
-        $this->redis()->pipeline(function ($pipe) use ($prefix, $service, $manifest): void {
-            $pipe->set($prefix."manifest:$service", json_encode($manifest));
-            $pipe->sadd($prefix.'manifests', $service);
-        });
+        $this->cache->put("microservice:manifest:$service", $manifest);
+
+        $lock = $this->cache->lock('microservice:manifests_lock', 10);
+        
+        try {
+            $lock->block(5, function () use ($service) {
+                $services = $this->cache->get('microservice:manifests', []);
+                if (!in_array($service, $services, true)) {
+                    $services[] = $service;
+                    $this->cache->put('microservice:manifests', $services);
+                }
+            });
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            // Lock timeout, array might not be updated, but manifest is saved
+        }
     }
 
     /**
@@ -65,17 +75,17 @@ class ManifestRegistry
      */
     public function touch(string $service): void
     {
-        $key = $this->redisPrefix()."manifest:$service";
-        $raw = $this->redis()->get($key);
+        $key = "microservice:manifest:$service";
+        $manifest = $this->cache->get($key);
 
-        if (! $raw) {
+        if (! $manifest) {
             return;
         }
 
-        $manifest = json_decode($raw, true);
+        $manifest = is_array($manifest) ? $manifest : json_decode($manifest, true);
         $manifest['synced_at'] = now()->toIso8601String();
 
-        $this->redis()->set($key, json_encode($manifest));
+        $this->cache->put($key, $manifest);
     }
 
     /**
@@ -83,12 +93,22 @@ class ManifestRegistry
      */
     public function remove(string $service): void
     {
-        $prefix = $this->redisPrefix();
+        $this->cache->forget("microservice:manifest:$service");
 
-        $this->redis()->pipeline(function ($pipe) use ($prefix, $service): void {
-            $pipe->del($prefix."manifest:$service");
-            $pipe->srem($prefix.'manifests', $service);
-        });
+        $lock = $this->cache->lock('microservice:manifests_lock', 10);
+
+        try {
+            $lock->block(5, function () use ($service) {
+                $services = $this->cache->get('microservice:manifests', []);
+                $index = array_search($service, $services, true);
+                if ($index !== false) {
+                    unset($services[$index]);
+                    $this->cache->put('microservice:manifests', array_values($services));
+                }
+            });
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            // Ignore lock timeout
+        }
     }
 
     /**
@@ -146,7 +166,7 @@ class ManifestRegistry
      */
     public function has(string $service): bool
     {
-        return (bool) $this->redis()->exists($this->redisPrefix().'manifest:'.$service);
+        return $this->cache->has("microservice:manifest:$service");
     }
 
     /**

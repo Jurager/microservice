@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Support;
 
 use Illuminate\Contracts\Cache\Repository;
-use Illuminate\Contracts\Redis\Factory;
 use Illuminate\Support\Carbon;
 use Jurager\Microservice\Bus\HandlerDiscovery;
-use Jurager\Microservice\Concerns\InteractsWithRedis;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use Throwable;
 
@@ -24,10 +22,7 @@ use Throwable;
  */
 class HealthChecker
 {
-    use InteractsWithRedis;
-
     public function __construct(
-        private readonly Factory $redisFactory,
         private readonly Repository $cache,
     ) {
     }
@@ -131,7 +126,7 @@ class HealthChecker
      */
     public function readiness(): array
     {
-        $redis = $this->checkRedis();
+        $cacheCheck = $this->checkCache();
         $services = $this->checkServices();
 
         $loaded = count(array_filter(
@@ -139,12 +134,12 @@ class HealthChecker
             static fn (array $s) => $s['status'] !== 'missing',
         ));
 
-        $ready = $redis['status'] === 'up' && ($services === [] || $loaded > 0);
+        $ready = $cacheCheck['status'] === 'up' && ($services === [] || $loaded > 0);
 
         return [
             'status' => $ready ? self::STATUS_HEALTHY : self::STATUS_UNHEALTHY,
             'checked_at' => Carbon::now()->toIso8601String(),
-            'redis' => $redis,
+            'cache' => $cacheCheck,
             'manifests_loaded' => $loaded,
         ];
     }
@@ -162,11 +157,8 @@ class HealthChecker
             $services = in_array($only, $services, true) ? [$only] : [];
         }
 
-        $prefix = $this->redisPrefix();
-        $result = [];
-
         foreach ($services as $service) {
-            $raw = $this->safeRedis(fn () => $this->redis()->get($prefix."manifest:$service"));
+            $raw = $this->safeCache(fn () => $this->cache->get("microservice:manifest:$service"));
             $circuit = $this->circuitState($service);
 
             if ($raw === null || $raw === false) {
@@ -213,9 +205,9 @@ class HealthChecker
             return null;
         }
 
-        $key = $this->redisPrefix()."circuit:$service";
-        $state = $this->safeRedis(fn () => $this->redis()->get($key)) ?: 'closed';
-        $failures = (int) $this->safeRedis(fn () => $this->redis()->get($key.':failures'), 0);
+        $key = "microservice:circuit:$service";
+        $state = $this->safeCache(fn () => $this->cache->get($key)) ?: 'closed';
+        $failures = (int) $this->safeCache(fn () => $this->cache->get($key.':failures'), 0);
 
         $result = [
             'state' => $state,
@@ -224,7 +216,7 @@ class HealthChecker
         ];
 
         if ($state === 'open') {
-            $openedAt = (int) $this->safeRedis(fn () => $this->redis()->get($key.':opened'), 0);
+            $openedAt = (int) $this->safeCache(fn () => $this->cache->get($key.':opened'), 0);
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
 
             if ($openedAt > 0) {
@@ -242,7 +234,7 @@ class HealthChecker
      */
     public function checkDependencies(): array
     {
-        $dependencies = ['redis' => $this->checkRedis()];
+        $dependencies = ['cache' => $this->checkCache()];
 
         if (config('microservice.bus.enabled', true)) {
             $dependencies['rabbitmq'] = $this->checkRabbitMq();
@@ -254,12 +246,12 @@ class HealthChecker
     /**
      * Redis is a critical dependency (discovery, idempotency, breaker state).
      */
-    public function checkRedis(): array
+    public function checkCache(): array
     {
         $start = microtime(true);
 
         try {
-            $this->redis()->ping();
+            $this->cache->has('microservice:ping');
 
             return [
                 'status' => 'up',
@@ -474,7 +466,7 @@ class HealthChecker
         return $degraded ? self::STATUS_DEGRADED : self::STATUS_HEALTHY;
     }
 
-    private function safeRedis(callable $callback, mixed $default = null): mixed
+    private function safeCache(callable $callback, mixed $default = null): mixed
     {
         try {
             return $callback();

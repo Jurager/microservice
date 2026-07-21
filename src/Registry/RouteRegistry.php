@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Registry;
 
-use Illuminate\Contracts\Redis\Factory;
-use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Illuminate\Contracts\Cache\Repository as Cache;
 
 class RouteRegistry
 {
-    use InteractsWithRedis;
-
-    public function __construct(private readonly Factory $redisFactory)
+    public function __construct(private readonly Cache $cache)
     {
     }
 
@@ -22,15 +19,14 @@ class RouteRegistry
      */
     public function getAllManifests(): array
     {
-        $prefix = $this->redisPrefix();
-        $services = $this->redis()->smembers($prefix.'manifests') ?: [];
+        $services = $this->cache->get('microservice:manifests', []);
 
-        if ($services === []) {
+        if (!$services || !is_array($services)) {
             return [];
         }
 
-        $keys = array_map(static fn (string $s) => $prefix."manifest:$s", $services);
-        $raws = $this->redis()->mget($keys);
+        $keys = array_map(static fn (string $s) => "microservice:manifest:$s", $services);
+        $raws = $this->cache->many($keys);
 
         $manifests = [];
 
@@ -39,7 +35,7 @@ class RouteRegistry
                 continue;
             }
 
-            $manifest = json_decode($raw, true);
+            $manifest = is_array($raw) ? $raw : json_decode($raw, true);
 
             if (is_array($manifest) && isset($manifest['service'])) {
                 $manifests[$manifest['service']] = $manifest;

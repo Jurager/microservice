@@ -136,7 +136,7 @@ class FakeSyncHandler implements MessageHandler
         return 'test.sync';
     }
 
-    public static function from(array $payload): static
+    public static function from(array $payload, string $type = ''): static
     {
         return new static($payload);
     }
@@ -164,7 +164,7 @@ class FakeQueuedHandler implements MessageHandler, ShouldQueue
         return 'test.queued';
     }
 
-    public static function from(array $payload): static
+    public static function from(array $payload, string $type = ''): static
     {
         return new static((int) ($payload['site_id'] ?? 0));
     }
@@ -186,7 +186,7 @@ class ThrowingHandler implements MessageHandler
         return 'test.throws';
     }
 
-    public static function from(array $payload): static
+    public static function from(array $payload, string $type = ''): static
     {
         return new static($payload);
     }

@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
-use Illuminate\Contracts\Redis\Factory;
-use Illuminate\Redis\Connections\Connection;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Registry\RouteRegistry;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
 class RouteRegistryTest extends TestCase
 {
-    private Connection $redis;
+    private Cache $cache;
 
     private RouteRegistry $registry;
 
@@ -20,12 +19,8 @@ class RouteRegistryTest extends TestCase
     {
         parent::setUp();
 
-        $this->redis = Mockery::mock(Connection::class);
-
-        $factory = Mockery::mock(Factory::class);
-        $factory->shouldReceive('connection')->andReturn($this->redis);
-
-        $this->registry = new RouteRegistry($factory);
+        $this->cache = Mockery::mock(Cache::class);
+        $this->registry = new RouteRegistry($this->cache);
     }
 
     public function test_get_all_manifests_returns_manifests_from_redis(): void
@@ -35,12 +30,14 @@ class RouteRegistryTest extends TestCase
             'routes' => [['method' => 'GET', 'uri' => '/api/products']],
         ]);
 
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim'])
             ->andReturn([$manifest]);
 
         $result = $this->registry->getAllManifests();
@@ -51,8 +48,9 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_manifests_returns_empty_when_no_keys(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn([]);
 
         $this->assertEmpty($this->registry->getAllManifests());
@@ -60,12 +58,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_routes_flattens_manifests(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim', 'oms']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim', 'microservice:manifest:oms'])
             ->andReturn([
                 json_encode([
                     'service' => 'pim',
@@ -92,12 +92,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_resolve_matches_exact_uri(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim'])
             ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
@@ -113,12 +115,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_resolve_matches_parameterized_uri(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim'])
             ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
@@ -134,12 +138,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_resolve_returns_null_for_no_match(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim'])
             ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
@@ -152,12 +158,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_resolve_respects_http_method(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['oms']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:oms'])
             ->andReturn([json_encode([
                 'service' => 'oms',
                 'routes' => [
@@ -170,12 +178,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_manifests_returns_multiple_services(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['a', 'b', 'c']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:a', 'microservice:manifest:b', 'microservice:manifest:c'])
             ->andReturn([
                 json_encode(['service' => 'a', 'routes' => []]),
                 json_encode(['service' => 'b', 'routes' => []]),
@@ -189,12 +199,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_manifests_skips_null_and_false_values(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim', 'gone1', 'gone2']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim', 'microservice:manifest:gone1', 'microservice:manifest:gone2'])
             ->andReturn([
                 json_encode(['service' => 'pim', 'routes' => []]),
                 null,
@@ -209,12 +221,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_manifests_skips_invalid_json(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['bad', 'oms']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:bad', 'microservice:manifest:oms'])
             ->andReturn([
                 'not-valid-json{{{',
                 json_encode(['service' => 'oms', 'routes' => []]),
@@ -228,12 +242,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_manifests_skips_data_without_service_key(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['noservice']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:noservice'])
             ->andReturn([json_encode(['routes' => []])]);
 
         $this->assertEmpty($this->registry->getAllManifests());
@@ -241,12 +257,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_resolve_normalizes_lowercase_method(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim'])
             ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
@@ -262,12 +280,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_resolve_normalizes_uri_leading_slash(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['pim']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:pim'])
             ->andReturn([json_encode([
                 'service' => 'pim',
                 'routes' => [
@@ -282,12 +302,14 @@ class RouteRegistryTest extends TestCase
 
     public function test_get_all_manifests_sorts_by_service_name(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(['zzz', 'aaa']);
 
-        $this->redis->shouldReceive('mget')
+        $this->cache->shouldReceive('many')
             ->once()
+            ->with(['microservice:manifest:zzz', 'microservice:manifest:aaa'])
             ->andReturn([
                 json_encode(['service' => 'zzz', 'routes' => []]),
                 json_encode(['service' => 'aaa', 'routes' => []]),
@@ -300,10 +322,11 @@ class RouteRegistryTest extends TestCase
         $this->assertSame('zzz', $keys[1]);
     }
 
-    public function test_smembers_returns_false_treated_as_empty(): void
+    public function test_get_returns_false_treated_as_empty(): void
     {
-        $this->redis->shouldReceive('smembers')
+        $this->cache->shouldReceive('get')
             ->once()
+            ->with('microservice:manifests', [])
             ->andReturn(false);
 
         $this->assertEmpty($this->registry->getAllManifests());

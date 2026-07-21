@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Http\Middleware;
 
 use Closure;
-use Illuminate\Contracts\Redis\Factory;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Http\Request;
-use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Illuminate\Support\Str;
 use Jurager\Microservice\Events\IdempotentRequestDetected;
 use Jurager\Microservice\Exceptions\DuplicateRequestException;
 use Jurager\Microservice\Exceptions\InvalidCacheStateException;
@@ -16,9 +16,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class Idempotency
 {
-    use InteractsWithRedis;
-
-    public function __construct(private readonly Factory $redisFactory)
+    public function __construct(private readonly Cache $cache)
     {
     }
 
@@ -30,14 +28,14 @@ class Idempotency
 
         $requestId = $request->header('X-Request-Id');
 
-        // Validate that X-Request-Id is a valid UUID v4
-        if (! $this->isValidUuidV4($requestId)) {
-            throw new InvalidRequestIdException("X-Request-Id must be a valid UUID v4. Received: $requestId");
+        // Validate that X-Request-Id is a valid UUID
+        if (! Str::isUuid($requestId)) {
+            throw new InvalidRequestIdException("X-Request-Id must be a valid UUID. Received: $requestId");
         }
 
-        $cacheKey = $this->redisPrefix()."idempotency:$requestId";
+        $cacheKey = "microservice:idempotency:$requestId";
 
-        if ($cached = $this->redis()->get($cacheKey)) {
+        if ($cached = $this->cache->get($cacheKey)) {
             return $this->buildCachedResponse($cached, $requestId, $request);
         }
 
@@ -48,10 +46,10 @@ class Idempotency
             throw new InvalidCacheStateException('Idempotency lock_timeout must be greater than 0.');
         }
 
-        if (! $this->redis()->set($lockKey, 'processing', 'EX', $lockTimeout, 'NX')) {
+        if (! $this->cache->add($lockKey, 'processing', $lockTimeout)) {
 
             // Another process holds the lock — check if it already cached the response.
-            if ($cached = $this->redis()->get($cacheKey)) {
+            if ($cached = $this->cache->get($cacheKey)) {
                 return $this->buildCachedResponse($cached, $requestId, $request);
             }
 
@@ -67,7 +65,7 @@ class Idempotency
 
             return $response;
         } finally {
-            $this->redis()->del($lockKey);
+            $this->cache->forget($lockKey);
         }
     }
 
@@ -82,12 +80,14 @@ class Idempotency
         ];
 
         $ttl = config('microservice.idempotency.ttl', 60);
-        $this->redis()->setex($key, $ttl, json_encode($data));
+        $this->cache->put($key, $data, $ttl);
     }
 
-    protected function buildCachedResponse(string $cached, string $requestId, Request $request): Response
+    protected function buildCachedResponse(mixed $data, string $requestId, Request $request): Response
     {
-        $data = json_decode($cached, true);
+        if (is_string($data)) {
+            $data = json_decode($data, true);
+        }
 
         if (! is_array($data) || ! isset($data['content'], $data['status'])) {
             throw new InvalidCacheStateException();
@@ -101,14 +101,7 @@ class Idempotency
         );
 
         return response($data['content'], $data['status'])
-            ->headers($data['headers'] ?? [])
+            ->withHeaders($data['headers'] ?? [])
             ->header('X-Idempotency-Cache-Hit', 'true');
-    }
-
-    protected function isValidUuidV4(string $uuid): bool
-    {
-        $pattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
-
-        return preg_match($pattern, $uuid) === 1;
     }
 }

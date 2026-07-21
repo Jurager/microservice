@@ -17,7 +17,23 @@ After installing, publish the configuration file so you may tune it to your envi
 php artisan vendor:publish --tag=microservice-config
 ```
 
-This creates `config/microservice.php`, which you may freely edit. All options have sensible defaults driven by environment variables, so you typically won't need to touch the file for a standard setup.
+This creates `config/microservice.php`, which you may freely edit.
+
+All options have sensible defaults driven by environment variables, so you typically won't need to touch the file for a standard setup.
+
+### Cache Requirements
+
+The package relies on Laravel's Cache for storing route manifests, idempotency keys, and circuit breaker state. Since microservices typically run across multiple servers or containers, your configured cache driver must be distributed and support **atomic locks**.
+
+The package strictly enforces a whitelist of supported cache drivers:
+- `redis` (recommended)
+- `memcached`
+- `dynamodb`
+- `database`
+
+If you attempt to run the package with an unsupported driver (such as `file`, `array`, or `apc`), it will throw a `RuntimeException` during application boot.
+
+The `array` driver is only permitted in the `testing` environment.
 
 ## Environment Configuration
 
@@ -68,7 +84,6 @@ The following environment variables control package behavior. All have defaults 
 | `SERVICE_NAME` | `app` | Unique service identifier |
 | `SERVICE_SECRET` | — | Shared HMAC secret (required outside debug mode) |
 | `SERVICE_DEBUG` | `false` | Disables signature verification — local development only |
-| `SERVICE_REDIS_CONNECTION` | `default` | Redis connection name |
 | `SERVICE_TIMEOUT` | `30` | HTTP timeout (seconds) published in the manifest |
 | `SERVICE_DISCOVERY_PATTERN` | — | Gateway: URL pattern for service discovery (`{service}` is replaced) |
 | `SERVICE_MANIFEST_SERVICES` | — | Gateway: comma-separated list of services to sync |

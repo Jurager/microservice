@@ -71,18 +71,6 @@ return [
     */
     'timestamp_tolerance' => 60,
 
-    /*
-    |--------------------------------------------------------------------------
-    | Redis Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Redis connection and key prefix used by the package.
-    |
-    */
-    'redis' => [
-        'connection' => env('SERVICE_REDIS_CONNECTION', 'default'),
-        'prefix' => 'microservice:',
-    ],
 
     /*
     |--------------------------------------------------------------------------

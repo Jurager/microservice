@@ -64,7 +64,7 @@ class SampleSyncHandler implements MessageHandler
         return 'test.sample.sync';
     }
 
-    public static function from(array $payload): static
+    public static function from(array $payload, string $type = ''): static
     {
         return new static($payload);
     }
@@ -85,7 +85,7 @@ class SampleQueuedHandler implements MessageHandler, ShouldQueue
         return 'test.sample.queued';
     }
 
-    public static function from(array $payload): static
+    public static function from(array $payload, string $type = ''): static
     {
         return new static($payload);
     }

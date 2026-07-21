@@ -11,8 +11,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
-use Illuminate\Contracts\Redis\Factory;
-use Illuminate\Redis\Connections\Connection;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
@@ -24,7 +23,7 @@ class ServiceClientTest extends TestCase
 {
     private array $history = [];
 
-    private function createClient(array $responses, ?Connection $redis = null): ServiceClient
+    private function createClient(array $responses, ?Cache $cache = null): ServiceClient
     {
         $mock = new MockHandler($responses);
         $stack = HandlerStack::create($mock);
@@ -32,13 +31,9 @@ class ServiceClientTest extends TestCase
 
         $httpClient = new Client(['handler' => $stack]);
 
-        $client = Mockery::mock(ServiceClient::class, [$this->app->make(HmacSigner::class), Mockery::mock(Factory::class)])
+        $client = Mockery::mock(ServiceClient::class, [$this->app->make(HmacSigner::class), $cache ?? Mockery::mock(Cache::class)])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
-
-        if ($redis !== null) {
-            $client->shouldReceive('redis')->andReturn($redis);
-        }
 
         $reflection = new \ReflectionProperty($client, 'httpClient');
         $reflection->setValue($client, $httpClient);
@@ -46,7 +41,7 @@ class ServiceClientTest extends TestCase
         return $client;
     }
 
-    private function mockRedisWithManifest(string $service, string $baseUrl, ?int $timeout = null): Connection
+    private function mockCacheWithManifest(string $service, string $baseUrl, ?int $timeout = null): Cache
     {
         $manifest = json_encode([
             'service' => $service,
@@ -55,12 +50,12 @@ class ServiceClientTest extends TestCase
             'routes' => [],
         ]);
 
-        $redis = Mockery::mock(Connection::class);
-        $redis->shouldReceive('get')
-            ->with(config('microservice.redis.prefix', 'microservice:')."manifest:$service")
+        $cache = Mockery::mock(Cache::class);
+        $cache->shouldReceive('get')
+            ->with("microservice:manifest:$service")
             ->andReturn($manifest);
 
-        return $redis;
+        return $cache;
     }
 
     public function test_successful_request_returns_service_response(): void
@@ -190,27 +185,27 @@ class ServiceClientTest extends TestCase
         $this->assertStringStartsWith('http://oms.internal:8000', $uri);
     }
 
-    public function test_resolves_url_from_redis_manifest(): void
+    public function test_resolves_url_from_cache_manifest(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', null);
 
-        $redis = $this->mockRedisWithManifest('oms', 'http://oms-from-redis:9000');
-        $client = $this->createClient([new Response(200)], $redis);
+        $cache = $this->mockCacheWithManifest('oms', 'http://oms-from-cache:9000');
+        $client = $this->createClient([new Response(200)], $cache);
 
         $client->service('oms')->get('/api/orders')->send();
 
         $uri = (string) $this->history[0]['request']->getUri();
-        $this->assertStringStartsWith('http://oms-from-redis:9000', $uri);
+        $this->assertStringStartsWith('http://oms-from-cache:9000', $uri);
     }
 
     public function test_throws_when_url_cannot_be_resolved(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', null);
 
-        $redis = Mockery::mock(Connection::class);
-        $redis->shouldReceive('get')->andReturn(null);
+        $cache = Mockery::mock(Cache::class);
+        $cache->shouldReceive('get')->andReturn(null);
 
-        $client = $this->createClient([], $redis);
+        $client = $this->createClient([], $cache);
 
         $this->expectException(ServiceUnavailableException::class);
         $this->expectExceptionMessageMatches('/Cannot resolve base URL/');
@@ -222,8 +217,8 @@ class ServiceClientTest extends TestCase
     {
         $this->app['config']->set('microservice.discovery.pattern', null);
 
-        $redis = $this->mockRedisWithManifest('oms', 'http://oms:8000', 15);
-        $client = $this->createClient([new Response(200)], $redis);
+        $cache = $this->mockCacheWithManifest('oms', 'http://oms:8000', 15);
+        $client = $this->createClient([new Response(200)], $cache);
 
         $client->service('oms')->get('/api/orders')->send();
 
@@ -234,8 +229,8 @@ class ServiceClientTest extends TestCase
     {
         $this->app['config']->set('microservice.discovery.pattern', null);
 
-        $redis = $this->mockRedisWithManifest('oms', 'http://oms:8000', 15);
-        $client = $this->createClient([new Response(200)], $redis);
+        $cache = $this->mockCacheWithManifest('oms', 'http://oms:8000', 15);
+        $client = $this->createClient([new Response(200)], $cache);
 
         $client->service('oms')->get('/api/orders')->timeout(3)->send();
 

@@ -12,7 +12,7 @@ You may use the package to stitch together a small handful of services or a larg
 ## Requirements
 
 - PHP 8.4 or higher
-- Laravel 11, 12, or 13
+- Laravel 13.17 or higher
 - Redis (for manifest storage and idempotency cache)
 - RabbitMQ (only if you use the event bus)
 
@@ -20,7 +20,7 @@ You may use the package to stitch together a small handful of services or a larg
 
 Each service exposes a manifest endpoint that lists its public routes, the secret-signed transport requirements, and any metadata the gateway needs.
 
-The gateway pulls these manifests on a schedule, stores them in Redis, and registers proxy routes automatically. Every inter-service HTTP request — whether direct or via the gateway — is signed with HMAC-SHA256 and verified at the destination.
+The gateway pulls these manifests on a schedule, stores them in cache, and registers proxy routes automatically. Every inter-service HTTP request — whether direct or via the gateway — is signed with HMAC-SHA256 and verified at the destination.
 
 For asynchronous work, the message bus publishes signed envelopes to a topic exchange on RabbitMQ. Subscribers run a long-lived listener that consumes events, verifies signatures, and dispatches handlers either inline or through the Laravel Queue.
 

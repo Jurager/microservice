@@ -5,7 +5,7 @@ weight: 40
 
 ## Introduction
 
-The gateway is a special role any service may take on. A gateway pulls route manifests from the services it knows about, stores them in Redis, and exposes them as proxied routes in its own application. Inbound requests to the gateway are forwarded to the appropriate service with the original request's headers, body, and authenticated user attached.
+The gateway is a special role any service may take on. A gateway pulls route manifests from the services it knows about, stores them in Cache, and exposes them as proxied routes in its own application. Inbound requests to the gateway are forwarded to the appropriate service with the original request's headers, body, and authenticated user attached.
 
 This lets you place a single, authenticated public entry point in front of an internal service mesh — clients see one URL while requests are routed transparently to the right downstream service.
 
@@ -22,7 +22,7 @@ SERVICE_DISCOVERY_PATTERN=http://{service}:8000
 
 ## Syncing Manifests
 
-The package ships a `microservice:sync` command that pulls manifests from configured services and stores them in Redis. You may run it manually or let the scheduler run it automatically — by default it runs every five minutes:
+The package ships a `microservice:sync` command that pulls manifests from configured services and stores them in Cache. You may run it manually or let the scheduler run it automatically — by default it runs every five minutes:
 
 ```bash
 php artisan microservice:sync          # sync all configured services
@@ -43,7 +43,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 });
 ```
 
-`Gateway::routes()` reads every manifest from Redis and registers a matching route in your gateway. Wrapping the call in an `auth:sanctum` (or any other authentication) middleware group secures the entire surface area in one place.
+`Gateway::routes()` reads every manifest from Cache and registers a matching route in your gateway. Wrapping the call in an `auth:sanctum` (or any other authentication) middleware group secures the entire surface area in one place.
 
 ### Filtering and Prefixing
 
@@ -108,6 +108,6 @@ Each service reports one of three statuses:
 |---|---|
 | `ok` | Manifest is present and fresh (more than 50% TTL remaining) |
 | `stale` | Manifest is present but less than 50% TTL remains |
-| `missing` | No manifest found in Redis |
+| `missing` | No manifest found in Cache |
 
 The endpoint is public by default — you should protect it at the route level if it leaks information you'd rather not expose.

@@ -12,8 +12,7 @@ use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils;
-use Illuminate\Contracts\Redis\Factory;
-use Jurager\Microservice\Concerns\InteractsWithRedis;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Support\HmacSigner;
 use Psr\Http\Message\RequestInterface;
@@ -23,7 +22,6 @@ use Throwable;
 
 class ServiceClient
 {
-    use InteractsWithRedis;
 
     protected Client $httpClient;
 
@@ -40,7 +38,7 @@ class ServiceClient
 
     public function __construct(
         protected readonly HmacSigner $signer,
-        private readonly Factory $redisFactory,
+        private readonly Cache $cache,
         ?Client $httpClient = null,
     ) {
         $this->serviceName = (string) config('microservice.name', 'app');
@@ -200,10 +198,10 @@ class ServiceClient
             }
         }
 
-        $raw = $this->redis()->get($this->redisPrefix()."manifest:$service");
+        $raw = $this->cache->get("microservice:manifest:$service");
 
         if ($raw) {
-            $manifest = json_decode($raw, true);
+            $manifest = is_array($raw) ? $raw : json_decode($raw, true);
             $url = $manifest['base_url'] ?? null;
 
             if ($url) {
@@ -332,18 +330,18 @@ class ServiceClient
 
         $threshold = $this->circuitThreshold;
 
-        $key = $this->redisPrefix()."circuit:$service";
-        $state = $this->redis()->get($key);
+        $key = "microservice:circuit:$service";
+        $state = $this->cache->get($key);
 
         if ($state === 'open') {
-            $openedAt = (int) $this->redis()->get($key.':opened');
+            $openedAt = (int) $this->cache->get($key.':opened');
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
 
             if (time() - $openedAt < $timeout) {
                 throw new ServiceUnavailableException($service, "Circuit breaker is open for service [$service]");
             }
 
-            $this->redis()->set($key, 'half-open');
+            $this->cache->put($key, 'half-open', $timeout);
         }
     }
 
@@ -361,12 +359,14 @@ class ServiceClient
 
         $threshold = $this->circuitThreshold;
 
-        $key = $this->redisPrefix()."circuit:$service";
-        $state = $this->redis()->get($key);
+        $key = "microservice:circuit:$service";
+        $state = $this->cache->get($key);
 
         if ($success) {
             if ($state === 'half-open') {
-                $this->redis()->del($key, $key.':failures', $key.':opened');
+                $this->cache->forget($key);
+                $this->cache->forget($key.':failures');
+                $this->cache->forget($key.':opened');
             }
 
             return;
@@ -374,33 +374,25 @@ class ServiceClient
 
         if ($state === 'half-open') {
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
-            $now = (string) time();
-            $this->redis()->pipeline(function ($pipe) use ($key, $timeout, $now): void {
-                $pipe->setex($key, $timeout, 'open');
-                $pipe->setex($key.':opened', $timeout, $now);
-            });
+            $this->cache->put($key, 'open', $timeout);
+            $this->cache->put($key.':opened', time(), $timeout);
 
             return;
         }
 
         $window = (int) config('microservice.circuit_breaker.window', 60);
 
-        // Pipeline eliminates the crash window between INCR and EXPIRE that
-        // would leave the counter key without a TTL. Using a sliding window
-        // (expire refreshes on each failure) is intentional: we count failures
-        // within the last $window seconds of activity.
-        [$failures] = $this->redis()->pipeline(function ($pipe) use ($key, $window): void {
-            $pipe->incr($key.':failures');
-            $pipe->expire($key.':failures', $window);
-        });
+        if (! $this->cache->has($key.':failures')) {
+            $this->cache->put($key.':failures', 1, $window);
+            $failures = 1;
+        } else {
+            $failures = (int) $this->cache->increment($key.':failures');
+        }
 
         if ($failures >= $threshold) {
             $timeout = (int) config('microservice.circuit_breaker.timeout', 30);
-            $now = (string) time();
-            $this->redis()->pipeline(function ($pipe) use ($key, $timeout, $now): void {
-                $pipe->setex($key, $timeout, 'open');
-                $pipe->setex($key.':opened', $timeout, $now);
-            });
+            $this->cache->put($key, 'open', $timeout);
+            $this->cache->put($key.':opened', time(), $timeout);
         }
     }
 

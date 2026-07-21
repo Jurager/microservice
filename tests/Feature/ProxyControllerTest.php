@@ -67,7 +67,7 @@ class ProxyControllerTest extends TestCase
                     }
                 );
 
-                $pending->shouldReceive('withHeaders')->andReturnUsing(
+                $pending->shouldReceive('headers')->andReturnUsing(
                     function ($headers) use ($test, $pending) {
                         $test->capturedRequest->headers = array_merge(
                             (array) ($test->capturedRequest->headers ?? []),

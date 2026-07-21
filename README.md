@@ -10,7 +10,7 @@ A Laravel package for secure HTTP communication between microservices.
 Features:
 
 - HMAC-signed requests for internal service authentication
-- Service discovery via shared Redis manifests or DNS pattern (Kubernetes-ready)
+- Service discovery via shared cache manifests or DNS pattern (Kubernetes-ready)
 - Route manifest publishing and gateway proxying
 - Idempotency support for non-safe requests (POST, PUT, PATCH)
 
@@ -18,7 +18,7 @@ Features:
 
 - PHP 8.4+
 - Laravel 13.17+
-- Redis
+- Cache (Redis, Memcached, DynamoDB, or Database)
 - Guzzle 7+
 
 ## Installation

@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Closure;
-use Illuminate\Contracts\Redis\Factory;
+use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Routing\Registrar;
-use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Tests\TestCase;
@@ -15,7 +14,7 @@ use Mockery;
 
 class ManifestRegistryTest extends TestCase
 {
-    private Connection $redis;
+    private Cache $cache;
 
     private ManifestRegistry $registry;
 
@@ -23,12 +22,8 @@ class ManifestRegistryTest extends TestCase
     {
         parent::setUp();
 
-        $this->redis = Mockery::mock(Connection::class);
-
-        $factory = Mockery::mock(Factory::class);
-        $factory->shouldReceive('connection')->andReturn($this->redis);
-
-        $this->registry = new ManifestRegistry($factory, $this->app->make(Registrar::class));
+        $this->cache = Mockery::mock(Cache::class);
+        $this->registry = new ManifestRegistry($this->cache, $this->app->make(Registrar::class));
     }
 
     public function test_build_returns_manifest_with_service_and_routes(): void
@@ -80,61 +75,34 @@ class ManifestRegistryTest extends TestCase
             'timestamp' => now()->toIso8601String(),
         ];
 
-        // ttl 300 with a 5-minute sync interval is floored to two sync cycles (600s)
-        // so a single late sync cannot evict the manifest.
-        $this->redis->shouldReceive('pipeline')
+        $this->cache->shouldReceive('put')
             ->once()
-            ->andReturnUsing(function (Closure $closure): array {
-                $pipe = Mockery::mock();
-                $pipe->shouldReceive('setex')->once()->withArgs(function ($key, $ttl, $value) {
-                    $decoded = json_decode($value, true);
+            ->withArgs(function ($key, $value) {
+                return $key === 'microservice:manifest:pim'
+                    && isset($value['synced_at']);
+            });
 
-                    return str_contains($key, 'manifest:pim')
-                        && $ttl === 600
-                        && isset($decoded['synced_at']);
-                });
-                $pipe->shouldReceive('sadd')->once();
-                $closure($pipe);
+        $this->cache->shouldReceive('lock')
+            ->once()
+            ->with('microservice:manifests_lock', 10)
+            ->andReturn($lock = Mockery::mock());
 
-                return [];
+        $lock->shouldReceive('block')
+            ->once()
+            ->withArgs(function ($seconds, $callback) {
+                // Mock the callback execution
+                $this->cache->shouldReceive('get')->with('microservice:manifests', [])->andReturn([]);
+                $this->cache->shouldReceive('put')->with('microservice:manifests', ['pim']);
+                $callback();
+                return true;
             });
 
         $this->registry->store($manifest);
     }
 
-    public function test_ttl_floors_to_two_sync_cycles_when_configured_ttl_is_too_short(): void
-    {
-        config([
-            'microservice.manifest.ttl' => 300,
-            'microservice.manifest.sync_interval' => 5,
-        ]);
-
-        $this->assertSame(600, $this->registry->ttl());
-    }
-
-    public function test_ttl_honors_configured_value_when_larger_than_sync_window(): void
-    {
-        config([
-            'microservice.manifest.ttl' => 1800,
-            'microservice.manifest.sync_interval' => 5,
-        ]);
-
-        $this->assertSame(1800, $this->registry->ttl());
-    }
-
-    public function test_ttl_uses_configured_value_when_syncing_disabled(): void
-    {
-        config([
-            'microservice.manifest.ttl' => 300,
-            'microservice.manifest.sync_interval' => 0,
-        ]);
-
-        $this->assertSame(300, $this->registry->ttl());
-    }
-
     public function test_store_ignores_manifest_without_service(): void
     {
-        $this->redis->shouldNotReceive('pipeline');
+        $this->cache->shouldNotReceive('put');
 
         $this->registry->store(['routes' => []]);
     }
