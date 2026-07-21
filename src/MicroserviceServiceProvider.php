@@ -7,6 +7,7 @@ namespace Jurager\Microservice;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Support\ServiceProvider;
@@ -123,7 +124,7 @@ class MicroserviceServiceProvider extends ServiceProvider
     private function configureExceptions(): void
     {
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
-            $handler->renderable(function (Throwable $e, Request $request): ?ResponseError {
+            $handler->renderable(function (Throwable $e, Request $request): ?JsonResponse {
                 if ($request->wantsJson() || $request->is('api/*')) {
                     return ResponseError::fromException($e);
                 }
