@@ -24,6 +24,9 @@
         "orchestra/testbench": "^11.0",
         "phpunit/phpunit": "^11.0|^12.0"
     },
+    "suggest": {
+        "laravel/octane": "Keeps the AMQP bus connection's heartbeat alive between requests via an Octane tick."
+    },
     "autoload": {
         "psr-4": {
             "Jurager\\Microservice\\": "src/"

@@ -53,6 +53,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->configureExceptions();
         $this->configureTrustedProxies();
         $this->registerSchedule();
+        $this->registerBusHeartbeat();
 
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'microservice');
         $this->loadRoutesFrom(__DIR__.'/../routes/microservice.php');
@@ -158,5 +159,30 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($interval): void {
             $schedule->command(SyncManifestsCommand::class)->cron("*/{$interval} * * * *");
         });
+    }
+
+    /**
+     * Keep the bus connection's AMQP heartbeat alive between HTTP requests.
+     *
+     * Request-response Octane workers publish through a connection they never
+     * otherwise read from, so nothing services the broker's heartbeat frames
+     * between requests — see Connection::pulse(). No-op outside Octane (the
+     * tick event this listens for simply never fires).
+     */
+    protected function registerBusHeartbeat(): void
+    {
+        // laravel/octane is an optional integration, not a package dependency —
+        // reference it only by string/FQCN inside this guard so nothing here
+        // requires the class to exist when it isn't installed.
+        if (! class_exists('Laravel\\Octane\\Facades\\Octane')) {
+            return;
+        }
+
+        $heartbeat = (int) config('microservice.bus.connection.heartbeat', 60);
+        $interval = max(5, intdiv($heartbeat, 3));
+
+        \Laravel\Octane\Facades\Octane::tick('microservice-bus-heartbeat', function (): void {
+            $this->app->make(Connection::class)->pulse();
+        }, seconds: $interval);
     }
 }
