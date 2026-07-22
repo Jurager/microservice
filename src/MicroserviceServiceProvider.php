@@ -72,31 +72,41 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
     }
 
-    /** Normalize manifest services configuration. */
+    /** Normalize manifest services configuration from string to array. */
     private function normalizeServicesConfig(): void
     {
         $raw = config('microservice.manifest.services');
 
-        if (is_string($raw) && $raw !== '') {
-            config(['microservice.manifest.services' => array_values(array_filter(array_map('trim', explode(',', $raw))))]);
+        if (! is_string($raw) || $raw === '') {
+            return;
         }
+
+        $services = [];
+
+        foreach (explode(',', $raw) as $service) {
+            $cleaned = trim($service);
+
+            if ($cleaned !== '') {
+                $services[] = $cleaned;
+            }
+        }
+
+        config(['microservice.manifest.services' => $services]);
     }
 
-    /** Validate HMAC shared secret. */
+    /** Validate HMAC shared secret presence. */
     private function validateSecret(): void
     {
-        if (config('microservice.debug', false)) {
+        if (config('microservice.debug', false) === true) {
             return;
         }
 
         if (blank(config('microservice.secret'))) {
-            throw new RuntimeException(
-                'Invalid SERVICE_SECRET value. HMAC signing requires a non-empty shared secret.'
-            );
+            throw new RuntimeException('Invalid SERVICE_SECRET value. HMAC signing requires a non-empty shared secret.');
         }
     }
 
-    /** Validate cache driver compatibility. */
+    /** Validate cache driver compatibility and lock support. */
     private function validateCache(): void
     {
         $driver = config('cache.default');
@@ -108,20 +118,15 @@ class MicroserviceServiceProvider extends ServiceProvider
 
         if (! in_array($driver, $supported, true)) {
             $allowed = implode(', ', ['redis', 'memcached', 'dynamodb', 'database']);
-
-            throw new RuntimeException(
-                "Microservice package requires a distributed cache driver. The '{$driver}' driver is not supported. Supported drivers are: {$allowed}."
-            );
+            throw new RuntimeException("Microservice package requires a distributed cache driver. The '{$driver}' driver is not supported. Supported drivers are: {$allowed}.");
         }
 
         if (! $this->app['cache']->getStore() instanceof LockProvider) {
-            throw new RuntimeException(
-                'The configured cache store does not support atomic locks. Microservice package requires a LockProvider (e.g., redis, memcached, database).'
-            );
+            throw new RuntimeException('The configured cache store does not support atomic locks. Microservice package requires a LockProvider (e.g., redis, memcached, database).');
         }
     }
 
-    /** Configure exception rendering. */
+    /** Configure exception rendering for JSON API. */
     private function configureExceptions(): void
     {
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
@@ -135,7 +140,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         });
     }
 
-    /** Configure trusted proxies. */
+    /** Configure trusted proxies based on config. */
     protected function configureTrustedProxies(): void
     {
         $services = config('microservice.manifest.services', []);
@@ -146,7 +151,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
     }
 
-    /** Register console schedule. */
+    /** Register console schedule for manifest synchronization. */
     protected function registerSchedule(): void
     {
         $interval = (int) config('microservice.manifest.sync_interval', 5);
@@ -161,28 +166,24 @@ class MicroserviceServiceProvider extends ServiceProvider
         });
     }
 
-    /**
-     * Keep the bus connection's AMQP heartbeat alive between HTTP requests.
-     *
-     * Request-response Octane workers publish through a connection they never
-     * otherwise read from, so nothing services the broker's heartbeat frames
-     * between requests — see Connection::pulse(). No-op outside Octane (the
-     * tick event this listens for simply never fires).
-     */
+    /** Register AMQP heartbeat tick for Octane workers. */
     protected function registerBusHeartbeat(): void
     {
-        // laravel/octane is an optional integration, not a package dependency —
-        // reference it only by string/FQCN inside this guard so nothing here
-        // requires the class to exist when it isn't installed.
         if (! class_exists('Laravel\\Octane\\Facades\\Octane')) {
             return;
         }
 
-        $heartbeat = (int) config('microservice.bus.connection.heartbeat', 60);
-        $interval = max(5, intdiv($heartbeat, 3));
+        $this->app->booted(function (): void {
+            try {
+                $heartbeat = (int) config('microservice.bus.connection.heartbeat', 60);
+                $interval = max(5, intdiv($heartbeat, 3));
 
-        \Laravel\Octane\Facades\Octane::tick('microservice-bus-heartbeat', function (): void {
-            $this->app->make(Connection::class)->pulse();
-        }, seconds: $interval);
+                \Laravel\Octane\Facades\Octane::tick('microservice-bus-heartbeat', function (): void {
+                    $this->app->make(Connection::class)->pulse();
+                }, seconds: $interval);
+            } catch (Throwable) {
+                // Fail silently if Octane is installed but not actively serving
+            }
+        });
     }
 }
