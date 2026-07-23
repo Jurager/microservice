@@ -9,6 +9,7 @@ use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use Throwable;
 
+/** Manage lazy AMQP connections and channels. */
 class Connection
 {
     /**
@@ -28,18 +29,18 @@ class Connection
     /**
      * Get active AMQP channel, connecting if necessary.
      *
+     * @param int|null $heartbeat Overrides the configured heartbeat for a newly opened connection.
      * @throws Exception
      */
-    public function channel(): AMQPChannel
+    public function channel(?int $heartbeat = null): AMQPChannel
     {
-        // Explicit null check helps static analyzers (PHPStan/Psalm) infer the return type.
         if ($this->channel !== null && $this->isConnected()) {
             return $this->channel;
         }
 
         $this->close();
 
-        $this->connection = $this->createConnection();
+        $this->connection = $this->createConnection($heartbeat);
         $this->channel = $this->connection->channel();
 
         $this->channel->exchange_declare(
@@ -50,21 +51,6 @@ class Connection
         );
 
         return $this->channel;
-    }
-
-    /** Service AMQP heartbeats on an open connection via non-blocking read. */
-    public function pulse(): void
-    {
-        if ($this->channel === null || ! $this->isConnected()) {
-            return;
-        }
-
-        try {
-            $this->channel->wait(null, true, 0);
-            $this->connection->checkHeartBeat();
-        } catch (Throwable) {
-            $this->close();
-        }
     }
 
     /** Get configured exchange name. */
@@ -102,10 +88,11 @@ class Connection
     }
 
     /** Create a new AMQP stream connection from config. */
-    private function createConnection(): AMQPStreamConnection
+    private function createConnection(?int $heartbeatOverride): AMQPStreamConnection
     {
         $cfg = (array) config('microservice.bus.connection', []);
-        $heartbeat = (int) ($cfg['heartbeat'] ?? 60);
+        $configuredHeartbeat = (int) ($cfg['heartbeat'] ?? 60);
+        $heartbeat = $heartbeatOverride ?? $configuredHeartbeat;
 
         return new AMQPStreamConnection(
             $cfg['host'] ?? '127.0.0.1',
@@ -118,7 +105,7 @@ class Connection
             login_response: null,
             locale: 'en_US',
             connection_timeout: (float) ($cfg['connection_timeout'] ?? 10.0),
-            read_write_timeout: (float) ($cfg['read_write_timeout'] ?? ($heartbeat * 2 + 10.0)),
+            read_write_timeout: (float) ($cfg['read_write_timeout'] ?? ($configuredHeartbeat * 2 + 10.0)),
             context: null,
             keepalive: (bool) ($cfg['keepalive'] ?? true),
             heartbeat: $heartbeat,

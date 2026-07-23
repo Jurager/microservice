@@ -10,9 +10,7 @@ use PhpAmqpLib\Message\AMQPMessage;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
-/**
- * AMQP-backed inter-service message bus.
- */
+/** AMQP-backed inter-service message bus. */
 readonly class MessageBus
 {
     public function __construct(
@@ -22,9 +20,7 @@ readonly class MessageBus
     ) {
     }
 
-    /**
-     * Publish an event to the message bus.
-     */
+    /** Publish an event to the message bus. */
     public function publish(string $type, array $payload, ?string $queue = null): void
     {
         if (! $this->enabled()) {
@@ -39,19 +35,17 @@ readonly class MessageBus
             $envelope = $this->signedEnvelope($type, $payload);
 
             $this->connection
-                ->channel()
+                ->channel(heartbeat: 0)
                 ->basic_publish(
                     $this->message($envelope),
                     $this->connection->exchange(),
                     $type,
                 );
         } catch (Throwable $e) {
-            // Drop the handle so the next publish reconnects instead of reusing
-            // a connection the broker (or network) has already torn down.
             $this->connection->close();
 
             $this->logger->error('MessageBus: failed to publish', [
-                'type' => $type,
+                'type'  => $type,
                 'error' => $e->getMessage(),
             ]);
 
@@ -59,12 +53,10 @@ readonly class MessageBus
         }
     }
 
-    /**
-     * Verify envelope HMAC signature.
-     */
+    /** Verify envelope HMAC signature. */
     public function verify(array $envelope): bool
     {
-        if (config('microservice.debug', false)) {
+        if (config('microservice.debug', false) === true) {
             return true;
         }
 
@@ -86,6 +78,7 @@ readonly class MessageBus
         }
     }
 
+    /** Check if the message bus is enabled. */
     public function enabled(): bool
     {
         return (bool) config('microservice.bus.enabled', true);
@@ -95,17 +88,16 @@ readonly class MessageBus
      * Create signed message envelope.
      *
      * @return array<string, mixed>
-     *
      * @throws JsonException
      */
     private function signedEnvelope(string $type, array $payload): array
     {
         $envelope = [
-            'type' => $type,
-            'service' => (string) config('microservice.name', 'app'),
+            'type'        => $type,
+            'service'     => (string) config('microservice.name', 'app'),
             'occurred_at' => now()->toIso8601String(),
-            'request_id' => request()?->header('X-Request-Id'),
-            'payload' => $payload,
+            'request_id'  => request()?->header('X-Request-Id'),
+            'payload'     => $payload,
         ];
 
         $envelope['signature'] = $this->signer->signRaw(
@@ -122,15 +114,12 @@ readonly class MessageBus
      */
     private function message(array $envelope): AMQPMessage
     {
+        $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR;
+
         return new AMQPMessage(
-            json_encode(
-                $envelope,
-                JSON_UNESCAPED_UNICODE
-                | JSON_UNESCAPED_SLASHES
-                | JSON_THROW_ON_ERROR,
-            ),
+            json_encode($envelope, $flags),
             [
-                'content_type' => 'application/json',
+                'content_type'  => 'application/json',
                 'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
             ],
         );
@@ -143,17 +132,17 @@ readonly class MessageBus
      */
     private static function canonicalize(array $envelope): string
     {
+        $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR;
+
         return json_encode(
             [
-                'type' => $envelope['type'] ?? null,
-                'service' => $envelope['service'] ?? null,
+                'type'        => $envelope['type'] ?? null,
+                'service'     => $envelope['service'] ?? null,
                 'occurred_at' => $envelope['occurred_at'] ?? null,
-                'request_id' => $envelope['request_id'] ?? null,
-                'payload' => $envelope['payload'] ?? null,
+                'request_id'  => $envelope['request_id'] ?? null,
+                'payload'     => $envelope['payload'] ?? null,
             ],
-            JSON_UNESCAPED_UNICODE
-            | JSON_UNESCAPED_SLASHES
-            | JSON_THROW_ON_ERROR,
+            $flags,
         );
     }
 }
