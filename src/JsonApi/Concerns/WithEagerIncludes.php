@@ -24,7 +24,7 @@ trait WithEagerIncludes
             $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
 
             if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
-                static::loadEagerIncludes($models, $includes);
+                static::loadEagerIncludes($models, $includes, request()->input('filter', []));
             }
         }
 
@@ -37,7 +37,7 @@ trait WithEagerIncludes
         $includes = static::getSparseIncludes(JsonApiRequest::createFrom($request));
 
         if (! empty($includes) && $this->resource instanceof Model) {
-            static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes);
+            static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []));
         }
 
         return parent::toResponse($request);
@@ -58,10 +58,19 @@ trait WithEagerIncludes
         );
     }
 
-    /** Load the requested includes into the given model collection. */
-    protected static function loadEagerIncludes(EloquentCollection $models, array $includes): void
+    /**
+     * Load the requested includes into the given model collection.
+     */
+    protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = []): void
     {
         $template = $models->first();
+
+        if (! empty($filter) && method_exists($template, 'loadIncludedRelations')) {
+            foreach ($models as $model) {
+                $model->loadIncludedRelations($filter);
+            }
+        }
+
         $tree = static::buildRelationTree($includes, $template);
 
         static::validateRelationTree($template, $tree);
