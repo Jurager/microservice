@@ -10,6 +10,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\HandlerDiscovery;
@@ -20,6 +21,7 @@ use Jurager\Microservice\Commands\EmitCommand;
 use Jurager\Microservice\Commands\EventsCommand;
 use Jurager\Microservice\Commands\ListenCommand;
 use Jurager\Microservice\Commands\SyncManifestsCommand;
+use Jurager\Microservice\Http\Middleware\LogContext;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Registry\RouteRegistry;
@@ -52,6 +54,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->validateCache();
         $this->configureExceptions();
         $this->configureTrustedProxies();
+        $this->registerLogContext();
         $this->registerSchedule();
 
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'microservice');
@@ -148,6 +151,14 @@ class MicroserviceServiceProvider extends ServiceProvider
         if (empty($services) && $trustAll) {
             TrustProxies::at('*');
         }
+    }
+
+    /** Prepend LogContext to the api middleware group so request/trace IDs land in every log line. */
+    protected function registerLogContext(): void
+    {
+        $this->callAfterResolving(Router::class, function (Router $router): void {
+            $router->prependMiddlewareToGroup('api', LogContext::class);
+        });
     }
 
     /** Register console schedule for manifest synchronization. */

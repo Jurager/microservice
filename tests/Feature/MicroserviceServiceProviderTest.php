@@ -4,14 +4,35 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Http\Middleware\LogContext;
 use Jurager\Microservice\Support\HmacSigner;
 use Jurager\Microservice\Tests\TestCase;
 
 class MicroserviceServiceProviderTest extends TestCase
 {
+    /**
+     * The provider prepends LogContext during boot, which only takes effect on
+     * a group that already exists at that point - define it before the app boots,
+     * the same way a consuming app's withRouting(api: ...) would.
+     */
+    protected function defineEnvironment($app): void
+    {
+        parent::defineEnvironment($app);
+
+        $app['router']->middlewareGroup('api', []);
+    }
+
+    public function test_log_context_is_prepended_to_api_group(): void
+    {
+        $group = $this->app->make(Router::class)->getMiddlewareGroups()['api'];
+
+        $this->assertSame(LogContext::class, $group[0] ?? null);
+    }
+
     public function test_config_is_merged(): void
     {
         $this->assertNotNull(config('microservice.name'));
