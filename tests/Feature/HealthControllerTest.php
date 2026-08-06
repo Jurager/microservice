@@ -40,6 +40,44 @@ class HealthControllerTest extends TestCase
         ]);
     }
 
+    public function test_reports_healthy_when_no_services_are_configured(): void
+    {
+        // The default for every service that isn't the gateway.
+        config(['microservice.manifest.services' => []]);
+
+        $this->cache->shouldReceive('has')->with('microservice:ping')->andReturnTrue();
+
+        $this->getJson('/microservice/health')
+            ->assertOk()
+            ->assertJsonPath('status', 'healthy')
+            ->assertJsonPath('summary.total', 0)
+            ->assertJsonPath('services', []);
+    }
+
+    public function test_readiness_passes_when_no_services_are_configured(): void
+    {
+        config(['microservice.manifest.services' => []]);
+
+        $this->cache->shouldReceive('has')->with('microservice:ping')->andReturnTrue();
+
+        $this->getJson('/microservice/health/ready')
+            ->assertOk()
+            ->assertJsonPath('status', 'healthy')
+            ->assertJsonPath('manifests_loaded', 0);
+    }
+
+    public function test_ignores_a_non_string_service_filter(): void
+    {
+        $this->cache->shouldReceive('has')->with('microservice:ping')->andReturnTrue();
+        $this->cache->shouldReceive('get')
+            ->with('microservice:manifest:pim')
+            ->andReturn($this->manifest(now()->toIso8601String()));
+
+        $this->getJson('/microservice/health?service[]=pim')
+            ->assertOk()
+            ->assertJsonPath('summary.total', 1);
+    }
+
     public function test_reports_healthy_for_a_fresh_manifest(): void
     {
         $this->cache->shouldReceive('has')->with('microservice:ping')->andReturnTrue();

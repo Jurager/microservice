@@ -113,7 +113,10 @@ return [
     | Metadata published to Redis for service discovery.
     |
     | timeout       HTTP timeout (seconds) clients should use.
-    | ttl           Manifest lifetime in Redis (seconds).
+    | ttl           Manifest lifetime in Redis (seconds). 0 keeps it until it is
+    |               replaced by the next sync. Set this well above sync_interval:
+    |               an expired manifest makes the service unroutable, so the value
+    |               only decides how long a manifest outlives a stopped sync.
     | prefix        Only routes matching this URI prefix are exposed.
     | services      Gateway-only list of services to synchronize.
     | sync_interval Gateway-only sync interval in minutes (0 disables syncing).
@@ -121,6 +124,7 @@ return [
     */
     'manifest' => [
         'timeout' => env('SERVICE_TIMEOUT', 30),
+        'ttl' => env('SERVICE_MANIFEST_TTL', 0),
         'prefix' => env('SERVICE_MANIFEST_PREFIX', 'api'),
         'services' => env('SERVICE_MANIFEST_SERVICES', ''),
         'sync_interval' => env('SERVICE_MANIFEST_SYNC_INTERVAL', 5),
@@ -189,14 +193,30 @@ return [
     |
     | Prevents duplicate request processing using X-Request-Id.
     |
-    | ttl          Cached response lifetime in seconds.
-    | lock_timeout Maximum processing lock duration in seconds.
+    | ttl           Cached response lifetime in seconds.
+    | lock_timeout  Maximum processing lock duration in seconds.
+    | max_body_size Largest response body (bytes) worth caching for replay.
+    |               Bigger responses are still returned, just not cached.
+    |               0 removes the limit.
     |
     */
     'idempotency' => [
         'ttl' => env('SERVICE_IDEMPOTENCY_TTL', 86400),
         'lock_timeout' => 10,
+        'max_body_size' => env('SERVICE_IDEMPOTENCY_MAX_BODY_SIZE', 1048576),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Connection Timeout
+    |--------------------------------------------------------------------------
+    |
+    | Maximum seconds to wait while establishing a TCP connection.
+    | Keeps this short so a dead service fails fast instead of
+    | holding a PHP-FPM worker for the full request timeout.
+    |
+    */
+    'connect_timeout' => env('SERVICE_CONNECT_TIMEOUT', 5),
 
     /*
     |--------------------------------------------------------------------------
@@ -210,18 +230,6 @@ return [
     | multiplier Exponential backoff multiplier.
     |
     */
-    /*
-    |--------------------------------------------------------------------------
-    | Connection Timeout
-    |--------------------------------------------------------------------------
-    |
-    | Maximum seconds to wait while establishing a TCP connection.
-    | Keeps this short so a dead service fails fast instead of
-    | holding a PHP-FPM worker for the full request timeout.
-    |
-    */
-    'connect_timeout' => env('SERVICE_CONNECT_TIMEOUT', 5),
-
     'retries' => [
         'max' => env('SERVICE_RETRIES_MAX', 0),
         'delay' => env('SERVICE_RETRIES_DELAY', 100),

@@ -60,6 +60,8 @@ The middleware behaves as follows:
 - The `X-Request-Id` header must be a valid UUID v4; other values cause a `400` response.
 - Two requests with the same id arriving simultaneously cause the second to receive `409 Conflict`.
 - Only `2xx` responses are cached. Cached responses include the `X-Idempotency-Cache-Hit: true` header so callers can tell which path served them.
+- Gateway proxy responses are streamed. To make them replayable the middleware buffers the stream before caching, so a proxied response covered by an `X-Request-Id` is delivered in one piece rather than chunk by chunk. Requests without the header keep streaming untouched.
+- Bodies larger than `idempotency.max_body_size` (1 MB by default, `0` disables the limit) are returned in full but not cached — a repeat of such a request is processed again.
 
 You don't need to apply this middleware to gateway proxy routes — they include it automatically.
 

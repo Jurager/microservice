@@ -8,6 +8,7 @@ use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Http\Middleware\Idempotency;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class IdempotencyMiddlewareTest extends TestCase
 {
@@ -37,6 +38,24 @@ class IdempotencyMiddlewareTest extends TestCase
         $router->post('/test/idempotent-error', function () {
             throw new \RuntimeException('Something went wrong');
         })->middleware(Idempotency::class);
+
+        // Mirrors what the gateway proxy returns: a body that only exists while
+        // it is being streamed out, flushed in chunks.
+        $router->post('/test/idempotent-stream', fn () => new StreamedResponse(
+            function (): void {
+                foreach (['{"streamed"', ':true}'] as $chunk) {
+                    echo $chunk;
+
+                    if (ob_get_level() > 0) {
+                        ob_flush();
+                    }
+
+                    flush();
+                }
+            },
+            200,
+            ['Content-Type' => 'application/json'],
+        ))->middleware(Idempotency::class);
     }
 
     public function test_safe_methods_bypass_idempotency(): void
@@ -198,6 +217,62 @@ class IdempotencyMiddlewareTest extends TestCase
             ->assertStatus(200)
             ->assertHeader('X-Idempotency-Cache-Hit', 'true')
             ->assertHeader('x-custom', 'custom-value');
+    }
+
+    public function test_caches_the_body_of_a_streamed_response(): void
+    {
+        $cached = null;
+
+        $this->cache->shouldReceive('get')->once()->andReturn(null);
+        $this->cache->shouldReceive('add')->once()->andReturn(true);
+        $this->cache->shouldReceive('forget')->once();
+
+        $this->cache->shouldReceive('put')
+            ->once()
+            ->withArgs(function ($key, $data) use (&$cached) {
+                $cached = $data;
+
+                return true;
+            });
+
+        $this->postJson('/test/idempotent-stream', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440010'])
+            ->assertOk()
+            ->assertContent('{"streamed":true}');
+
+        $this->assertSame('{"streamed":true}', $cached['content']);
+        $this->assertSame(200, $cached['status']);
+    }
+
+    public function test_does_not_cache_a_body_over_the_size_limit(): void
+    {
+        $this->app['config']->set('microservice.idempotency.max_body_size', 4);
+
+        $this->cache->shouldReceive('get')->once()->andReturn(null);
+        $this->cache->shouldReceive('add')->once()->andReturn(true);
+        $this->cache->shouldReceive('forget')->once();
+        $this->cache->shouldNotReceive('put');
+
+        // Oversized responses are still delivered in full, just not cached.
+        $this->postJson('/test/idempotent-stream', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440011'])
+            ->assertOk()
+            ->assertContent('{"streamed":true}');
+    }
+
+    public function test_returns_500_for_cached_content_that_is_not_a_string(): void
+    {
+        $cached = json_encode([
+            'status' => 200,
+            'headers' => [],
+            'content' => false,
+        ]);
+
+        $this->cache->shouldReceive('get')
+            ->once()
+            ->andReturn($cached);
+
+        $this->postJson('/test/idempotent', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440012'])
+            ->assertStatus(500)
+            ->assertJson(['errors' => [['detail' => 'Invalid cache state.']]]);
     }
 
     public function test_rejects_invalid_uuid(): void

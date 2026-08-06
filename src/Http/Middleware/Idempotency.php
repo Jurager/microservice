@@ -13,6 +13,7 @@ use Jurager\Microservice\Exceptions\DuplicateRequestException;
 use Jurager\Microservice\Exceptions\InvalidCacheStateException;
 use Jurager\Microservice\Exceptions\InvalidRequestIdException;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class Idempotency
 {
@@ -28,7 +29,6 @@ class Idempotency
 
         $requestId = $request->header('X-Request-Id');
 
-        // Validate that X-Request-Id is a valid UUID
         if (! Str::isUuid($requestId)) {
             throw new InvalidRequestIdException("X-Request-Id must be a valid UUID. Received: $requestId");
         }
@@ -60,7 +60,7 @@ class Idempotency
             $response = $next($request);
 
             if ($response->isSuccessful()) {
-                $this->cacheResponse($cacheKey, $response);
+                $response = $this->cacheResponse($cacheKey, $response);
             }
 
             return $response;
@@ -69,18 +69,69 @@ class Idempotency
         }
     }
 
-    protected function cacheResponse(string $key, Response $response): void
+    /**
+     * Store the response for replay, returning the response to send to the client.
+     */
+    protected function cacheResponse(string $key, Response $response): Response
     {
+        [$response, $content] = $this->materialize($response);
+
+        if ($content === null) {
+            return $response;
+        }
+
+        // A body too large to cache is still a valid response — send it,
+        // just don't let it flood the cache. A replay will re-run the request.
+        $limit = (int) config('microservice.idempotency.max_body_size', 1048576);
+
+        if ($limit > 0 && strlen($content) > $limit) {
+            return $response;
+        }
+
         $exclude = ['date', 'set-cookie'];
 
         $data = [
             'status' => $response->getStatusCode(),
             'headers' => array_diff_key($response->headers->all(), array_flip($exclude)),
-            'content' => $response->getContent(),
+            'content' => $content,
         ];
 
         $ttl = config('microservice.idempotency.ttl', 60);
         $this->cache->put($key, $data, $ttl);
+
+        return $response;
+    }
+
+    /**
+     * Resolve a response into [response to send, body to cache].
+     *
+     * @return array{Response, string|null}
+     */
+    private function materialize(Response $response): array
+    {
+        if (! $response instanceof StreamedResponse) {
+            $content = $response->getContent();
+
+            return [$response, is_string($content) ? $content : null];
+        }
+
+        $content = '';
+
+        // A callback buffer keeps the capture intact when the streaming callback
+        // flushes mid-way, which a plain ob_get_clean() would lose.
+        ob_start(static function (string $chunk) use (&$content): string {
+            $content .= $chunk;
+
+            return '';
+        });
+
+        try {
+            $response->sendContent();
+        } finally {
+            ob_end_clean();
+        }
+
+        return [new Response($content, $response->getStatusCode(), $response->headers->all()), $content];
     }
 
     protected function buildCachedResponse(mixed $data, string $requestId, Request $request): Response
@@ -88,8 +139,8 @@ class Idempotency
         if (is_string($data)) {
             $data = json_decode($data, true);
         }
-
-        if (! is_array($data) || ! isset($data['content'], $data['status'])) {
+        
+        if (! is_array($data) || ! isset($data['status']) || ! is_string($data['content'] ?? null)) {
             throw new InvalidCacheStateException();
         }
 

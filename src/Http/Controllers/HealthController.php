@@ -20,8 +20,10 @@ class HealthController extends Controller
      */
     public function __invoke(Request $request): JsonResponse
     {
+        $only = $request->query('service');
+
         $report = $this->checker->report(
-            only: $request->query('service'),
+            only: is_string($only) && $only !== '' ? $only : null,
             verbose: $request->boolean('verbose', config('microservice.health.verbose', false)),
         );
 

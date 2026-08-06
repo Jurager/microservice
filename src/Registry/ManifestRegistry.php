@@ -53,7 +53,7 @@ class ManifestRegistry
 
         $manifest['synced_at'] = now()->toIso8601String();
 
-        $this->cache->put("microservice:manifest:$service", $manifest);
+        $this->cache->put("microservice:manifest:$service", $manifest, $this->ttl());
 
         $lock = $this->cache->lock('microservice:manifests_lock', 10);
         
@@ -85,7 +85,17 @@ class ManifestRegistry
         $manifest = is_array($manifest) ? $manifest : json_decode($manifest, true);
         $manifest['synced_at'] = now()->toIso8601String();
 
-        $this->cache->put($key, $manifest);
+        $this->cache->put($key, $manifest, $this->ttl());
+    }
+
+    /**
+     * Manifest lifetime in the cache, or null to keep it until it is replaced.
+     */
+    private function ttl(): ?int
+    {
+        $ttl = (int) config('microservice.manifest.ttl', 0);
+
+        return $ttl > 0 ? $ttl : null;
     }
 
     /**

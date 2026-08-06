@@ -157,6 +157,8 @@ class HealthChecker
             $services = in_array($only, $services, true) ? [$only] : [];
         }
 
+        $result = [];
+
         foreach ($services as $service) {
             $raw = $this->safeCache(fn () => $this->cache->get("microservice:manifest:$service"));
             $circuit = $this->circuitState($service);

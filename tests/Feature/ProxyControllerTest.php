@@ -183,6 +183,24 @@ class ProxyControllerTest extends TestCase
         $this->assertSame('/api/fallback', $this->capturedRequest->path);
     }
 
+    public function test_forwards_the_client_request_id_downstream(): void
+    {
+        $requestId = '550e8400-e29b-41d4-a716-446655440013';
+
+        $this->postJson('/api/orders', ['product_id' => 1], ['X-Request-Id' => $requestId])
+            ->assertOk();
+
+        $this->assertSame($requestId, $this->capturedRequest->headers['X-Request-Id']);
+    }
+
+    public function test_does_not_invent_a_request_id_when_the_client_sends_none(): void
+    {
+        $this->postJson('/api/orders', ['product_id' => 1])
+            ->assertOk();
+
+        $this->assertArrayNotHasKey('X-Request-Id', $this->capturedRequest->headers);
+    }
+
     public function test_filters_transfer_encoding_and_connection_headers(): void
     {
         $this->mockResponse = new ServiceResponse(new Response(200, [

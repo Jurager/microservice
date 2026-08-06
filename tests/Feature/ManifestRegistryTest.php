@@ -100,6 +100,34 @@ class ManifestRegistryTest extends TestCase
         $this->registry->store($manifest);
     }
 
+    public function test_store_applies_the_configured_ttl(): void
+    {
+        config(['microservice.manifest.ttl' => 600]);
+
+        $this->cache->shouldReceive('put')
+            ->once()
+            ->withArgs(fn ($key, $value, $ttl) => $key === 'microservice:manifest:pim' && $ttl === 600);
+
+        $this->cache->shouldReceive('lock')->once()->andReturn($lock = Mockery::mock());
+        $lock->shouldReceive('block')->once();
+
+        $this->registry->store(['service' => 'pim', 'routes' => []]);
+    }
+
+    public function test_store_keeps_the_manifest_forever_when_ttl_is_zero(): void
+    {
+        config(['microservice.manifest.ttl' => 0]);
+
+        $this->cache->shouldReceive('put')
+            ->once()
+            ->withArgs(fn ($key, $value, $ttl) => $key === 'microservice:manifest:pim' && $ttl === null);
+
+        $this->cache->shouldReceive('lock')->once()->andReturn($lock = Mockery::mock());
+        $lock->shouldReceive('block')->once();
+
+        $this->registry->store(['service' => 'pim', 'routes' => []]);
+    }
+
     public function test_store_ignores_manifest_without_service(): void
     {
         $this->cache->shouldNotReceive('put');

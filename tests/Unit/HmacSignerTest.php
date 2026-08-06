@@ -95,6 +95,38 @@ class HmacSignerTest extends TestCase
         $this->assertTrue($this->signer->verify($request, $signature, $timestamp));
     }
 
+    public function test_sign_treats_decoded_and_encoded_paths_as_the_same(): void
+    {
+        $slug = 'Кресло Мягкое';
+
+        $decoded = $this->signer->sign('GET', "/api/products/$slug", '1700000000', '');
+        $encoded = $this->signer->sign('GET', '/api/products/'.rawurlencode($slug), '1700000000', '');
+
+        $this->assertSame($decoded, $encoded);
+    }
+
+    public function test_sign_keeps_an_encoded_slash_distinct_from_a_separator(): void
+    {
+        $inSegment = $this->signer->sign('GET', '/api/tags/a%2Fb', '1700000000', '');
+        $asSeparator = $this->signer->sign('GET', '/api/tags/a/b', '1700000000', '');
+
+        $this->assertNotSame($inSegment, $asSeparator);
+    }
+
+    public function test_verify_accepts_a_path_that_was_encoded_on_the_wire(): void
+    {
+        $timestamp = (string) time();
+        $slug = 'Кресло Мягкое';
+
+        // The gateway signs the path with route parameters substituted and decoded.
+        $signature = $this->signer->sign('GET', "/api/products/$slug", $timestamp, '');
+
+        // The receiving service sees the percent-encoded form the HTTP client sent.
+        $request = Request::create('/api/products/'.rawurlencode($slug), 'GET');
+
+        $this->assertTrue($this->signer->verify($request, $signature, $timestamp));
+    }
+
     public function test_verify_non_multipart_uses_raw_body(): void
     {
         $timestamp = (string) time();

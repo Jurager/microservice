@@ -20,30 +20,29 @@ class HmacSigner
 
     /**
      * Produce an HMAC signature for an outgoing request.
-     *
-     * Signed payload format (newline-separated):
-     *   METHOD\n/path\ntimestamp\nbody
-     *
-     * Multipart requests pass an empty string for $body because the boundary
-     * embedded in the Content-Type header changes per request and cannot be
-     * reproduced reliably on the receiving side.
      */
     public function sign(string $method, string $path, string $timestamp, ?string $body = null): string
     {
-        // Normalize the path - include the leading slash but omit the trailing one
-        // So that the client's URL matches the server's regardless of slashes
-        $normalizedPath = '/'.trim($path, '/');
-
-        $payload = strtoupper($method)."\n".$normalizedPath."\n$timestamp\n".($body ?? '');
+        $payload = strtoupper($method)."\n".$this->normalizePath($path)."\n$timestamp\n".($body ?? '');
 
         return hash_hmac($this->algorithm, $payload, $this->secret);
     }
 
     /**
+     * Canonical form of a request path.
+     */
+    private function normalizePath(string $path): string
+    {
+        $segments = array_map(
+            static fn (string $segment): string => rawurlencode(rawurldecode($segment)),
+            explode('/', trim($path, '/')),
+        );
+
+        return '/'.implode('/', $segments);
+    }
+
+    /**
      * Verify the HMAC signature of an incoming request.
-     *
-     * Returns false if the timestamp is outside the tolerance window or if the
-     * signature does not match. Uses hash_equals to prevent timing attacks.
      */
     public function verify(Request $request, string $signature, string $timestamp): bool
     {
@@ -66,7 +65,6 @@ class HmacSigner
 
     /**
      * Produce an HMAC signature for an arbitrary payload string.
-     * Used by MessageBus to sign event envelopes.
      */
     public function signRaw(string $payload): string
     {
@@ -75,7 +73,6 @@ class HmacSigner
 
     /**
      * Verify an HMAC signature for an arbitrary payload string.
-     * Uses hash_equals to prevent timing attacks.
      */
     public function verifyRaw(string $payload, string $signature): bool
     {

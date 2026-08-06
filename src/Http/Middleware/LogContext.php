@@ -15,14 +15,22 @@ class LogContext
     public function handle(Request $request, Closure $next): Response
     {
         Log::withContext(array_filter([
-            'request_id' => $request->header('X-Request-Id') ?? (string) Str::uuid(),
+            'request_id' => $this->requestId($request),
             'trace_id'   => $this->traceId($request),
         ]));
 
         return $next($request);
     }
 
-    /** Extract the trace-id segment from an incoming W3C traceparent header. */
+    private function requestId(Request $request): string
+    {
+        $requestId = $request->header('X-Request-Id');
+
+        return is_string($requestId) && Str::isUuid($requestId)
+            ? $requestId
+            : (string) Str::uuid();
+    }
+
     private function traceId(Request $request): ?string
     {
         $traceparent = $request->header('traceparent');
@@ -31,8 +39,8 @@ class LogContext
             return null;
         }
 
-        $parts = explode('-', $traceparent);
+        $traceId = explode('-', $traceparent)[1] ?? '';
 
-        return $parts[1] ?? null;
+        return preg_match('/^[0-9a-f]{32}$/', $traceId) === 1 ? $traceId : null;
     }
 }

@@ -49,6 +49,16 @@ class LogContextMiddlewareTest extends TestCase
         $this->assertTrue(Str::isUuid($context['request_id']));
     }
 
+    public function test_replaces_a_malformed_request_id(): void
+    {
+        $injected = "not-a-uuid\n[2026-01-01] production.ERROR: forged line";
+
+        $context = $this->captureLoggedContext(['X-Request-Id' => $injected]);
+
+        $this->assertNotSame($injected, $context['request_id']);
+        $this->assertTrue(Str::isUuid($context['request_id']));
+    }
+
     public function test_extracts_trace_id_from_traceparent(): void
     {
         $traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
@@ -62,6 +72,13 @@ class LogContextMiddlewareTest extends TestCase
     public function test_omits_trace_id_without_traceparent(): void
     {
         $context = $this->captureLoggedContext();
+
+        $this->assertArrayNotHasKey('trace_id', $context);
+    }
+
+    public function test_omits_a_trace_id_that_is_not_a_w3c_trace_id(): void
+    {
+        $context = $this->captureLoggedContext(['traceparent' => '00-not-a-trace-id-01']);
 
         $this->assertArrayNotHasKey('trace_id', $context);
     }
