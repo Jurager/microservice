@@ -27,10 +27,16 @@ use Throwable;
 
 #[Signature('microservice:listen
              {--memory=128 : Memory limit in MB; the worker stops when exceeded}
-             {--max-jobs=0 : Stop after this many messages (0 = unlimited)}')]
+             {--max-jobs=0 : Stop after this many messages (0 = unlimited)}
+             {--heartbeat= : Path to a file whose mtime is refreshed while the loop runs}')]
 #[Description('Listen for inter-service events from RabbitMQ.')]
 class ListenCommand extends Command
 {
+    /**
+     * Shortest interval between two heartbeat writes, in seconds.
+     */
+    private const HEARTBEAT_INTERVAL = 5;
+
     private bool $shouldStop = false;
 
     private int $processed = 0;
@@ -38,6 +44,10 @@ class ListenCommand extends Command
     private int $memoryLimit = 0;
 
     private int $maxJobs = 0;
+
+    private ?string $heartbeatPath = null;
+
+    private int $heartbeatAt = 0;
 
     public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): void
     {
@@ -65,6 +75,7 @@ class ListenCommand extends Command
         $service = (string) config('microservice.name', 'app');
         $this->memoryLimit = (int) $this->input('memory');
         $this->maxJobs = (int) $this->input('max-jobs');
+        $this->heartbeatPath = ((string) $this->input('heartbeat')) ?: null;
         $dlqEnabled = (bool) config('microservice.bus.dead_letter.enabled', true);
         $dlxName = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
@@ -90,6 +101,10 @@ class ListenCommand extends Command
         $this->info('Listening for events: '.implode(', ', array_keys($handlers))
             .($dlqEnabled ? " (DLQ → $dlxName)" : ''));
 
+        // First beat marks the loop as alive before the first wait window, so a
+        // startup probe stops waiting as soon as the broker connection is up.
+        $this->heartbeat();
+
         while (! $this->shouldStop && $channel->is_consuming()) {
             try {
                 $channel->wait(null, false, 1);
@@ -108,6 +123,7 @@ class ListenCommand extends Command
             // Memory can also grow while idle (e.g. queued dispatch buffers) —
             // re-check between wait windows, not only after a message.
             $this->checkStopConditions();
+            $this->heartbeat();
         }
 
         $this->closeQuietly($connection);
@@ -237,6 +253,26 @@ class ListenCommand extends Command
             $this->warn("Memory limit {$this->memoryLimit}MB reached, stopping.");
             $this->shouldStop = true;
         }
+    }
+
+    /**
+     * Refresh the heartbeat file.
+     */
+    private function heartbeat(): void
+    {
+        if ($this->heartbeatPath === null) {
+            return;
+        }
+
+        $now = time();
+
+        if ($now < $this->heartbeatAt) {
+            return;
+        }
+
+        touch($this->heartbeatPath);
+
+        $this->heartbeatAt = $now + self::HEARTBEAT_INTERVAL;
     }
 
     private function closeQuietly(Connection $connection): void

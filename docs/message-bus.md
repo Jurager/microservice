@@ -157,6 +157,27 @@ php artisan microservice:listen --memory=256 --max-jobs=1000
 
 Pairing `--max-jobs` with a process supervisor allows for periodic restarts that reclaim memory and pick up code changes without the operational overhead of full opcache flushes.
 
+### Liveness
+
+A listener that loses its broker connection stops with a non-zero exit code, which any supervisor will notice. A listener wedged inside a handler or a blocking read stays "up" forever, and nothing notices at all. The `--heartbeat` option gives an external check something to look at:
+
+```bash
+php artisan microservice:listen --heartbeat=/tmp/listener.heartbeat
+```
+
+The file's modification time is refreshed on every pass of the consume loop, at most once every five seconds. Its age is therefore bounded by the slowest synchronous handler — queued handlers return immediately, so it stays within seconds for them. Under Kubernetes, a liveness probe reads that age directly:
+
+```yaml
+livenessProbe:
+  exec:
+    command:
+      - /bin/sh
+      - -c
+      - test $(( $(date +%s) - $(stat -c %Y /tmp/listener.heartbeat) )) -lt 300
+```
+
+Pick a threshold above your slowest synchronous handler, or the probe will restart a listener that is merely busy.
+
 ### Dead-Letter Queues
 
 When `MESSAGE_BUS_DLQ_ENABLED=true` (the default), the listener declares a dead-letter exchange (`events.dlx`) and a per-handler dead-letter queue alongside each main queue:
