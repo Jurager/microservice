@@ -70,6 +70,31 @@ Gateway::routes(function (GatewayRoutes $routes) {
 });
 ```
 
+### Multi-Method Routes
+
+A route answering several methods is published as a single manifest entry and registered on the gateway as a single route, so it keeps one name:
+
+```php
+// In the downstream service's routes file:
+Route::match(['get', 'post'], '/v1/attributes', 'attributeIndex')->name('attributes.index');
+```
+
+```
+GET|POST  oms/v1/attributes  oms.attributes.index
+```
+
+Targeting such a route from the configuration closure requires `match()`, which applies the override to every method at once:
+
+```php
+Gateway::routes(function (GatewayRoutes $routes) {
+    $routes->service('oms')
+        ->match(['GET', 'POST'], '/v1/attributes')
+        ->middleware(['audit']);
+});
+```
+
+Naming a single method instead (`->post('/v1/attributes')->middleware([...])`) splits the route in two, since the methods no longer share a middleware stack. The gateway then registers the remaining methods under the manifest name and leaves the split-off route unnamed — a name may only be assigned once, or `php artisan route:cache` fails with *"Another route has already been assigned name"*.
+
 ## Route Metadata
 
 Metadata defined on a service's route via Laravel's `defaults` mechanism is included in the manifest and available on the gateway. This lets services declare permissions, rate-limit tiers, or any other policy data that the gateway can act on:

@@ -12,6 +12,7 @@ use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
+use Jurager\Microservice\Registry\RouteRegistry;
 use Laravel\Octane\Commands\ReloadCommand;
 use Throwable;
 
@@ -137,7 +138,7 @@ class SyncManifestsCommand extends Command implements Isolatable
 
         if (! empty($manifest['routes'])) {
             $this->table(['Method', 'URI', 'Name'], array_map(static fn (array $route) => [
-                $route['method'] ?? '?',
+                implode('|', RouteRegistry::methods($route)) ?: '?',
                 $route['uri'] ?? '?',
                 $route['name'] ?? '-',
             ], $manifest['routes']));
@@ -148,7 +149,7 @@ class SyncManifestsCommand extends Command implements Isolatable
     {
         $fingerprint = static function (array $routes): string {
             $entries = array_map(
-                static fn (array $r) => ($r['method'] ?? '').'|'.($r['uri'] ?? '').'|'.($r['name'] ?? ''),
+                static fn (array $r) => implode(',', RouteRegistry::methods($r)).'|'.($r['uri'] ?? '').'|'.($r['name'] ?? ''),
                 $routes,
             );
             sort($entries);

@@ -18,12 +18,13 @@ class GatewayRoutes
 
     protected ?string $currentService = null;
 
-    protected ?string $lastRouteKey = null;
+    /** @var string[] Keys of the routes touched by the last method call. */
+    protected array $lastRouteKeys = [];
 
     public function service(string $name): static
     {
         $this->currentService = $name;
-        $this->lastRouteKey = null;
+        $this->lastRouteKeys = [];
 
         return $this;
     }
@@ -37,10 +38,14 @@ class GatewayRoutes
 
     public function middleware(array $middleware): static
     {
-        if ($this->lastRouteKey !== null) {
-            $this->routeMiddleware[$this->currentService][$this->lastRouteKey] = $middleware;
-        } else {
+        if ($this->lastRouteKeys === []) {
             $this->serviceMiddleware[$this->currentService] = $middleware;
+
+            return $this;
+        }
+
+        foreach ($this->lastRouteKeys as $key) {
+            $this->routeMiddleware[$this->currentService][$key] = $middleware;
         }
 
         return $this;
@@ -71,14 +76,32 @@ class GatewayRoutes
         return $this->add('DELETE', $uri, $action);
     }
 
-    protected function add(string $method, string $uri, array|Closure|null $action): static
+    /**
+     * Target several methods of the same route at once.
+     *
+     * @param  string[]  $methods
+     */
+    public function match(array $methods, string $uri, array|Closure|null $action = null): static
+    {
+        return $this->add($methods, $uri, $action);
+    }
+
+    /**
+     * @param  string|string[]  $methods
+     */
+    protected function add(array|string $methods, string $uri, array|Closure|null $action): static
     {
         $uri = '/'.ltrim($uri, '/');
 
-        $this->lastRouteKey = $method.' '.$uri;
+        $this->lastRouteKeys = array_map(
+            static fn (string $method) => strtoupper($method).' '.$uri,
+            (array) $methods,
+        );
 
         if ($action !== null) {
-            $this->overrides[$this->currentService][$this->lastRouteKey] = $action;
+            foreach ($this->lastRouteKeys as $key) {
+                $this->overrides[$this->currentService][$key] = $action;
+            }
         }
 
         return $this;

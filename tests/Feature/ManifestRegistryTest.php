@@ -38,9 +38,24 @@ class ManifestRegistryTest extends TestCase
         $this->assertArrayHasKey('timestamp', $manifest);
         $this->assertArrayHasKey('base_url', $manifest);
 
-        $methods = array_column($manifest['routes'], 'method');
+        $methods = array_merge(...array_column($manifest['routes'], 'methods'));
         $this->assertContains('GET', $methods);
         $this->assertContains('POST', $methods);
+    }
+
+    public function test_build_keeps_a_multi_method_route_as_a_single_entry(): void
+    {
+        Route::match(['get', 'post'], 'api/attributes', fn () => 'ok')->name('attributes.index');
+
+        $manifest = $this->registry->build();
+
+        $entries = array_values(array_filter(
+            $manifest['routes'],
+            static fn (array $route) => $route['name'] === 'attributes.index',
+        ));
+
+        $this->assertCount(1, $entries);
+        $this->assertSame(['GET', 'POST'], $entries[0]['methods']);
     }
 
     public function test_build_filters_routes_by_prefix(): void
@@ -62,7 +77,7 @@ class ManifestRegistryTest extends TestCase
 
         $manifest = $this->registry->build();
 
-        $methods = array_column($manifest['routes'], 'method');
+        $methods = array_merge(...array_column($manifest['routes'], 'methods'));
 
         $this->assertNotContains('HEAD', $methods);
     }

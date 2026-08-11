@@ -179,6 +179,167 @@ class GatewayTest extends TestCase
         $this->assertContains('throttle:10', $postRoute->middleware());
     }
 
+    public function test_routes_registers_a_multi_method_entry_as_a_single_named_route(): void
+    {
+        $this->mockManifests(['oms' => [
+            'service' => 'oms',
+            'routes' => [
+                ['methods' => ['GET', 'POST'], 'uri' => '/v1/attributes', 'name' => 'attributes.index'],
+            ],
+        ]]);
+
+        Gateway::routes();
+
+        $get = $this->findRouteByUri('oms/v1/attributes', 'GET');
+        $post = $this->findRouteByUri('oms/v1/attributes', 'POST');
+
+        $this->assertNotNull($get);
+        $this->assertSame($get, $post);
+        $this->assertSame('oms.attributes.index', $get->getName());
+
+        // The duplicate name is what breaks `php artisan route:cache`.
+        $named = array_filter(
+            Route::getRoutes()->getRoutes(),
+            static fn (\Illuminate\Routing\Route $route) => $route->getName() === 'oms.attributes.index',
+        );
+
+        $this->assertCount(1, $named);
+    }
+
+    public function test_routes_stay_serializable_for_route_cache(): void
+    {
+        $this->mockManifests(['oms' => [
+            'service' => 'oms',
+            'routes' => [
+                ['methods' => ['GET', 'POST'], 'uri' => '/v1/attributes', 'name' => 'attributes.index'],
+                ['methods' => ['POST'], 'uri' => '/v1/attributes/store', 'name' => 'attributes.store'],
+            ],
+        ]]);
+
+        Gateway::routes();
+
+        // This is the code path `php artisan route:cache` runs, and where a
+        // duplicate route name surfaces as an exception.
+        Route::getRoutes()->refreshNameLookups();
+
+        $this->assertNotNull(Route::getRoutes()->toSymfonyRouteCollection());
+    }
+
+    public function test_routes_names_only_one_route_when_per_method_middleware_splits_an_entry(): void
+    {
+        $this->mockManifests(['oms' => [
+            'service' => 'oms',
+            'routes' => [
+                ['methods' => ['GET', 'POST'], 'uri' => '/v1/attributes', 'name' => 'attributes.index'],
+            ],
+        ]]);
+
+        Gateway::routes(fn ($r) => $r->service('oms')->post('/v1/attributes')->middleware(['throttle:10']));
+
+        $get = $this->findRouteByUri('oms/v1/attributes', 'GET');
+        $post = $this->findRouteByUri('oms/v1/attributes', 'POST');
+
+        $this->assertNotNull($get);
+        $this->assertNotNull($post);
+        $this->assertNotSame($get, $post);
+
+        $this->assertNotContains('throttle:10', $get->middleware());
+        $this->assertContains('throttle:10', $post->middleware());
+
+        $named = array_filter(
+            Route::getRoutes()->getRoutes(),
+            static fn (\Illuminate\Routing\Route $route) => $route->getName() === 'oms.attributes.index',
+        );
+
+        $this->assertCount(1, $named);
+    }
+
+    public function test_routes_targets_every_method_of_an_entry_via_match(): void
+    {
+        $this->mockManifests(['oms' => [
+            'service' => 'oms',
+            'routes' => [
+                ['methods' => ['GET', 'POST'], 'uri' => '/v1/attributes', 'name' => 'attributes.index'],
+            ],
+        ]]);
+
+        Gateway::routes(fn ($r) => $r->service('oms')
+            ->match(['GET', 'POST'], '/v1/attributes')
+            ->middleware(['audit']));
+
+        $get = $this->findRouteByUri('oms/v1/attributes', 'GET');
+        $post = $this->findRouteByUri('oms/v1/attributes', 'POST');
+
+        $this->assertSame($get, $post);
+        $this->assertContains('audit', $get->middleware());
+        $this->assertSame('oms.attributes.index', $get->getName());
+    }
+
+    public function test_routes_merges_legacy_entries_split_per_method(): void
+    {
+        $this->mockManifests(['oms' => [
+            'service' => 'oms',
+            'routes' => [
+                ['method' => 'GET', 'uri' => '/v1/attributes', 'name' => 'attributes.index'],
+                ['method' => 'POST', 'uri' => '/v1/attributes', 'name' => 'attributes.index'],
+            ],
+        ]]);
+
+        Gateway::routes();
+
+        $get = $this->findRouteByUri('oms/v1/attributes', 'GET');
+        $post = $this->findRouteByUri('oms/v1/attributes', 'POST');
+
+        $this->assertSame($get, $post);
+        $this->assertSame('oms.attributes.index', $get->getName());
+
+        Route::getRoutes()->refreshNameLookups();
+
+        $this->assertNotNull(Route::getRoutes()->toSymfonyRouteCollection());
+    }
+
+    public function test_routes_keeps_same_named_entries_with_different_metadata_serializable(): void
+    {
+        $this->mockManifests(['oms' => [
+            'service' => 'oms',
+            'routes' => [
+                ['method' => 'GET', 'uri' => '/v1/attributes', 'name' => 'attributes.index', 'permissions' => ['read']],
+                ['method' => 'POST', 'uri' => '/v1/attributes', 'name' => 'attributes.index', 'permissions' => ['write']],
+            ],
+        ]]);
+
+        Gateway::routes();
+
+        Route::getRoutes()->refreshNameLookups();
+
+        $this->assertNotNull(Route::getRoutes()->toSymfonyRouteCollection());
+
+        $named = array_filter(
+            Route::getRoutes()->getRoutes(),
+            static fn (\Illuminate\Routing\Route $route) => $route->getName() === 'oms.attributes.index',
+        );
+
+        $this->assertCount(1, $named);
+        $this->assertSame(['write'], $this->findRouteByUri('oms/v1/attributes', 'POST')->getAction('permissions'));
+    }
+
+    public function test_routes_supports_legacy_single_method_manifests(): void
+    {
+        $this->mockManifests(['pim' => [
+            'service' => 'pim',
+            'routes' => [
+                ['method' => 'GET', 'uri' => '/api/products', 'name' => 'products.index'],
+            ],
+        ]]);
+
+        Gateway::routes();
+
+        $route = $this->findRouteByUri('pim/api/products', 'GET');
+
+        $this->assertNotNull($route);
+        $this->assertSame('pim.products.index', $route->getName());
+    }
+
     public function test_routes_skips_empty_name(): void
     {
         $this->mockManifests(['pim' => [

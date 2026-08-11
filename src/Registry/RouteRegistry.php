@@ -64,7 +64,7 @@ class RouteRegistry
     /**
      * Get all registered routes across all services.
      *
-     * @return array<int, array{service: string, method: string, uri: string, name: string|null}>
+     * @return array<int, array{service: string, methods: string[], uri: string, name: string|null}>
      */
     public function getAllRoutes(): array
     {
@@ -74,7 +74,7 @@ class RouteRegistry
             foreach ($manifest['routes'] ?? [] as $route) {
                 $routes[] = [
                     'service' => $manifest['service'],
-                    'method' => $route['method'],
+                    'methods' => self::methods($route),
                     'uri' => $route['uri'],
                     'name' => $route['name'] ?? null,
                 ];
@@ -82,6 +82,22 @@ class RouteRegistry
         }
 
         return $routes;
+    }
+
+    /**
+     * HTTP methods answered by a manifest route entry.
+     *
+     * @param  array<string, mixed>  $route
+     * @return string[]
+     */
+    public static function methods(array $route): array
+    {
+        $methods = $route['methods'] ?? $route['method'] ?? [];
+
+        return array_values(array_map(
+            static fn ($method) => strtoupper((string) $method),
+            (array) $methods,
+        ));
     }
 
     /**
@@ -94,7 +110,7 @@ class RouteRegistry
 
         foreach ($this->getAllManifests() as $manifest) {
             foreach ($manifest['routes'] ?? [] as $route) {
-                if ($route['method'] !== $method) {
+                if (! in_array($method, self::methods($route), true)) {
                     continue;
                 }
 
@@ -120,8 +136,6 @@ class RouteRegistry
 
     /**
      * Match a route pattern against a URI.
-     * Supports Laravel-style {parameter} and {parameter?} placeholders.
-     * Compiled patterns are cached in-memory for the lifetime of the process.
      */
     protected function matchUri(string $pattern, string $uri): bool
     {

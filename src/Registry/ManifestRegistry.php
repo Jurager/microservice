@@ -136,20 +136,20 @@ class ManifestRegistry
                 continue;
             }
 
+            $methods = array_values(array_diff($route->methods(), ['HEAD']));
+
+            if ($methods === []) {
+                continue;
+            }
+
             $metadata = $route->getMetadata() ?? [];
 
-            foreach ($route->methods() as $method) {
-                if ($method === 'HEAD') {
-                    continue;
-                }
-
-                $routes[] = array_filter([
-                    'method' => $method,
-                    'uri' => '/'.ltrim($uri, '/'),
-                    'name' => $route->getName(),
-                    ...$metadata,
-                ], static fn ($value) => $value !== null);
-            }
+            $routes[] = array_filter([
+                'methods' => $methods,
+                'uri' => '/'.ltrim($uri, '/'),
+                'name' => $route->getName(),
+                ...$metadata,
+            ], static fn ($value) => $value !== null);
         }
 
         return $routes;

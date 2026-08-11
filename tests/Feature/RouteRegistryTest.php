@@ -95,6 +95,53 @@ class RouteRegistryTest extends TestCase
         $this->assertContains('oms', $services);
     }
 
+    public function test_get_all_routes_exposes_every_method_of_an_entry(): void
+    {
+        $this->cache->shouldReceive('get')
+            ->once()
+            ->with('microservice:manifests', [])
+            ->andReturn(['oms']);
+
+        $this->cache->shouldReceive('many')
+            ->once()
+            ->with(['microservice:manifest:oms'])
+            ->andReturn([json_encode([
+                'service' => 'oms',
+                'routes' => [
+                    ['methods' => ['GET', 'POST'], 'uri' => '/api/attributes', 'name' => 'attributes.index'],
+                ],
+            ])]);
+
+        $routes = $this->registry->getAllRoutes();
+
+        $this->assertCount(1, $routes);
+        $this->assertSame(['GET', 'POST'], $routes[0]['methods']);
+    }
+
+    public function test_resolve_matches_any_method_of_a_multi_method_route(): void
+    {
+        $manifest = json_encode([
+            'service' => 'oms',
+            'routes' => [
+                ['methods' => ['GET', 'POST'], 'uri' => '/api/attributes'],
+            ],
+        ]);
+
+        $this->cache->shouldReceive('get')
+            ->times(3)
+            ->with('microservice:manifests', [])
+            ->andReturn(['oms']);
+
+        $this->cache->shouldReceive('many')
+            ->times(3)
+            ->with(['microservice:manifest:oms'])
+            ->andReturn([$manifest]);
+
+        $this->assertNotNull($this->registry->resolve('GET', '/api/attributes'));
+        $this->assertNotNull($this->registry->resolve('POST', '/api/attributes'));
+        $this->assertNull($this->registry->resolve('DELETE', '/api/attributes'));
+    }
+
     public function test_resolve_matches_exact_uri(): void
     {
         $this->cache->shouldReceive('get')
