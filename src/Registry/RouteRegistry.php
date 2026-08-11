@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Registry;
 
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Psr\Log\LoggerInterface;
+use Throwable;
 
 class RouteRegistry
 {
-    public function __construct(private readonly Cache $cache)
-    {
+    public function __construct(
+        private readonly Cache $cache,
+        private readonly LoggerInterface $logger,
+    ) {
     }
 
     /**
@@ -19,14 +23,24 @@ class RouteRegistry
      */
     public function getAllManifests(): array
     {
-        $services = $this->cache->get('microservice:manifests', []);
+        try {
+            $services = $this->cache->get('microservice:manifests', []);
 
-        if (!$services || !is_array($services)) {
+            if (!$services || !is_array($services)) {
+                return [];
+            }
+
+            $keys = array_map(static fn (string $s) => "microservice:manifest:$s", $services);
+
+            $raws = $this->cache->many($keys);
+
+        } catch (Throwable $e) {
+            $this->logger->warning('RouteRegistry: manifests are unreachable, no gateway routes registered.', [
+                'error' => $e->getMessage(),
+            ]);
+
             return [];
         }
-
-        $keys = array_map(static fn (string $s) => "microservice:manifest:$s", $services);
-        $raws = $this->cache->many($keys);
 
         $manifests = [];
 

@@ -8,10 +8,14 @@ use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Registry\RouteRegistry;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
+use Psr\Log\LoggerInterface;
+use RuntimeException;
 
 class RouteRegistryTest extends TestCase
 {
     private Cache $cache;
+
+    private LoggerInterface $logger;
 
     private RouteRegistry $registry;
 
@@ -20,7 +24,8 @@ class RouteRegistryTest extends TestCase
         parent::setUp();
 
         $this->cache = Mockery::mock(Cache::class);
-        $this->registry = new RouteRegistry($this->cache);
+        $this->logger = Mockery::mock(LoggerInterface::class);
+        $this->registry = new RouteRegistry($this->cache, $this->logger);
     }
 
     public function test_get_all_manifests_returns_manifests_from_redis(): void
@@ -328,6 +333,36 @@ class RouteRegistryTest extends TestCase
             ->once()
             ->with('microservice:manifests', [])
             ->andReturn(false);
+
+        $this->assertEmpty($this->registry->getAllManifests());
+    }
+
+    public function test_unreachable_cache_is_treated_as_empty(): void
+    {
+        $this->cache->shouldReceive('get')
+            ->once()
+            ->with('microservice:manifests', [])
+            ->andThrow(new RuntimeException('Connection refused'));
+
+        $this->logger->shouldReceive('warning')
+            ->once()
+            ->with(Mockery::type('string'), ['error' => 'Connection refused']);
+
+        $this->assertEmpty($this->registry->getAllManifests());
+    }
+
+    public function test_unreachable_cache_while_reading_manifests_is_treated_as_empty(): void
+    {
+        $this->cache->shouldReceive('get')
+            ->once()
+            ->with('microservice:manifests', [])
+            ->andReturn(['pim']);
+
+        $this->cache->shouldReceive('many')
+            ->once()
+            ->andThrow(new RuntimeException('Connection refused'));
+
+        $this->logger->shouldReceive('warning')->once();
 
         $this->assertEmpty($this->registry->getAllManifests());
     }
