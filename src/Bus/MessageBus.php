@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Bus;
 
 use JsonException;
 use Jurager\Microservice\Support\HmacSigner;
+use PhpAmqpLib\Exception\AMQPExceptionInterface;
 use PhpAmqpLib\Message\AMQPMessage;
 use Psr\Log\LoggerInterface;
 use Throwable;
@@ -20,37 +21,72 @@ readonly class MessageBus
     ) {
     }
 
-    /** Publish an event to the message bus. */
-    public function publish(string $type, array $payload, ?string $queue = null): void
+    /**
+     * Publish an event to the message bus.
+     *
+     * @throws Throwable
+     */
+    public function publish(string $type, array $payload): void
     {
         if (! $this->enabled()) {
-            $this->logger->debug('Message bus publishing skipped.', [
-                'type' => $type,
-            ]);
+            $this->logger->debug('MessageBus: publishing disabled', ['type' => $type]);
 
             return;
         }
 
-        try {
-            $envelope = $this->signedEnvelope($type, $payload);
+        // Signed once, so a retry sends the same event rather than a new one.
+        $envelope = $this->signedEnvelope($type, $payload);
 
-            $this->connection
-                ->channel(heartbeat: 0)
-                ->basic_publish(
-                    $this->message($envelope),
-                    $this->connection->exchange(),
-                    $type,
-                );
-        } catch (Throwable $e) {
-            $this->connection->close();
+        $attempts = max(1, (int) config('microservice.bus.publish_attempts', 2));
 
-            $this->logger->error('MessageBus: failed to publish', [
-                'type'  => $type,
-                'error' => $e->getMessage(),
-            ]);
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                $this->send($type, $envelope);
 
-            throw $e;
+                return;
+            } catch (Throwable $e) {
+                $this->connection->close();
+
+                // An unroutable event is not worth retrying: the connection is fine,
+                // there is simply no queue bound to the type yet.
+                if ($attempt >= $attempts || ! $e instanceof AMQPExceptionInterface) {
+                    $this->logger->error('MessageBus: failed to publish', [
+                        'type' => $type,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    throw $e;
+                }
+
+                $this->logger->warning('MessageBus: retrying on a new connection', [
+                    'type' => $type,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
+    }
+
+    /**
+     * Send the envelope and wait for the broker to account for it.
+     *
+     * @throws Throwable
+     */
+    private function send(string $type, array $envelope): void
+    {
+        $channel = $this->connection->channel();
+
+        $channel->basic_publish(
+            $this->message($envelope),
+            $this->connection->exchange(),
+            $type,
+            mandatory: true,
+        );
+
+        // Confirms and returns arrive on their own frames, so an event that
+        // reached no queue would go unnoticed without waiting for them.
+        $channel->wait_for_pending_acks_returns(
+            (int) config('microservice.bus.confirm_timeout', 5),
+        );
     }
 
     /** Verify envelope HMAC signature. */

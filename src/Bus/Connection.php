@@ -7,9 +7,9 @@ namespace Jurager\Microservice\Bus;
 use Exception;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use RuntimeException;
 use Throwable;
 
-/** Manage lazy AMQP connections and channels. */
 class Connection
 {
     /**
@@ -26,6 +26,9 @@ class Connection
      */
     private ?AMQPChannel $channel = null;
 
+    /** Time the channel was last handed out. */
+    private ?float $usedAt = null;
+
     /**
      * Get active AMQP channel, connecting if necessary.
      *
@@ -34,32 +37,70 @@ class Connection
      */
     public function channel(?int $heartbeat = null): AMQPChannel
     {
-        if ($this->channel !== null && $this->isConnected()) {
+        if ($this->channel !== null && $this->isConnected() && ! $this->idled()) {
+            $this->usedAt = microtime(true);
+
             return $this->channel;
         }
 
         $this->close();
 
         $this->connection = $this->createConnection($heartbeat);
-        $this->channel = $this->connection->channel();
+        $this->channel = $this->prepare($this->connection);
+        $this->usedAt = microtime(true);
 
-        $this->channel->exchange_declare(
+        return $this->channel;
+    }
+
+    /**
+     * Determine whether the connection has been idle for too long to trust.
+     */
+    private function idled(): bool
+    {
+        return $this->usedAt === null
+            || (microtime(true) - $this->usedAt) > (int) config('microservice.bus.max_idle', 60);
+    }
+
+    /**
+     * Declare the exchange and enable delivery feedback on a new channel.
+     */
+    private function prepare(AMQPStreamConnection $connection): AMQPChannel
+    {
+        $channel = $connection->channel();
+
+        $channel->exchange_declare(
             $this->exchange(),
             'topic',
             durable: true,
             auto_delete: false,
         );
 
-        return $this->channel;
+        // Returns are only tracked for confirmed publishes.
+        $channel->confirm_select();
+
+        // An event bound to no queue is returned instead of being dropped.
+        $channel->set_return_listener(
+            static function (int $code, string $text, string $exchange, string $routingKey): void {
+                throw new RuntimeException(
+                    "Message [$routingKey] was not routed to any queue: $text ($code)"
+                );
+            }
+        );
+
+        return $channel;
     }
 
-    /** Get configured exchange name. */
+    /**
+     * Get configured exchange name.
+     */
     public function exchange(): string
     {
         return (string) config('microservice.bus.exchange', 'events');
     }
 
-    /** Close active channel and connection gracefully. */
+    /**
+     * Close active channel and connection gracefully.
+     */
     public function close(): void
     {
         if ($this->channel !== null) {
@@ -81,13 +122,17 @@ class Connection
         }
     }
 
-    /** Check if the underlying AMQP connection is established and active. */
+    /**
+     * Check if the underlying AMQP connection is established and active.
+     */
     private function isConnected(): bool
     {
         return $this->connection !== null && $this->connection->isConnected();
     }
 
-    /** Create a new AMQP stream connection from config. */
+    /**
+     * Create a new AMQP stream connection from config.
+     */
     private function createConnection(?int $heartbeatOverride): AMQPStreamConnection
     {
         $cfg = (array) config('microservice.bus.connection', []);

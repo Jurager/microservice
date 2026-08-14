@@ -16,6 +16,9 @@ The bus is configured in `config/microservice.php` under the `bus` key. The defa
 ```env
 MESSAGE_BUS_ENABLED=true
 MESSAGE_BUS_EXCHANGE=events
+MESSAGE_BUS_CONFIRM_TIMEOUT=5
+MESSAGE_BUS_MAX_IDLE=60
+MESSAGE_BUS_PUBLISH_ATTEMPTS=2
 
 RABBITMQ_HOST=127.0.0.1
 RABBITMQ_PORT=5672
@@ -60,9 +63,27 @@ class BroadcastSiteEvents
 }
 ```
 
-The `MessageBus` is registered as a singleton. The AMQP connection is opened lazily on the first publish and reused for the lifetime of the process. Publishing failures are caught and logged — they never throw.
-
 Event types follow the convention `{source_service}.{entity}.{event}`, for example `sfm.site.updated` or `oms.order.shipped`. The type becomes the AMQP routing key, so subscribing services can bind queues to specific events or wildcard patterns such as `sfm.site.*`.
+
+### Delivery
+
+A publish either reaches a queue or throws. There is no third outcome, and this is worth knowing before you decide how to call it.
+
+Events are published with confirms enabled and the `mandatory` flag set, and the publisher waits for the broker to account for each one. An event that matches no bound queue is returned by the broker and raises a `RuntimeException` rather than being silently dropped — which is what happens to a topic exchange message when no consumer has ever declared its queue.
+
+```php
+try {
+    $this->bus->publish('sfm.site.updated', ['site_id' => $event->siteId]);
+} catch (Throwable $e) {
+    // The event did not reach a queue.
+}
+```
+
+Since a failed publish throws, a handler that already changed state should publish inside the same transaction, or be prepared to compensate. Nothing is lost quietly.
+
+The `MessageBus` is registered as a singleton and the connection is reused across publishes, but not indefinitely: a connection that has been idle longer than `MESSAGE_BUS_MAX_IDLE` is replaced before use. An idle TCP session is dropped by NAT or the broker without notifying the client, and the loss would otherwise surface only on the next write, with the message already gone. Reuse therefore stays cheap under load and cannot go stale between rare events.
+
+Should a connection still be closed within that window, the publish is retried on a fresh one, up to `MESSAGE_BUS_PUBLISH_ATTEMPTS` times. Set it to `1` to disable retrying. Unroutable events are never retried — the connection is fine, there is simply nothing bound to the type.
 
 ### The Envelope
 
@@ -109,7 +130,7 @@ class ForgetSiteConfig implements MessageHandler, ShouldQueue
 
     public function __construct(public readonly int $siteId) {}
 
-    public static function from(array $payload): static
+    public static function from(array $payload, string $type = ''): static
     {
         return new static($payload['site_id']);
     }
@@ -157,15 +178,27 @@ php artisan microservice:listen --memory=256 --max-jobs=1000
 
 Pairing `--max-jobs` with a process supervisor allows for periodic restarts that reclaim memory and pick up code changes without the operational overhead of full opcache flushes.
 
+### Losing the Broker
+
+A dropped connection is not a crash. The listener reopens it, redeclares its queues and resumes consuming, waiting a little longer before each attempt — one second, then two, four, and so on up to `--backoff`:
+
+```bash
+php artisan microservice:listen --max-reconnects=10 --backoff=30
+```
+
+With the defaults this covers roughly three minutes of outage. After `--max-reconnects` failed attempts the process exits with a non-zero status and lets the supervisor take over, because a broker that stays down is not something the loop can fix, and restart backoff is already handled elsewhere. Pass `--max-reconnects=0` to keep trying indefinitely.
+
+An outage never costs you a message: the listener acknowledges only after a handler succeeded, and prefetch is one, so at most a single unacknowledged message is in flight and the broker requeues it.
+
 ### Liveness
 
-A listener that loses its broker connection stops with a non-zero exit code, which any supervisor will notice. A listener wedged inside a handler or a blocking read stays "up" forever, and nothing notices at all. The `--heartbeat` option gives an external check something to look at:
+A listener wedged inside a handler or a blocking read stays "up" forever, and nothing notices at all. The `--heartbeat` option gives an external check something to look at:
 
 ```bash
 php artisan microservice:listen --heartbeat=/tmp/listener.heartbeat
 ```
 
-The file's modification time is refreshed on every pass of the consume loop, at most once every five seconds. Its age is therefore bounded by the slowest synchronous handler — queued handlers return immediately, so it stays within seconds for them. Under Kubernetes, a liveness probe reads that age directly:
+The file's modification time is refreshed on every pass of the consume loop, at most once every five seconds, and keeps being refreshed while the listener waits to reconnect — a process that is alive and still trying should not be killed for it. Its age is therefore bounded by the slowest synchronous handler; queued handlers return immediately, so it stays within seconds for them. Under Kubernetes, a liveness probe reads that age directly:
 
 ```yaml
 livenessProbe:
@@ -210,6 +243,8 @@ To disable dead-letter routing globally, set `MESSAGE_BUS_DLQ_ENABLED=false`. Wi
 
 The listener responds to `SIGTERM` and `SIGINT`. On receiving either signal, the loop finishes processing the current message, closes the AMQP channel, and exits with status `0`. This makes the listener safe to manage with Supervisor's rolling restarts and Kubernetes pod lifecycle.
 
+A signal that arrives mid-outage is honoured immediately: the listener stops instead of sitting out the remaining reconnect attempts, so a deploy is never delayed by a broker that happens to be unreachable.
+
 ## Diagnostic Commands
 
 ### Listing Registered Events
@@ -220,16 +255,16 @@ To inspect the handlers your service has registered, you may use the `microservi
 php artisan microservice:events
 ```
 
-The command prints a table of every event type from `config/messages.php` along with the handler class and execution mode:
+The command prints a table of every discovered event type along with the queue it binds, the handler class, and the execution mode:
 
 ```
-+------------------+----------------------------------+--------+
-| Type             | Handler                          | Mode   |
-+------------------+----------------------------------+--------+
-| sfm.site.updated | App\Jobs\Cache\ForgetSiteDomain  | queued |
-| sfm.site.config  | App\Jobs\Cache\ForgetSiteConfig  | queued |
-| sfm.site.regions | App\Jobs\Cache\ForgetSiteRegions | queued |
-+------------------+----------------------------------+--------+
++------------------+----------------------+----------------------------------+--------+
+| Type             | Queue                | Handler                          | Mode   |
++------------------+----------------------+----------------------------------+--------+
+| sfm.site.updated | api.sfm.site.updated | App\Jobs\Cache\ForgetSiteDomain  | queued |
+| sfm.site.config  | api.sfm.site.config  | App\Jobs\Cache\ForgetSiteConfig  | queued |
+| sfm.site.regions | api.sfm.site.regions | App\Jobs\Cache\ForgetSiteRegions | queued |
++------------------+----------------------+----------------------------------+--------+
 ```
 
 This is useful for diagnosing configuration before starting a listener and for confirming that newly added handlers are picked up.
@@ -250,7 +285,7 @@ The listener is a long-running process and should be managed by a supervisor suc
 
 ```ini
 [program:api-microservice-listener]
-command=php /var/www/api/artisan microservice:listen --memory=256 --max-jobs=1000
+command=php /var/www/api/artisan microservice:listen --memory=256 --max-jobs=1000 --heartbeat=/tmp/listener.heartbeat
 autostart=true
 autorestart=true
 stopsignal=TERM

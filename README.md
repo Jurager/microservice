@@ -5,7 +5,7 @@
 [![PHP Version Require](https://poser.pugx.org/jurager/microservice/require/php)](https://packagist.org/packages/jurager/microservice)
 [![License](https://poser.pugx.org/jurager/microservice/license)](https://packagist.org/packages/jurager/microservice)
 
-A Laravel package for secure HTTP communication between microservices.
+A Laravel package for secure communication between microservices.
 
 Features:
 
@@ -13,6 +13,7 @@ Features:
 - Service discovery via shared cache manifests or DNS pattern (Kubernetes-ready)
 - Route manifest publishing and gateway proxying
 - Idempotency support for non-safe requests (POST, PUT, PATCH)
+- Event bus over RabbitMQ with signed envelopes, confirmed delivery and dead-letter routing
 
 ## Requirements
 
@@ -20,6 +21,7 @@ Features:
 - Laravel 13.17+
 - Cache (Redis, Memcached, DynamoDB, or Database)
 - Guzzle 7+
+- RabbitMQ 3.8+ (only when the event bus is used)
 
 ## Installation
 

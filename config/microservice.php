@@ -299,14 +299,26 @@ return [
     |
     | RabbitMQ-based inter-service event bus.
     |
-    | enabled    Disables publishing and listeners when false.
-    | exchange   Topic exchange used for event routing.
-    | connection RabbitMQ connection settings.
+    | enabled          Disables publishing and listeners when false.
+    | exchange         Topic exchange used for event routing.
+    | confirm_timeout  Seconds to wait for the broker to confirm a publish.
+    | publish_attempts Publish attempts, counting the retry on a reopened connection.
+    | max_idle         Seconds a publisher connection may sit unused before it is
+    |                  reopened: an idle TCP session is dropped by NAT or the broker
+    |                  silently, and the client only finds out on the next write.
+    | connection       RabbitMQ connection settings.
+    |
+    | Events are published as mandatory: one that matches no queue is returned
+    | by the broker and fails the publish, instead of being discarded silently
+    | while no listener has ever declared its queue.
     |
     */
     'bus' => [
         'enabled' => env('MESSAGE_BUS_ENABLED', true),
         'exchange' => env('MESSAGE_BUS_EXCHANGE', 'events'),
+        'confirm_timeout' => (int) env('MESSAGE_BUS_CONFIRM_TIMEOUT', 5),
+        'publish_attempts' => (int) env('MESSAGE_BUS_PUBLISH_ATTEMPTS', 2),
+        'max_idle' => (int) env('MESSAGE_BUS_MAX_IDLE', 60),
 
         'connection' => [
             'host' => env('RABBITMQ_HOST', '127.0.0.1'),

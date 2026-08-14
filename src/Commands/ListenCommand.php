@@ -28,16 +28,15 @@ use Throwable;
 #[Signature('microservice:listen
              {--memory=128 : Memory limit in MB; the worker stops when exceeded}
              {--max-jobs=0 : Stop after this many messages (0 = unlimited)}
+             {--max-reconnects=10 : Reconnect attempts before exiting (0 = unlimited)}
+             {--backoff=30 : Longest wait between reconnect attempts, in seconds}
              {--heartbeat= : Path to a file whose mtime is refreshed while the loop runs}')]
 #[Description('Listen for inter-service events from RabbitMQ.')]
 class ListenCommand extends Command
 {
-    /**
-     * Shortest interval between two heartbeat writes, in seconds.
-     */
-    private const HEARTBEAT_INTERVAL = 5;
-
     private bool $shouldStop = false;
+
+    private int $reconnects = 0;
 
     private int $processed = 0;
 
@@ -45,9 +44,13 @@ class ListenCommand extends Command
 
     private int $maxJobs = 0;
 
+    private int $maxReconnects = 0;
+
+    private int $backoff = 0;
+
     private ?string $heartbeatPath = null;
 
-    private int $heartbeatAt = 0;
+    private int $beatAt = 0;
 
     public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): void
     {
@@ -65,17 +68,73 @@ class ListenCommand extends Command
 
         $this->trap([SIGTERM, SIGINT], fn () => $this->shouldStop = true);
 
-        try {
-            $channel = $connection->channel();
-        } catch (Throwable $e) {
-            $this->fail("Failed to connect to RabbitMQ: {$e->getMessage()}");
+        $this->memoryLimit = (int) $this->input('memory');
+        $this->maxJobs = (int) $this->input('max-jobs');
+        $this->maxReconnects = (int) $this->input('max-reconnects');
+        $this->backoff = (int) $this->input('backoff');
+        $this->heartbeatPath = ((string) $this->input('heartbeat')) ?: null;
+
+        while (! $this->shouldStop) {
+            try {
+                $this->consume($connection, $listener, $logger, $handlers);
+
+                // Returns only once the loop was asked to stop.
+                break;
+            } catch (AMQPConnectionClosedException|AMQPDataReadException|AMQPSocketException|AMQPIOException|AMQPIOWaitException $e) {
+                $this->closeQuietly($connection);
+
+                // A shutdown mid-outage was asked for, so reconnecting would only delay it.
+                if ($this->shouldStop) {
+                    break;
+                }
+
+                $this->reconnects++;
+
+                // A broker that stays down is not something this loop can fix.
+                if ($this->maxReconnects > 0 && $this->reconnects > $this->maxReconnects) {
+                    $logger->error('ListenCommand: giving up after repeated connection failures', [
+                        'attempts' => $this->reconnects,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    $this->fail("Connection lost, gave up after {$this->reconnects} attempts: {$e->getMessage()}");
+                }
+
+                $delay = max(1, min(2 ** $this->reconnects, $this->backoff));
+
+                $logger->warning('ListenCommand: connection lost, reconnecting', [
+                    'attempt' => $this->reconnects,
+                    'delay' => $delay,
+                    'error' => $e->getMessage(),
+                ]);
+
+                $this->warn("Connection lost, reconnecting in {$delay}s (attempt {$this->reconnects})");
+
+                $this->pause($delay);
+            } catch (Throwable $e) {
+                $logger->error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
+                $this->closeQuietly($connection);
+                $this->fail($e->getMessage());
+            }
         }
+
+        $this->closeQuietly($connection);
+
+        $this->info("Stopped. Processed {$this->processed} message(s).");
+    }
+
+    /**
+     * Consume messages until the loop is asked to stop.
+     *
+     * @param array<string, class-string<MessageHandler>> $handlers
+     * @throws Throwable
+     */
+    private function consume(Connection $connection, Listener $listener, LoggerInterface $logger, array $handlers): void
+    {
+        $channel = $connection->channel();
 
         $exchange = $connection->exchange();
         $service = (string) config('microservice.name', 'app');
-        $this->memoryLimit = (int) $this->input('memory');
-        $this->maxJobs = (int) $this->input('max-jobs');
-        $this->heartbeatPath = ((string) $this->input('heartbeat')) ?: null;
         $dlqEnabled = (bool) config('microservice.bus.dead_letter.enabled', true);
         $dlxName = (string) config('microservice.bus.dead_letter.exchange', 'events.dlx');
 
@@ -98,6 +157,9 @@ class ListenCommand extends Command
             );
         }
 
+        // The outage is over, so earlier attempts no longer count.
+        $this->reconnects = 0;
+
         $this->info('Listening for events: '.implode(', ', array_keys($handlers))
             .($dlqEnabled ? " (DLQ → $dlxName)" : ''));
 
@@ -110,14 +172,6 @@ class ListenCommand extends Command
                 $channel->wait(null, false, 1);
             } catch (AMQPTimeoutException) {
                 // No message in window — normal, loop and check signals
-            } catch (AMQPConnectionClosedException|AMQPDataReadException|AMQPSocketException|AMQPIOException|AMQPIOWaitException $e) {
-                $logger->warning('ListenCommand: connection lost', ['error' => $e->getMessage()]);
-                $this->closeQuietly($connection);
-                $this->fail("Connection lost: {$e->getMessage()}");
-            } catch (Throwable $e) {
-                $logger->error('ListenCommand: AMQP loop error', ['error' => $e->getMessage()]);
-                $this->closeQuietly($connection);
-                $this->fail($e->getMessage());
             }
 
             // Memory can also grow while idle (e.g. queued dispatch buffers) —
@@ -125,10 +179,20 @@ class ListenCommand extends Command
             $this->checkStopConditions();
             $this->heartbeat();
         }
+    }
 
-        $this->closeQuietly($connection);
+    /**
+     * Wait between reconnect attempts, staying responsive to signals.
+     */
+    private function pause(int $seconds): void
+    {
+        $until = time() + $seconds;
 
-        $this->info("Stopped. Processed {$this->processed} message(s).");
+        while (time() < $until && ! $this->shouldStop) {
+            sleep(1);
+
+            $this->heartbeat();
+        }
     }
 
     /**
@@ -266,13 +330,14 @@ class ListenCommand extends Command
 
         $now = time();
 
-        if ($now < $this->heartbeatAt) {
+        // Once a second is as precise as the file's mtime gets.
+        if ($now === $this->beatAt) {
             return;
         }
 
         touch($this->heartbeatPath);
 
-        $this->heartbeatAt = $now + self::HEARTBEAT_INTERVAL;
+        $this->beatAt = $now;
     }
 
     private function closeQuietly(Connection $connection): void
