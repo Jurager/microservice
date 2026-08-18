@@ -86,6 +86,7 @@ class HttpExceptionsTest extends TestCase
     {
         $e = new ServiceRequestException(404);
         $this->assertSame(404, $e->status);
+        $this->assertSame(404, $e->getStatusCode());
         $this->assertNull($e->errors);
         $this->assertSame('Service request failed with status 404.', $e->getMessage());
     }

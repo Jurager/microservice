@@ -56,7 +56,6 @@ final class ResponseError
 
         $status = match (true) {
             $e instanceof HttpExceptionInterface => $e->getStatusCode(),
-            $e instanceof ServiceRequestException => $e->status,
             $e instanceof AuthenticationException => 401,
             $e instanceof AuthorizationException => 403,
             $e instanceof ModelNotFoundException => 404,

@@ -16,6 +16,13 @@ class ServiceUnavailableExceptionTest extends TestCase
         $this->assertStringContainsString('oms', $exception->getMessage());
     }
 
+    public function test_unreachable_upstream_is_reported_as_bad_gateway(): void
+    {
+        $exception = new ServiceUnavailableException('oms');
+
+        $this->assertSame(502, $exception->getStatusCode());
+    }
+
     public function test_custom_message_overrides_default(): void
     {
         $exception = new ServiceUnavailableException('oms', 'No instances configured.');

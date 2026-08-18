@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Exceptions;
 
-use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Throwable;
 
-class ServiceUnavailableException extends RuntimeException
+class ServiceUnavailableException extends HttpException
 {
     public function __construct(
         public readonly string $service,
@@ -15,8 +15,8 @@ class ServiceUnavailableException extends RuntimeException
         ?Throwable $previous = null,
     ) {
         parent::__construct(
+            502,
             $message ?: "Service [$service] is unavailable: all instances failed.",
-            0,
             $previous,
         );
     }
