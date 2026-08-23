@@ -7,7 +7,6 @@ namespace Jurager\Microservice\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Jurager\Microservice\Exceptions\InvalidSignatureException;
-use Jurager\Microservice\Exceptions\MissingCertificateException;
 use Jurager\Microservice\Exceptions\MissingServiceNameException;
 use Jurager\Microservice\Exceptions\MissingSignatureException;
 use Jurager\Microservice\Support\Signer;
@@ -39,13 +38,7 @@ class TrustPeer
             throw new MissingServiceNameException();
         }
 
-        $certificate = $request->header('X-Service-Cert');
-
-        if ($certificate === null) {
-            throw new MissingCertificateException();
-        }
-
-        if (! $this->signer->verify($request, $signature, $timestamp, $certificate, $service)) {
+        if (! $this->signer->verify($request, $signature, $timestamp, $service)) {
             throw new InvalidSignatureException();
         }
 

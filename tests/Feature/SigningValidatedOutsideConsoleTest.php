@@ -41,8 +41,6 @@ class SigningValidatedOutsideConsoleTest extends TestCase
         parent::defineEnvironment($app);
 
         $app['config']->set('microservice.signing.private_key', '');
-        $app['config']->set('microservice.signing.certificate', '');
-        $app['config']->set('microservice.signing.ca_public_key', '');
     }
 
     public function test_boot_throws_when_not_running_in_console_and_signing_is_unconfigured(): void

@@ -4,10 +4,9 @@ use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Http\Controllers\HealthController;
 use Jurager\Microservice\Http\Controllers\ManifestController;
 use Jurager\Microservice\Http\Controllers\MetricsController;
-use Jurager\Microservice\Http\Middleware\TrustPeer;
 
-Route::get('/microservice/manifest', [ManifestController::class, 'show'])
-    ->middleware(TrustPeer::class);
+// Public and unsigned — see ManifestController::show() for why.
+Route::get('/microservice/manifest', [ManifestController::class, 'show']);
 
 if ($endpoint = config('microservice.health.endpoint')) {
     Route::get($endpoint, HealthController::class);

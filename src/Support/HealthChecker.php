@@ -11,9 +11,7 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 use Throwable;
 
 /**
- * Builds the gateway health report.
- *
- * Aggregates the concerns that used to be conflated under a single "stale" flag:
+ * Builds the gateway health report, combining:
  *   - freshness of cached service manifests (route discovery),
  *   - per-service circuit breaker state (is the gateway still calling them?),
  *   - reachability of the gateway's own infrastructure (Redis, RabbitMQ),

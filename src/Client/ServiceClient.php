@@ -302,10 +302,6 @@ class ServiceClient
             'X-Signature' => $this->signer->sign($method, $path, $timestamp, $multipart ? '' : ($body ?? '')),
         ];
 
-        if ($certificate = $this->signer->certificate()) {
-            $headers['X-Service-Cert'] = $certificate;
-        }
-
         $headers['Accept'] = 'application/json';
 
         if (! $multipart) {

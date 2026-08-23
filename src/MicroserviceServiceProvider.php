@@ -19,15 +19,14 @@ use Jurager\Microservice\Bus\MessageBus;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Commands\EmitCommand;
 use Jurager\Microservice\Commands\EventsCommand;
+use Jurager\Microservice\Commands\KeygenCommand;
 use Jurager\Microservice\Commands\ListenCommand;
-use Jurager\Microservice\Commands\Signing\AuthorityGenerateCommand;
-use Jurager\Microservice\Commands\Signing\CertificateIssueCommand;
-use Jurager\Microservice\Commands\Signing\KeygenCommand;
 use Jurager\Microservice\Commands\SyncCommand;
 use Jurager\Microservice\Http\Middleware\LogContext;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Registry\RouteRegistry;
+use Jurager\Microservice\Support\PublicKeyResolver;
 use Jurager\Microservice\Support\Signer;
 use RuntimeException;
 use Throwable;
@@ -40,6 +39,8 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/microservice.php', 'microservice');
         $this->normalizeServicesConfig();
 
+        $this->app->singleton(ManifestRegistry::class);
+        $this->app->singleton(PublicKeyResolver::class);
         $this->app->singleton(Signer::class);
         $this->app->singleton(ServiceClient::class);
         $this->app->singleton(Connection::class);
@@ -47,7 +48,6 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->app->singleton(Listener::class);
         $this->app->singleton(HandlerDiscovery::class);
         $this->app->singleton(RouteRegistry::class);
-        $this->app->singleton(ManifestRegistry::class);
     }
 
     /** Bootstrap application services. */
@@ -78,8 +78,6 @@ class MicroserviceServiceProvider extends ServiceProvider
                 EventsCommand::class,
                 EmitCommand::class,
                 KeygenCommand::class,
-                AuthorityGenerateCommand::class,
-                CertificateIssueCommand::class,
             ]);
         }
     }

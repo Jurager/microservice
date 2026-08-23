@@ -7,7 +7,7 @@ weight: 1
 
 Laravel package for building service meshes over HTTP and RabbitMQ. It provides ECDSA-signed inter-service HTTP communication with manifest-driven gateway routing, plus an event bus for asynchronous fan-out between services. The package is opt-in feature-by-feature — services that don't need the bus, the gateway, retries, or even idempotency pay nothing for those subsystems.
 
-You may use the package to stitch together a small handful of services or a large cluster. The conventions are consistent across both surfaces: each service signs HTTP requests and event envelopes with its own key pair, certified by a cluster CA and verified by peers against that one constant, and the same `MessageHandler` contract drives every consumer.
+You may use the package to stitch together a small handful of services or a large cluster — the conventions stay the same either way. Each service signs HTTP requests and event envelopes with its own key pair, and a peer's public key is resolved from its manifest as needed. The same `MessageHandler` contract drives every consumer.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ You may use the package to stitch together a small handful of services or a larg
 
 Each service exposes a manifest endpoint that lists its public routes and any metadata the gateway needs.
 
-The gateway pulls these manifests on a schedule, stores them in cache, and registers proxy routes automatically. Every inter-service HTTP request — whether direct or via the gateway — is signed with the sender's own ECDSA (P-256) private key and verified at the destination against a certificate proving that key, issued by a cluster CA every service already trusts.
+The gateway pulls these manifests on a schedule, stores them in cache, and registers proxy routes automatically. Every inter-service HTTP request — whether direct or via the gateway — is signed with the sender's own private key and verified at the destination against the public key published in the sender's own manifest.
 
 Outgoing requests can also retry transient failures, trip a circuit breaker against a service that's clearly down, and carry W3C trace context end-to-end — none of it required to get started, all of it available once you need it. Every service exposes health, readiness, and Prometheus metrics endpoints out of the box.
 

@@ -36,47 +36,29 @@ If you run the package with an unsupported driver — `file`, `array`, or `apc` 
 
 ### Required Variables
 
-Every service in the cluster must define its name, its own signing key pair, and the cluster CA's public key in its `.env` file:
+Every service defines its own name and its own signing key pair in its `.env` file:
 
 ```env
 SERVICE_NAME=oms
 SERVICE_PRIVATE_KEY=base64-generated-private-key
-SERVICE_CERTIFICATE=base64-issued-certificate
-SERVICE_CA_PUBLIC_KEY=base64-cluster-ca-public-key
 ```
 
-`SERVICE_NAME` is a unique, stable identifier such as `oms`, `pim`, or `sfm` — it appears in signatures, manifest registration, and event envelopes, so changing it later effectively makes the service look new to every peer. `SERVICE_PRIVATE_KEY` is this service's own ECDSA (P-256) private key, used to sign all outgoing traffic; it is never given to any other service, so compromising it only lets an attacker forge traffic as that one service. `SERVICE_CERTIFICATE` and `SERVICE_CA_PUBLIC_KEY` are how peers verify that traffic — see [Certificates and the Cluster CA](security.md#certificates-and-the-cluster-ca) for how the two fit together.
+`SERVICE_NAME` is a unique, stable identifier such as `oms`, `pim`, or `sfm` — it appears in signatures, manifest registration, and event envelopes, so changing it later effectively makes the service look new to every peer. `SERVICE_PRIVATE_KEY` is this service's own ECDSA (P-256) private key, used to sign all outgoing traffic; it is never given to any other service, so compromising it only lets an attacker forge traffic as that one service.
+
+That's the whole list — a service's public key travels automatically as part of its own manifest, so a verifier looks it up there directly. See [How Peer Trust Works](security.md#how-peer-trust-works) for the mechanics.
 
 > [!WARNING]
 > Never set `SERVICE_DEBUG=true` in production. Debug mode disables signature verification across HTTP middleware and the message bus, and skips the signing-config validation that would otherwise catch a missing key at boot.
 
 ### Generating a Key Pair
 
-Every service needs its own key pair, and a certificate binding it to that service's name, issued by the cluster's CA. The CA itself only needs to exist once per cluster:
+Generate this service's own key pair with `microservice:keygen`:
 
 ```bash
-# Once, wherever certificates get issued — never on a running service:
-php artisan microservice:authority:generate
-```
-
-This prints the CA's key pair. The public key goes into every service's `.env` as `SERVICE_CA_PUBLIC_KEY`, identically — it's the one constant every service shares.
-
-> [!IMPORTANT]
-> Keep the CA private key off the running infrastructure entirely — a workstation, a vault, a one-off script. It's only needed to issue certificates, never at request time, so there's no reason for any deployed service to ever hold it.
-
-Each service then generates its own pair and gets it certified:
-
-```bash
-# On the service itself:
 php artisan microservice:keygen
-
-# Wherever the CA private key lives, using the public key microservice:keygen printed:
-php artisan microservice:certificate:issue oms base64-oms-public-key
 ```
 
-`microservice:keygen` writes `SERVICE_PRIVATE_KEY` to `.env` directly and prints the public key alongside it, so you can hand that public key to whoever holds the CA key without ever exposing the private one. `microservice:certificate:issue` prints the resulting certificate — not a secret itself — which goes into that same service's `.env` as `SERVICE_CERTIFICATE`.
-
-Rotating a compromised key is a single-service operation, and this is really the point of the whole scheme: run `microservice:keygen` again, get a new certificate issued for the new public key, and deploy that one service. No other service's configuration changes, because verification only ever depends on the constant `SERVICE_CA_PUBLIC_KEY` — never on a list of individual peer keys that would need updating everywhere.
+This writes `SERVICE_PRIVATE_KEY` to `.env` directly and prints the public key alongside it. The public key is published automatically the next time this service's manifest is read — on request, or on the next sync — which is how the rest of the cluster learns to verify it. Rotating a key is a single-service operation: run `keygen` again, deploy that one service, and the new public key propagates the same way the old one did.
 
 ### Gateway Configuration
 
@@ -87,13 +69,13 @@ SERVICE_DISCOVERY_PATTERN=http://{service}:8000
 SERVICE_MANIFEST_SERVICES=oms,pim,sfm
 ```
 
-`SERVICE_DISCOVERY_PATTERN` is a URL template in which the `{service}` placeholder is replaced with each service name during discovery. The pattern above suits Docker Compose; for Kubernetes you'd typically use something like `http://{service}.default.svc.cluster.local`.
+`SERVICE_DISCOVERY_PATTERN` is a URL template in which the `{service}` placeholder is replaced with each service name during discovery. The pattern above suits Docker Compose; for Kubernetes you'd typically use something like `http://{service}.default.svc.cluster.local`. This pattern is also what lets any service — not just gateways — look up a peer's public key on demand if it isn't already cached; see [How Peer Trust Works](security.md#how-peer-trust-works).
 
-`SERVICE_MANIFEST_SERVICES` is a comma-separated list of the services the gateway should sync manifests for. See the [Gateway documentation](gateway.md) for the full picture on routing and discovery. The gateway itself needs a key pair and certificate, generated and issued exactly the same way as any other service — see [Certificates and the Cluster CA](security.md#certificates-and-the-cluster-ca).
+`SERVICE_MANIFEST_SERVICES` is a comma-separated list of the services the gateway should sync manifests for. See the [Gateway documentation](gateway.md) for the full picture on routing and discovery. The gateway itself needs its own key pair, generated exactly the same way as any other service.
 
 ## Configuration Reference
 
-The following environment variables control package behavior. All of them have sensible defaults; only the four in [Required Variables](#required-variables) must be set explicitly outside debug mode.
+The following environment variables control package behavior. All of them have sensible defaults; only `SERVICE_NAME` and `SERVICE_PRIVATE_KEY` must be set explicitly outside debug mode — see [Required Variables](#required-variables).
 
 #### Core
 
@@ -110,8 +92,6 @@ The following environment variables control package behavior. All of them have s
 | Variable | Default | Description |
 |---|---|---|
 | `SERVICE_PRIVATE_KEY` | — | This service's own ECDSA (P-256) private key (required outside debug mode) |
-| `SERVICE_CERTIFICATE` | — | This service's certificate, binding its name to its public key (required outside debug mode) |
-| `SERVICE_CA_PUBLIC_KEY` | — | The cluster CA's public key, identical on every service (required outside debug mode) |
 
 #### Gateway & Manifests
 

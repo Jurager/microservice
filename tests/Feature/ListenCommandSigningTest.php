@@ -21,8 +21,6 @@ class ListenCommandSigningTest extends TestCase
         parent::defineEnvironment($app);
 
         $app['config']->set('microservice.signing.private_key', '');
-        $app['config']->set('microservice.signing.certificate', '');
-        $app['config']->set('microservice.signing.ca_public_key', '');
     }
 
     public function test_refuses_to_start_when_signing_is_unconfigured(): void

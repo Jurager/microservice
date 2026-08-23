@@ -89,7 +89,7 @@ readonly class MessageBus
         );
     }
 
-    /** Verify envelope signature against the public key certified for the publishing service. */
+    /** Verify envelope signature against the secret configured for the publishing service. */
     public function verify(array $envelope): bool
     {
         if (config('microservice.debug', false) === true) {
@@ -98,11 +98,9 @@ readonly class MessageBus
 
         $signature = $envelope['signature'] ?? null;
         $service = $envelope['service'] ?? null;
-        $certificate = $envelope['certificate'] ?? null;
 
         if (! is_string($signature) || $signature === ''
-            || ! is_string($service) || $service === ''
-            || ! is_string($certificate) || $certificate === '') {
+            || ! is_string($service) || $service === '') {
             return false;
         }
 
@@ -110,7 +108,6 @@ readonly class MessageBus
             return $this->signer->verifyRaw(
                 self::canonicalize($envelope),
                 $signature,
-                $certificate,
                 $service,
             );
         } catch (Throwable) {
@@ -144,8 +141,6 @@ readonly class MessageBus
         $envelope['signature'] = $this->signer->signRaw(
             self::canonicalize($envelope),
         );
-
-        $envelope['certificate'] = $this->signer->certificate();
 
         return $envelope;
     }

@@ -98,8 +98,7 @@ Every published event is wrapped in a standard envelope containing metadata alon
   "occurred_at": "2026-05-21T10:30:00+00:00",
   "request_id": "req_abc123",
   "payload": {"site_id": 1, "domain": "example.com"},
-  "signature": "9f8a4b…",
-  "certificate": "eyJzZXJ2aWNlIjoi…"
+  "signature": "9f8a4b…"
 }
 ```
 
@@ -107,7 +106,7 @@ Every published event is wrapped in a standard envelope containing metadata alon
 
 ### Signing Envelopes
 
-Every envelope is signed with the publisher's own ECDSA (P-256) private key before publishing, and carries the publisher's certificate in its `certificate` field. The consumer checks that certificate against the cluster CA, confirms it certifies the publisher named in the envelope's `service` field, and only then verifies the signature before invoking the handler. An envelope with a missing or invalid signature, or a missing, invalid, or mismatched certificate, is rejected outright and routed to the dead-letter queue rather than handed to a handler.
+Every envelope is signed with the publisher's own private key before publishing. The consumer resolves the public key of the publisher named in the envelope's `service` field — the same manifest-based lookup used to verify HTTP requests, see [How Peer Trust Works](security.md#how-peer-trust-works) — and verifies the signature against it before invoking the handler. An envelope with a missing or invalid signature, or one claiming to be from a service whose public key can't be resolved, is rejected outright and routed to the dead-letter queue rather than handed to a handler.
 
 This protects consumers from anything with mere broker access but no valid publisher key — publishing to the exchange directly, bypassing the application entirely, still isn't enough to forge an event. And because each service signs with its own key, compromising one publisher's key never lets an attacker forge events *from any other service*.
 
@@ -227,7 +226,7 @@ api.sfm.site.config       ← main queue, bound to "events" with key "sfm.site.c
 api.sfm.site.config.dlq   ← DLQ, bound to "events.dlx" with key "sfm.site.config"
 ```
 
-A message is routed to the DLQ instead of being processed when: its signature is missing or invalid, or the publisher's certificate is missing, invalid, or doesn't certify the claimed publisher; its body isn't valid JSON; the decoded envelope isn't a JSON object; or a synchronous handler throws while processing it.
+A message is routed to the DLQ instead of being processed when: its signature is missing or invalid, or it claims to be from a service whose public key can't be resolved; its body isn't valid JSON; the decoded envelope isn't a JSON object; or a synchronous handler throws while processing it.
 
 Queued handlers are the one exception — they handle their own failures through the Laravel queue's own retry and `failed_jobs` machinery, so a `ShouldQueue` handler that throws never reaches the DLQ. By the time it fails, the original AMQP message has already been acknowledged, because dispatching it to the queue is what counted as "delivered" from the bus's point of view.
 

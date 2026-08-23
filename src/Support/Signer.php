@@ -14,81 +14,35 @@ class Signer
 
     private ?OpenSSLAsymmetricKey $privateKey = null;
 
-    private ?string $certificate = null;
-
-    private ?OpenSSLAsymmetricKey $caPublicKey = null;
-
     private int $tolerance;
 
+    private readonly PublicKeyResolver $resolver;
+
     public function __construct(
+        ?PublicKeyResolver $resolver = null,
         ?string $privateKey = null,
-        ?string $certificate = null,
-        ?string $caPublicKey = null,
         ?int $tolerance = null,
     ) {
+        $this->resolver = $resolver ?? app(PublicKeyResolver::class);
         $privateKey ??= (string) config('microservice.signing.private_key', '');
-        $certificate ??= (string) config('microservice.signing.certificate', '');
-        $caPublicKey ??= (string) config('microservice.signing.ca_public_key', '');
         $this->tolerance = $tolerance ?? (int) config('microservice.timestamp_tolerance', 60);
 
         if ($privateKey !== '') {
             $this->privateKey = Ecdsa::loadPrivateKey($privateKey);
         }
-
-        $this->certificate = $certificate !== '' ? $certificate : null;
-
-        if ($caPublicKey !== '') {
-            $this->caPublicKey = Ecdsa::loadPublicKey($caPublicKey);
-        }
     }
 
-    /** This service's own public key (PEM, base64-wrapped), derived from its private key. */
+    /** This service's own public key (PEM, base64-wrapped), derived from its private key — published in its manifest. */
     public function publicKey(): ?string
     {
-        if ($this->privateKey === null) {
-            return null;
-        }
-
-        return base64_encode(openssl_pkey_get_details($this->privateKey)['key']);
+        return $this->privateKey !== null ? Ecdsa::publicKeyFor($this->privateKey) : null;
     }
 
-    /** This service's own certificate. */
-    public function certificate(): ?string
-    {
-        return $this->certificate;
-    }
-
-    /** Whether our own certificate is signed by the configured CA and certifies our own public key. */
-    public function verifyOwnCertificate(): bool
-    {
-        if ($this->certificate === null || $this->caPublicKey === null || $this->privateKey === null) {
-            return false;
-        }
-
-        $cert = Certificate::decode($this->certificate);
-
-        return $cert !== null
-            && $cert->verify($this->caPublicKey)
-            && $cert->publicKey === $this->publicKey();
-    }
-
-    /** Throws unless a private key, a certificate, and a CA public key are all present and consistent. */
+    /** Throws unless a private key is configured. */
     public function assertConfigured(): void
     {
         if ($this->privateKey === null) {
             throw new RuntimeException('SERVICE_PRIVATE_KEY is not configured. Generate one with `php artisan microservice:keygen`.');
-        }
-
-        if ($this->certificate === null) {
-            throw new RuntimeException('SERVICE_CERTIFICATE is not configured. Issue one with `php artisan microservice:certificate:issue`.');
-        }
-
-        if ($this->caPublicKey === null) {
-            throw new RuntimeException('SERVICE_CA_PUBLIC_KEY is not configured.');
-        }
-
-        if (! $this->verifyOwnCertificate()) {
-            throw new RuntimeException('SERVICE_CERTIFICATE does not match SERVICE_PRIVATE_KEY, or was not signed by SERVICE_CA_PUBLIC_KEY. Re-issue it with `microservice:certificate:issue`.');
         }
     }
 
@@ -109,8 +63,8 @@ class Signer
         return '/'.implode('/', $segments);
     }
 
-    /** Verify an incoming request against the public key certified for $service (or the X-Service-Name header). */
-    public function verify(Request $request, string $signature, string $timestamp, string $certificate, ?string $service = null): bool
+    /** Verify an incoming request's signature against the public key published in $service's manifest (or the X-Service-Name header). */
+    public function verify(Request $request, string $signature, string $timestamp, ?string $service = null): bool
     {
         if (abs(time() - (int) $timestamp) > $this->tolerance) {
             return false;
@@ -130,7 +84,7 @@ class Signer
             ."$timestamp\n"
             .($isMultipart ? '' : $request->getContent());
 
-        return $this->verifyRaw($payload, $signature, $certificate, $service);
+        return $this->verifyRaw($payload, $signature, $service);
     }
 
     /**
@@ -155,12 +109,31 @@ class Signer
         return base64_encode($signature);
     }
 
-    /** Verify a payload signature against $certificate, provided it's signed by the CA and certifies $expectedService. */
-    public function verifyRaw(string $payload, string $signature, string $certificate, string $expectedService): bool
+    /** Verify a payload signature against $service's published public key, refetching once if a cached key no longer matches. */
+    public function verifyRaw(string $payload, string $signature, string $service): bool
     {
-        $publicKey = $this->publicKeyFromCertificate($certificate, $expectedService);
+        $publicKey = $this->resolver->resolve($service);
 
-        if ($publicKey === null) {
+        if ($publicKey !== null && $this->verifyWithKey($payload, $signature, $publicKey)) {
+            return true;
+        }
+
+        // The cached key may be stale if the peer rotated it — one live refetch
+        // before giving up, rather than waiting out the manifest's cache TTL.
+        $freshKey = $this->resolver->resolve($service, force: true);
+
+        if ($freshKey === null || $freshKey === $publicKey) {
+            return false;
+        }
+
+        return $this->verifyWithKey($payload, $signature, $freshKey);
+    }
+
+    private function verifyWithKey(string $payload, string $signature, string $publicKeyEncoded): bool
+    {
+        try {
+            $publicKey = Ecdsa::loadPublicKey($publicKeyEncoded);
+        } catch (RuntimeException) {
             return false;
         }
 
@@ -171,25 +144,5 @@ class Signer
         }
 
         return openssl_verify($payload, $decoded, $publicKey, self::ALGO) === 1;
-    }
-
-    /** Resolve $certificate's public key, if it's signed by the CA and certifies $expectedService. */
-    private function publicKeyFromCertificate(string $certificate, string $expectedService): ?OpenSSLAsymmetricKey
-    {
-        if ($this->caPublicKey === null) {
-            return null;
-        }
-
-        $cert = Certificate::decode($certificate);
-
-        if ($cert === null || $cert->service !== $expectedService || ! $cert->verify($this->caPublicKey)) {
-            return null;
-        }
-
-        try {
-            return Ecdsa::loadPublicKey($cert->publicKey);
-        } catch (RuntimeException) {
-            return null;
-        }
     }
 }

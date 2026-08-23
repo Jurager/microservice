@@ -20,7 +20,7 @@ SERVICE_DISCOVERY_PATTERN=http://{service}:8000
 
 `SERVICE_MANIFEST_SERVICES` is a comma-separated list of the services whose manifests the gateway should sync. `SERVICE_DISCOVERY_PATTERN` is a URL template in which the `{service}` placeholder is replaced with each service's name — the pattern above suits Docker Compose, while a Kubernetes deployment would typically use something like `http://{service}.default.svc.cluster.local`.
 
-Pulling a manifest is itself a signed request (`GET /microservice/manifest`, protected by `TrustPeer`), so the gateway needs its own key pair and certificate just like any other service — see [Certificates and the Cluster CA](security.md#certificates-and-the-cluster-ca). Downstream services verify the gateway exactly the way they verify any other peer, against the shared `SERVICE_CA_PUBLIC_KEY`. Nothing gateway-specific needs configuring on the service side of that relationship.
+`GET /microservice/manifest` is public and unsigned — a service's public key and routes reach the rest of the cluster through it, so requiring a signature to read it would mean already trusting the service before you could learn to trust it. The gateway needs its own key pair like any other service — see [How Peer Trust Works](security.md#how-peer-trust-works).
 
 ## Syncing Manifests
 
@@ -33,7 +33,7 @@ php artisan microservice:sync oms pim  # sync specific services
 
 The auto-sync interval is controlled by `SERVICE_MANIFEST_SYNC_INTERVAL` (in minutes); setting it to `0` disables the scheduler entirely, which is useful if you'd rather trigger syncing from your own cron or CI pipeline instead.
 
-Manifests carry no key material at all, so rotating a service's key is entirely independent of syncing — it's just a matter of reissuing that service's certificate (see [Certificates and the Cluster CA](security.md#certificates-and-the-cluster-ca)), and it touches no other service's configuration or manifest.
+A service's public key travels as part of its manifest, so a rotated key is picked up the same way any other manifest change is — by the next sync, or immediately if a peer's cached key fails to verify and it refetches (see [How Peer Trust Works](security.md#how-peer-trust-works)).
 
 ## Registering Routes
 

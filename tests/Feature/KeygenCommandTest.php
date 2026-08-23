@@ -8,11 +8,10 @@ use Jurager\Microservice\Tests\TestCase;
 
 class KeygenCommandTest extends TestCase
 {
-    public function test_show_prints_a_service_key_pair_without_touching_env(): void
+    public function test_show_prints_a_key_pair_without_touching_env(): void
     {
         $this->artisan('microservice:keygen', ['--show' => true])
             ->expectsOutputToContain('Public key')
-            ->expectsOutputToContain('Get it certified')
             ->assertSuccessful();
     }
 

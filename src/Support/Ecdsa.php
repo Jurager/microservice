@@ -61,6 +61,12 @@ final class Ecdsa
         return $key;
     }
 
+    /** Derive the base64-wrapped PEM public key matching an already-loaded private key. */
+    public static function publicKeyFor(OpenSSLAsymmetricKey $privateKey): string
+    {
+        return base64_encode(openssl_pkey_get_details($privateKey)['key']);
+    }
+
     /** Decode a base64-wrapped PEM public key, validating it is EC. */
     public static function loadPublicKey(string $encoded): OpenSSLAsymmetricKey
     {

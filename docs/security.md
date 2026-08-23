@@ -5,28 +5,20 @@ weight: 30
 
 ## Introduction
 
-The package's security model gives every service its own ECDSA (P-256) key pair. Outbound requests are signed automatically by the [client](client.md) with the sending service's own private key; inbound requests are verified against the sender's certified public key. Compromising one service's private key only lets an attacker forge traffic *as that service* — it never exposes any other service's signing capability, which is the property a single shared secret can't give you.
+The package's security model gives every service its own ECDSA (P-256) key pair. Outbound requests are signed automatically by the [client](client.md) with the sending service's own private key; inbound requests are verified against the public key it published. Compromising one service's private key only lets an attacker forge traffic *as that service* — it never exposes any other service's signing capability.
 
-This page covers the verification side: the middleware you apply to incoming routes, and the idempotency layer that protects mutating endpoints from duplicate processing.
+This page covers the verification side: how peer trust is resolved, the middleware you apply to incoming routes, and the idempotency layer that protects mutating endpoints from duplicate processing.
 
-### Certificates and the Cluster CA
+### How Peer Trust Works
 
-A sender doesn't just present a public key — it presents a **certificate**: a small signed statement that says "this key belongs to service X", signed by a cluster certificate authority. Verifying it only requires one thing, the CA's public key, which is identical on every service and essentially a constant. Adding a service, or rotating one that's already running, never touches any other service's configuration; only that one service's certificate is reissued.
+A service's public key travels as part of its own manifest, the same endpoint already used for route discovery. Verifying an incoming request from `oms` means resolving `oms`'s manifest and reading its public key out of it — the same lookup as resolving `oms`'s `base_url`.
 
-```bash
-# Once, to create the cluster CA:
-php artisan microservice:authority:generate
+Two sources are checked, in order: a manifest already cached locally (from a sync, or a previous request from that peer), and failing that, a live fetch using the same `SERVICE_DISCOVERY_PATTERN` the client uses for discovery. The result is cached the same way any manifest is, so this only costs a network round trip the first time a given peer is seen, or after its cache entry expires.
 
-# Per service, to certify its public key (run wherever the CA private key lives):
-php artisan microservice:certificate:issue oms base64-oms-public-key
-```
-
-The resulting certificate is not a secret — store it as `SERVICE_CERTIFICATE` on that service, next to its own `SERVICE_PRIVATE_KEY`. See [Installation](installation.md#generating-a-key-pair) for the full generate-then-issue flow.
+If a signature fails to verify against a cached key, the resolver refetches once before giving up, in case the peer rotated its key since the last sync — so a rotation propagates as soon as the next call happens, not only on the cache's own TTL.
 
 > [!IMPORTANT]
-> The CA's *private* key is never deployed to any service. It only exists wherever certificates get issued — a workstation, a one-off script, a vault, outside the running cluster — and is used at issuance time only, never on every request.
-
-A certificate is checked before its key is ever trusted for anything: the signature must be valid for the configured CA, and its `service` field must match the `X-Service-Name` the request claims — a certificate issued for `oms` is never accepted as proof for a request claiming to be `pim`. A certificate that fails either check, or a service that presents no certificate at all, always fails verification outright. There's no fallback that resolves a key any other way, which is deliberate: a silent fallback is exactly the kind of thing that quietly reintroduces a shared secret through the back door.
+> Trust is bounded by network reachability: anything that can answer `GET /microservice/manifest` under a service's discovered address is trusted under that name. That's an appropriate boundary inside a private cluster network — the same one your `base_url`s and Redis already rely on — and not appropriate if these endpoints are reachable from outside it.
 
 > [!WARNING]
 > Setting `SERVICE_DEBUG=true` disables all signature verification. Local development only — never in production.
@@ -35,7 +27,7 @@ A certificate is checked before its key is ever trusted for anything: the signat
 
 ### Trust Peer
 
-The `TrustPeer` middleware verifies the ECDSA signature on an incoming request against the public key certified for the service named in `X-Service-Name`. Apply it to any route that accepts calls from another service, whether the call arrives directly or proxied through a [gateway](gateway.md):
+The `TrustPeer` middleware verifies the ECDSA signature on an incoming request against the public key published in the manifest of the service named in `X-Service-Name`. Apply it to any route that accepts calls from another service, whether the call arrives directly or proxied through a [gateway](gateway.md):
 
 ```php
 use Jurager\Microservice\Http\Middleware\TrustPeer;
@@ -45,16 +37,15 @@ Route::middleware(TrustPeer::class)->group(function () {
 });
 ```
 
-Four headers carry everything the middleware needs, and it checks them in order — each has to be present before the next one is even worth checking:
+Three headers carry everything the middleware needs, and it checks them in order — each has to be present before the next one is even worth checking:
 
 ```
 X-Signature    the request's ECDSA signature
 X-Timestamp    when the request was signed, for replay protection
 X-Service-Name which service claims to have sent it
-X-Service-Cert that service's certificate, proving its public key
 ```
 
-A request missing `X-Signature` or `X-Timestamp` is rejected with `401` and a `MissingSignatureException`. Missing `X-Service-Name` gets a `MissingServiceNameException`; missing `X-Service-Cert` gets a `MissingCertificateException` — verification has to know who claims to have signed the request, and be handed proof of their key, before it can check anything at all. Once all four are present, a signature that doesn't match the body, path, or timestamp — or a certificate that doesn't check out against the CA, or doesn't certify the claimed service — is rejected with `401` and an `InvalidSignatureException`.
+A request missing `X-Signature` or `X-Timestamp` is rejected with `401` and a `MissingSignatureException`. Missing `X-Service-Name` gets a `MissingServiceNameException` — verification has to know who claims to have signed the request before it can resolve a public key to check it with. Once both are present, a signature that doesn't match the body, path, or timestamp — or that names a service whose manifest can't be resolved at all — is rejected with `401` and an `InvalidSignatureException`.
 
 The default timestamp tolerance is 60 seconds (`microservice.timestamp_tolerance`), which protects against replay attacks while still accommodating modest clock skew between hosts.
 
@@ -99,8 +90,7 @@ The following exceptions are thrown by the security and transport layers. All of
 | `ServiceRequestException` | A service returned a non-2xx response |
 | `ServiceUnavailableException` | A service URL cannot be resolved, the request fails at the transport level, or its circuit breaker is open |
 | `MissingSignatureException` | `X-Signature` or `X-Timestamp` header is absent on an incoming request |
-| `InvalidSignatureException` | Signature does not match, the timestamp is outside the tolerance window, or the certificate is invalid |
+| `InvalidSignatureException` | Signature does not match, the timestamp is outside the tolerance window, or the claimed service's public key couldn't be resolved |
 | `MissingServiceNameException` | `X-Service-Name` header is required but absent |
-| `MissingCertificateException` | `X-Service-Cert` header is required but absent |
 | `InvalidRequestIdException` | `X-Request-Id` is not a valid UUID v4 |
 | `DuplicateRequestException` | A duplicate in-flight idempotent request was detected |
