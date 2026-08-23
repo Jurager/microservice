@@ -87,7 +87,7 @@ trait WithEagerIncludes
             $nestedRelations = array_values(array_filter((array) $nested));
 
             if (isset($overrides[$relation])) {
-                $prefix = $relation . '.';
+                $prefix = $relation.'.';
                 $deepIncludes = array_map(
                     fn (string $path) => str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path,
                     $overrides[$relation]

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Http\Middleware\LogContext;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use Jurager\Microservice\Tests\TestCase;
 
 class MicroserviceServiceProviderTest extends TestCase
@@ -40,10 +40,10 @@ class MicroserviceServiceProviderTest extends TestCase
         $this->assertIsArray(config('microservice.manifest.services'));
     }
 
-    public function test_hmac_signer_is_singleton(): void
+    public function test_signer_is_singleton(): void
     {
-        $a = $this->app->make(HmacSigner::class);
-        $b = $this->app->make(HmacSigner::class);
+        $a = $this->app->make(Signer::class);
+        $b = $this->app->make(Signer::class);
 
         $this->assertSame($a, $b);
     }
@@ -63,6 +63,9 @@ class MicroserviceServiceProviderTest extends TestCase
         $commands = array_keys(Artisan::all());
 
         $this->assertContains('microservice:sync', $commands);
+        $this->assertContains('microservice:keygen', $commands);
+        $this->assertContains('microservice:authority:generate', $commands);
+        $this->assertContains('microservice:certificate:issue', $commands);
     }
 
     public function test_manifest_route_is_registered(): void

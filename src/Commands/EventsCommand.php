@@ -26,8 +26,7 @@ class EventsCommand extends Command
 
         $service = (string) config('microservice.name', 'app');
 
-        // type => list of handlers, in discovery order
-        // mirrors ListenCommand, where the last discovered handler for a type wins.
+        // type => handlers in discovery order (last one wins, mirrors ListenCommand)
         $map = [];
 
         foreach ($handlers as $handler) {

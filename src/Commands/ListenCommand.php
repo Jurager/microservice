@@ -13,6 +13,7 @@ use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
 use Jurager\Microservice\Bus\MessageBus;
+use Jurager\Microservice\Support\Signer;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PhpAmqpLib\Exception\AMQPConnectionClosedException;
 use PhpAmqpLib\Exception\AMQPDataReadException;
@@ -52,10 +53,19 @@ class ListenCommand extends Command
 
     private int $beatAt = 0;
 
-    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger): void
+    public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger, Signer $signer): void
     {
         if (! $bus->enabled()) {
             $this->fail('MessageBus is disabled (config: microservice.bus.enabled).');
+        }
+
+        if (config('microservice.debug', false) !== true) {
+            try {
+                $signer->assertConfigured();
+            } catch (Throwable $e) {
+                // Can't verify anything, so refuse to start rather than nack every message.
+                $this->fail($e->getMessage());
+            }
         }
 
         $handlers = $this->discoverHandlers($discovery);
@@ -126,7 +136,8 @@ class ListenCommand extends Command
     /**
      * Consume messages until the loop is asked to stop.
      *
-     * @param array<string, class-string<MessageHandler>> $handlers
+     * @param  array<string, class-string<MessageHandler>>  $handlers
+     *
      * @throws Throwable
      */
     private function consume(Connection $connection, Listener $listener, LoggerInterface $logger, array $handlers): void

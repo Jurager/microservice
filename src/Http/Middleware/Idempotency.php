@@ -139,7 +139,7 @@ class Idempotency
         if (is_string($data)) {
             $data = json_decode($data, true);
         }
-        
+
         if (! is_array($data) || ! isset($data['status']) || ! is_string($data['content'] ?? null)) {
             throw new InvalidCacheStateException();
         }

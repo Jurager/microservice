@@ -11,7 +11,7 @@ final class LinkRewriter
     /** Rewrite all links to current request scheme and host. */
     public static function rewriteAll(array $links): array
     {
-        $request = static::currentRequest();
+        $request = self::currentRequest();
 
         if ($request === null) {
             return $links;
@@ -20,7 +20,7 @@ final class LinkRewriter
         $result = [];
 
         foreach ($links as $key => $link) {
-            $result[$key] = static::rewrite($request, $link);
+            $result[$key] = self::rewrite($request, $link);
         }
 
         return $result;
@@ -39,7 +39,7 @@ final class LinkRewriter
             return $link;
         }
 
-        $path  = $parsed['path'] ?? '';
+        $path = $parsed['path'] ?? '';
         $query = $parsed['query'] ?? null;
 
         parse_str((string) $query, $params);
@@ -48,7 +48,7 @@ final class LinkRewriter
             return $request->fullUrlWithQuery(['page' => $params['page']]);
         }
 
-        return $request->getSchemeAndHttpHost() . $path . ($query ? "?{$query}" : '');
+        return $request->getSchemeAndHttpHost().$path.($query ? "?{$query}" : '');
     }
 
     /** Get current HTTP request instance. */

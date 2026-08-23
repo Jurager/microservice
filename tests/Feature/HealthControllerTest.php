@@ -111,7 +111,6 @@ class HealthControllerTest extends TestCase
             ->assertJsonPath('services.pim.timeout', 30);
     }
 
-
     public function test_returns_503_when_a_manifest_is_missing(): void
     {
         $this->cache->shouldReceive('has')->with('microservice:ping')->andReturnTrue();

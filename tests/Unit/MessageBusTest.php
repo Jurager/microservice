@@ -31,7 +31,8 @@ class MessageBusTest extends TestCase
                     && $envelope['type'] === 'sfm.site.updated'
                     && $envelope['service'] === 'sfm'
                     && $envelope['payload'] === ['site_id' => 1]
-                    && is_string($envelope['signature']);
+                    && is_string($envelope['signature'])
+                    && is_string($envelope['certificate']);
             });
 
         $this->bindChannel($channel);

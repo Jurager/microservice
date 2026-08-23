@@ -7,14 +7,16 @@ namespace Jurager\Microservice\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Jurager\Microservice\Exceptions\InvalidSignatureException;
+use Jurager\Microservice\Exceptions\MissingCertificateException;
+use Jurager\Microservice\Exceptions\MissingServiceNameException;
 use Jurager\Microservice\Exceptions\MissingSignatureException;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use Symfony\Component\HttpFoundation\Response;
 
-class TrustGateway
+class TrustPeer
 {
     public function __construct(
-        protected readonly HmacSigner $signer
+        protected readonly Signer $signer
     ) {
     }
 
@@ -31,7 +33,19 @@ class TrustGateway
             throw new MissingSignatureException();
         }
 
-        if (! $this->signer->verify($request, $signature, $timestamp)) {
+        $service = $request->header('X-Service-Name');
+
+        if ($service === null) {
+            throw new MissingServiceNameException();
+        }
+
+        $certificate = $request->header('X-Service-Cert');
+
+        if ($certificate === null) {
+            throw new MissingCertificateException();
+        }
+
+        if (! $this->signer->verify($request, $signature, $timestamp, $certificate, $service)) {
             throw new InvalidSignatureException();
         }
 

@@ -5,9 +5,9 @@ weight: 50
 
 ## Introduction
 
-The package provides an inter-service event bus over RabbitMQ, built directly on [php-amqplib/php-amqplib](https://github.com/php-amqplib/php-amqplib). You may use it to broadcast domain events between services without coupling them through HTTP calls. The bus ships its own publisher, consumer, HMAC envelope signing, and dead-letter routing — no higher-level transport wrappers are required.
+The package provides an inter-service event bus over RabbitMQ, built directly on [php-amqplib/php-amqplib](https://github.com/php-amqplib/php-amqplib). You may use it to broadcast domain events between services without coupling them through HTTP calls. The bus ships its own publisher, consumer, ECDSA envelope signing, and dead-letter routing, so no higher-level transport wrapper is required on top of it.
 
-The bus is opt-in per service. Services that don't publish or consume events pay nothing at runtime; the bus simply isn't activated.
+The bus is opt-in per service. A service that doesn't publish or consume events pays nothing at runtime for it — the bus simply isn't activated, and none of its connections are opened.
 
 ## Configuration
 
@@ -25,12 +25,16 @@ RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
 RABBITMQ_PASSWORD=guest
 RABBITMQ_VHOST=/
+RABBITMQ_HEARTBEAT=60
+RABBITMQ_TIMEOUT=10
 
 MESSAGE_BUS_DLQ_ENABLED=true
 MESSAGE_BUS_DLQ_EXCHANGE=events.dlx
 ```
 
-All events are published to a single topic exchange (`events` by default), routed by the event type as the routing key. This allows multiple services to subscribe to the same event independently.
+All events are published to a single topic exchange (`events` by default), routed by the event type as the routing key. This lets multiple services subscribe to the same event independently, each with their own queue, without the publisher knowing or caring who's listening.
+
+`MESSAGE_BUS_CONFIRM_TIMEOUT` is how long the publisher waits for the broker to confirm a message before giving up on that attempt — see [Delivery](#delivery) below for what happens next. `RABBITMQ_HEARTBEAT` and `RABBITMQ_TIMEOUT` are passed straight through to the underlying AMQP connection: the heartbeat is how often the client and broker exchange keepalive frames to detect a connection that's gone silent, and the timeout bounds both connecting and individual reads/writes.
 
 ### Disabling the Message Bus
 
@@ -40,11 +44,11 @@ For services that don't need to participate in inter-service messaging, you may 
 MESSAGE_BUS_ENABLED=false
 ```
 
-With the bus disabled, `MessageBus::publish` logs a debug line and returns immediately — no AMQP connection is attempted. The `microservice:listen` command refuses to start. The package imposes no other runtime cost.
+With the bus disabled, `MessageBus::publish` logs a debug line and returns immediately — no AMQP connection is attempted, so a service with the bus off never even needs RabbitMQ to be reachable. The `microservice:listen` command refuses to start under the same condition. The package imposes no other runtime cost when the bus is off.
 
 ## Publishing Events
 
-To publish an event, you may inject the `MessageBus` and call the `publish` method:
+To publish an event, inject the `MessageBus` and call the `publish` method:
 
 ```php
 use Jurager\Microservice\Bus\MessageBus;
@@ -63,13 +67,11 @@ class BroadcastSiteEvents
 }
 ```
 
-Event types follow the convention `{source_service}.{entity}.{event}`, for example `sfm.site.updated` or `oms.order.shipped`. The type becomes the AMQP routing key, so subscribing services can bind queues to specific events or wildcard patterns such as `sfm.site.*`.
+Event types follow the convention `{source_service}.{entity}.{event}`, for example `sfm.site.updated` or `oms.order.shipped`. The type becomes the AMQP routing key, so subscribing services can bind queues to a specific event or to a wildcard pattern such as `sfm.site.*`.
 
 ### Delivery
 
-A publish either reaches a queue or throws. There is no third outcome, and this is worth knowing before you decide how to call it.
-
-Events are published with confirms enabled and the `mandatory` flag set, and the publisher waits for the broker to account for each one. An event that matches no bound queue is returned by the broker and raises a `RuntimeException` rather than being silently dropped — which is what happens to a topic exchange message when no consumer has ever declared its queue.
+A publish either reaches a queue or throws — there's no third, silent outcome. Events are published with confirms enabled and the `mandatory` flag set, so the publisher actively waits for the broker to account for each one rather than firing and forgetting. An event that matches no bound queue is returned by the broker and raises a `RuntimeException`, rather than being silently discarded the way a topic exchange normally discards a message when nothing has ever declared a matching queue:
 
 ```php
 try {
@@ -79,15 +81,15 @@ try {
 }
 ```
 
-Since a failed publish throws, a handler that already changed state should publish inside the same transaction, or be prepared to compensate. Nothing is lost quietly.
+Since a failed publish throws, a handler that already changed state before publishing should publish inside the same database transaction, or be prepared to compensate if the publish fails after the transaction commits. Nothing about this bus is designed to lose events quietly — a failure is always visible at the call site.
 
-The `MessageBus` is registered as a singleton and the connection is reused across publishes, but not indefinitely: a connection that has been idle longer than `MESSAGE_BUS_MAX_IDLE` is replaced before use. An idle TCP session is dropped by NAT or the broker without notifying the client, and the loss would otherwise surface only on the next write, with the message already gone. Reuse therefore stays cheap under load and cannot go stale between rare events.
+The `MessageBus` is registered as a singleton and its connection is reused across publishes, but not indefinitely: a connection that's been idle longer than `MESSAGE_BUS_MAX_IDLE` is replaced before use. This matters because a dead TCP session gets dropped by NAT or the broker without notifying the client — the loss would otherwise only surface on the *next* write, with the message it was carrying already gone. Reuse stays cheap under steady load and can never go stale between rare, bursty events.
 
-Should a connection still be closed within that window, the publish is retried on a fresh one, up to `MESSAGE_BUS_PUBLISH_ATTEMPTS` times. Set it to `1` to disable retrying. Unroutable events are never retried — the connection is fine, there is simply nothing bound to the type.
+If a connection is still found to be closed within that window despite the idle check, the publish is retried on a fresh one, up to `MESSAGE_BUS_PUBLISH_ATTEMPTS` times (set it to `1` to disable retrying entirely). Unroutable events are never retried on a new connection — the connection was fine, there's simply nothing bound to that routing key, and retrying wouldn't change that.
 
 ### The Envelope
 
-Every published event is wrapped in a standard envelope containing metadata and the domain payload:
+Every published event is wrapped in a standard envelope containing metadata alongside the domain payload:
 
 ```json
 {
@@ -96,23 +98,27 @@ Every published event is wrapped in a standard envelope containing metadata and 
   "occurred_at": "2026-05-21T10:30:00+00:00",
   "request_id": "req_abc123",
   "payload": {"site_id": 1, "domain": "example.com"},
-  "signature": "9f8a4b…"
+  "signature": "9f8a4b…",
+  "certificate": "eyJzZXJ2aWNlIjoi…"
 }
 ```
 
-The `service` field is taken from `microservice.name`, `occurred_at` is the publish timestamp in ISO 8601, and `request_id` is propagated from the inbound HTTP request's `X-Request-Id` header (when available) to enable distributed tracing across event chains.
+`service` is taken from `microservice.name`, `occurred_at` is the publish timestamp in ISO 8601, and `request_id` is propagated from the inbound HTTP request's `X-Request-Id` header when one is available — which lets you trace a single incoming request all the way through however many events it ends up producing.
 
 ### Signing Envelopes
 
-Every envelope is HMAC-signed with `microservice.secret` before publishing. The consumer verifies the signature before invoking the handler — envelopes with missing or invalid signatures are rejected and routed to the dead-letter queue.
+Every envelope is signed with the publisher's own ECDSA (P-256) private key before publishing, and carries the publisher's certificate in its `certificate` field. The consumer checks that certificate against the cluster CA, confirms it certifies the publisher named in the envelope's `service` field, and only then verifies the signature before invoking the handler. An envelope with a missing or invalid signature, or a missing, invalid, or mismatched certificate, is rejected outright and routed to the dead-letter queue rather than handed to a handler.
 
-This protects consumers from messages forged by anything with broker access but without the cluster secret. Signature verification is skipped when `microservice.debug=true`, mirroring the behavior of the HTTP `TrustGateway` middleware.
+This protects consumers from anything with mere broker access but no valid publisher key — publishing to the exchange directly, bypassing the application entirely, still isn't enough to forge an event. And because each service signs with its own key, compromising one publisher's key never lets an attacker forge events *from any other service*.
+
+> [!WARNING]
+> Signature verification is skipped when `microservice.debug=true`, mirroring the HTTP `TrustPeer` middleware. Never enable debug mode in production.
 
 ## Consuming Events
 
 ### Defining Message Handlers
 
-A handler is a class that implements the `MessageHandler` contract. It declares the event type it processes and knows how to reconstruct itself from a domain payload:
+A handler is a class that implements the `MessageHandler` contract. It declares the event type it processes, and knows how to reconstruct itself from a domain payload:
 
 ```php
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
@@ -142,25 +148,25 @@ class ForgetSiteConfig implements MessageHandler, ShouldQueue
 }
 ```
 
-Handlers that implement `ShouldQueue` are pushed to the Laravel queue when an event arrives, where they benefit from retries, the `failed_jobs` table, backoff, and all other queue features. Plain handlers without `ShouldQueue` are invoked synchronously in the listener process — you should only use them for cheap, idempotent operations.
+Handlers that implement `ShouldQueue` are pushed to the Laravel queue as soon as an event arrives, where they benefit from retries, the `failed_jobs` table, backoff, and every other queue feature you're already used to. Plain handlers without `ShouldQueue` are invoked synchronously, right inside the listener process — reserve those for work that's cheap and safe to run twice, since a synchronous handler that throws is treated as a failed delivery, not retried the way a queued job would be.
 
 ### Discovering Handlers
 
-Handlers are  registered  automatically. When the listener starts, the package picks up every concrete class that implements `MessageHandler`, and binds a queue for each. Add a new handler to your project and restart the worker — that's all.
+Handlers are registered automatically. When the listener starts, the package scans for every concrete class that implements `MessageHandler` and binds a queue for each one it finds. Add a new handler class to your project and restart the worker — that's the entire setup, there's nothing to register by hand.
 
-The scan happens once at boot and takes a single filesystem walk. For very large applications you may extend `Jurager\Microservice\Bus\HandlerDiscovery` and override the singleton binding to narrow the scan path or filter handlers further.
+The scan happens once at boot and takes a single filesystem walk, so it doesn't add meaningfully to startup time even in a large application. If you do need to narrow the scan path, or filter which handlers are picked up, extend `Jurager\Microservice\Bus\HandlerDiscovery` and override its singleton binding.
 
 ### Running the Listener
 
-To start consuming events, you may use the `microservice:listen` Artisan command:
+To start consuming events, use the `microservice:listen` Artisan command:
 
 ```bash
 php artisan microservice:listen
 ```
 
-For each handler, the command declares a durable queue named `{service_name}.{type}` (for example, `api.sfm.site.config`) and binds it to the topic exchange with the routing key set to the event type. The listener then enters a long-running loop, processing one message at a time.
+For each discovered handler, the command declares a durable queue named `{service_name}.{type}` (for example, `api.sfm.site.config`) and binds it to the topic exchange with the routing key set to that event type. The listener then enters a long-running loop, processing one message at a time.
 
-The command prints a single line per message so you may follow what's happening:
+The command prints a single line per message, so you can follow along in real time or in your log aggregator:
 
 ```
 [2026-05-21 12:34:56] Listening for events: sfm.site.updated, sfm.site.config (DLQ → events.dlx)
@@ -170,35 +176,35 @@ The command prints a single line per message so you may follow what's happening:
 [2026-05-21 12:35:05] FAIL sfm.site.updated App\Jobs\Cache\ForgetSiteDomain → DLQ
 ```
 
-You may control the worker's lifetime with the `--memory` and `--max-jobs` options. The worker stops after the given memory limit (in megabytes) or after processing the given number of messages, whichever comes first:
+You may control the worker's lifetime with the `--memory` and `--max-jobs` options — the process stops after whichever limit is hit first, the given memory usage (in megabytes) or the given number of processed messages:
 
 ```bash
 php artisan microservice:listen --memory=256 --max-jobs=1000
 ```
 
-Pairing `--max-jobs` with a process supervisor allows for periodic restarts that reclaim memory and pick up code changes without the operational overhead of full opcache flushes.
+Pairing `--max-jobs` with a process supervisor gives you periodic restarts that reclaim memory and pick up newly deployed code, without the operational overhead of a full opcache flush on every deploy.
 
 ### Losing the Broker
 
-A dropped connection is not a crash. The listener reopens it, redeclares its queues and resumes consuming, waiting a little longer before each attempt — one second, then two, four, and so on up to `--backoff`:
+A dropped connection isn't a crash. The listener reopens it, redeclares its queues, and resumes consuming — waiting a little longer before each attempt: one second, then two, four, and so on up to `--backoff`:
 
 ```bash
 php artisan microservice:listen --max-reconnects=10 --backoff=30
 ```
 
-With the defaults this covers roughly three minutes of outage. After `--max-reconnects` failed attempts the process exits with a non-zero status and lets the supervisor take over, because a broker that stays down is not something the loop can fix, and restart backoff is already handled elsewhere. Pass `--max-reconnects=0` to keep trying indefinitely.
+With the defaults shown above, this covers roughly three minutes of outage before giving up. After `--max-reconnects` failed attempts the process exits with a non-zero status and lets the supervisor take over — a broker that's genuinely staying down isn't something the reconnect loop itself can fix, and restarting the whole process is already handled at that layer. Pass `--max-reconnects=0` to keep trying indefinitely instead.
 
-An outage never costs you a message: the listener acknowledges only after a handler succeeded, and prefetch is one, so at most a single unacknowledged message is in flight and the broker requeues it.
+An outage never costs you a message: the listener only acknowledges a message after its handler has succeeded, and prefetch is fixed at one, so at most a single unacknowledged message is ever in flight — the broker simply requeues it once the connection comes back.
 
 ### Liveness
 
-A listener wedged inside a handler or a blocking read stays "up" forever, and nothing notices at all. The `--heartbeat` option gives an external check something to look at:
+A listener wedged inside a handler, or stuck on a blocking read, still looks "up" to the outside world forever, with nothing noticing on its own. The `--heartbeat` option gives an external check something concrete to look at:
 
 ```bash
 php artisan microservice:listen --heartbeat=/tmp/listener.heartbeat
 ```
 
-The file's modification time is refreshed on every pass of the consume loop, at most once every five seconds, and keeps being refreshed while the listener waits to reconnect — a process that is alive and still trying should not be killed for it. Its age is therefore bounded by the slowest synchronous handler; queued handlers return immediately, so it stays within seconds for them. Under Kubernetes, a liveness probe reads that age directly:
+The file's modification time is refreshed on every pass of the consume loop — at most once every five seconds — and keeps being refreshed while the listener is waiting to reconnect, so a process that's alive and still trying isn't mistaken for a dead one. Its age is bounded by the slowest synchronous handler in your application; queued handlers hand off immediately, so with those the heartbeat stays within a few seconds no matter how long the queued job itself takes to actually run. Under Kubernetes, a liveness probe can read that age directly:
 
 ```yaml
 livenessProbe:
@@ -209,7 +215,8 @@ livenessProbe:
       - test $(( $(date +%s) - $(stat -c %Y /tmp/listener.heartbeat) )) -lt 300
 ```
 
-Pick a threshold above your slowest synchronous handler, or the probe will restart a listener that is merely busy.
+> [!TIP]
+> Pick a threshold comfortably above your slowest synchronous handler, or the probe will restart a listener that's merely busy, not actually stuck.
 
 ### Dead-Letter Queues
 
@@ -220,42 +227,38 @@ api.sfm.site.config       ← main queue, bound to "events" with key "sfm.site.c
 api.sfm.site.config.dlq   ← DLQ, bound to "events.dlx" with key "sfm.site.config"
 ```
 
-Messages are routed to the DLQ when:
+A message is routed to the DLQ instead of being processed when: its signature is missing or invalid, or the publisher's certificate is missing, invalid, or doesn't certify the claimed publisher; its body isn't valid JSON; the decoded envelope isn't a JSON object; or a synchronous handler throws while processing it.
 
-- The HMAC signature is missing or invalid
-- The body is not valid JSON
-- The envelope is not a JSON object
-- A synchronous handler throws an exception
+Queued handlers are the one exception — they handle their own failures through the Laravel queue's own retry and `failed_jobs` machinery, so a `ShouldQueue` handler that throws never reaches the DLQ. By the time it fails, the original AMQP message has already been acknowledged, because dispatching it to the queue is what counted as "delivered" from the bus's point of view.
 
-Queued handlers handle their own failures via the Laravel queue, so a `ShouldQueue` handler that throws will not reach the DLQ — the message was already ack'd when it was dispatched to the queue.
-
-To inspect a dead-letter queue, you may use the RabbitMQ Management UI or the `rabbitmqadmin` CLI:
+To inspect a dead-letter queue, use the RabbitMQ Management UI or the `rabbitmqadmin` CLI:
 
 ```bash
 rabbitmqadmin get queue=api.sfm.site.config.dlq count=10
 ```
 
-To disable dead-letter routing globally, set `MESSAGE_BUS_DLQ_ENABLED=false`. With the DLQ disabled, failed messages are acknowledged and discarded — useful for local development but loses observability of poison messages.
+To disable dead-letter routing globally, set `MESSAGE_BUS_DLQ_ENABLED=false`. With the DLQ disabled, failed messages are acknowledged and discarded instead — fine for local development, but it means losing all visibility into poison messages in any environment you actually care about.
 
-> **Migration note:** toggling DLQ for an existing service requires deleting the affected main queues first — RabbitMQ rejects redeclares that change the `x-dead-letter-exchange` argument.
+> [!WARNING]
+> Toggling DLQ for an existing service requires deleting the affected main queues first — RabbitMQ rejects redeclares that change the `x-dead-letter-exchange` argument of a queue that already exists.
 
 ### Graceful Shutdown
 
-The listener responds to `SIGTERM` and `SIGINT`. On receiving either signal, the loop finishes processing the current message, closes the AMQP channel, and exits with status `0`. This makes the listener safe to manage with Supervisor's rolling restarts and Kubernetes pod lifecycle.
+The listener responds to `SIGTERM` and `SIGINT`. On receiving either signal, the loop finishes processing whatever message it's currently on, closes the AMQP channel cleanly, and exits with status `0` — which is what makes it safe to manage with Supervisor's rolling restarts or a Kubernetes pod's normal termination lifecycle.
 
-A signal that arrives mid-outage is honoured immediately: the listener stops instead of sitting out the remaining reconnect attempts, so a deploy is never delayed by a broker that happens to be unreachable.
+A signal that arrives in the middle of an outage is honoured immediately, rather than being queued up behind the remaining reconnect attempts: the listener stops right away, so a deploy is never held up waiting on a broker that happens to be unreachable at that exact moment.
 
 ## Diagnostic Commands
 
 ### Listing Registered Events
 
-To inspect the handlers your service has registered, you may use the `microservice:events` command:
+To inspect the handlers your service has registered, use the `microservice:events` command:
 
 ```bash
 php artisan microservice:events
 ```
 
-The command prints a table of every discovered event type along with the queue it binds, the handler class, and the execution mode:
+The command prints a table of every discovered event type, along with the queue it binds, the handler class, and whether it runs queued or synchronously:
 
 ```
 +------------------+----------------------+----------------------------------+--------+
@@ -267,21 +270,24 @@ The command prints a table of every discovered event type along with the queue i
 +------------------+----------------------+----------------------------------+--------+
 ```
 
-This is useful for diagnosing configuration before starting a listener and for confirming that newly added handlers are picked up.
+This is useful for confirming a newly added handler was actually picked up, and for diagnosing configuration before you start a listener in the first place, rather than finding out something's missing once events are already flowing.
 
 ### Emitting Events Manually
 
-To trigger handlers without going through application code, you may use the `microservice:emit` command:
+To trigger handlers without going through your actual application code, use the `microservice:emit` command:
 
 ```bash
 php artisan microservice:emit sfm.site.config '{"site_id":1}'
 ```
 
-The command goes through the same `MessageBus::publish` path as a real publish — the envelope is built, signed, and forwarded to RabbitMQ. Subscribing services pick the event up via their own listeners. This is the recommended way to smoke-test the pipeline after a deploy.
+The command goes through the exact same `MessageBus::publish` path as a real publish — the envelope is built, signed, and forwarded to RabbitMQ — so subscribing services pick it up through their own listeners exactly as they would a real event.
+
+> [!TIP]
+> This is the recommended way to smoke-test the whole pipeline after a deploy, without waiting for a real domain event to trigger it.
 
 ## Production Deployment
 
-The listener is a long-running process and should be managed by a supervisor such as Supervisor, systemd, or a Kubernetes Deployment. The following Supervisor configuration runs the worker, restarts it on crash, restarts it gracefully every 1000 messages, and stops it cleanly on shutdown:
+The listener is a long-running process and should be managed by a supervisor such as Supervisor, systemd, or a Kubernetes Deployment. The following Supervisor configuration runs the worker, restarts it on crash, restarts it gracefully every 1000 messages to reclaim memory, and stops it cleanly on shutdown:
 
 ```ini
 [program:api-microservice-listener]
@@ -292,6 +298,7 @@ stopsignal=TERM
 stopwaitsecs=30
 ```
 
-When you deploy a new version of the application, send `SIGTERM` to the listener. It will finish the current message and exit; Supervisor will start a fresh process with the new code.
+When you deploy a new version of the application, send `SIGTERM` to the listener. It finishes the current message and exits; Supervisor starts a fresh process running the new code, and no message is lost in between.
 
-For observability, you should monitor the DLQ depth of each queue. A growing DLQ indicates poison messages, configuration drift, or a misbehaving publisher — none of which are visible from the listener's normal output.
+> [!TIP]
+> Monitor the DLQ depth of each queue in production. A growing DLQ indicates poison messages, configuration drift, or a misbehaving publisher — none of which are visible from the listener's normal output alone.

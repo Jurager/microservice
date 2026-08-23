@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Registry;
 
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Routing\Registrar;
 
@@ -33,7 +34,7 @@ class ManifestRegistry
     {
         $raw = $this->cache->get("microservice:manifest:$service");
 
-        if (!$raw) {
+        if (! $raw) {
             return null;
         }
 
@@ -56,16 +57,16 @@ class ManifestRegistry
         $this->cache->put("microservice:manifest:$service", $manifest, $this->ttl());
 
         $lock = $this->cache->lock('microservice:manifests_lock', 10);
-        
+
         try {
             $lock->block(5, function () use ($service) {
                 $services = $this->cache->get('microservice:manifests', []);
-                if (!in_array($service, $services, true)) {
+                if (! in_array($service, $services, true)) {
                     $services[] = $service;
                     $this->cache->put('microservice:manifests', $services);
                 }
             });
-        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+        } catch (LockTimeoutException) {
             // Lock timeout, array might not be updated, but manifest is saved
         }
     }
@@ -116,7 +117,7 @@ class ManifestRegistry
                     $this->cache->put('microservice:manifests', array_values($services));
                 }
             });
-        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+        } catch (LockTimeoutException) {
             // Ignore lock timeout
         }
     }

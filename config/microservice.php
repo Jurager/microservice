@@ -29,7 +29,7 @@ return [
     | Debug Mode
     |--------------------------------------------------------------------------
     |
-    | Disables HMAC signature verification and secret validation.
+    | Disables signature verification and signing config validation.
     | Intended for local development only.
     | Never enable in production environments.
     |
@@ -38,27 +38,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Service Secret
+    | Signing
     |--------------------------------------------------------------------------
     |
-    | Shared secret used for HMAC signing between services.
-    | Every service in the cluster must use the same value.
+    | Each service signs its own outgoing requests and events with its own
+    | ECDSA (P-256) private key. Compromising one service's key lets an
+    | attacker forge traffic as that service only — it never exposes any
+    | other service's signing capability.
     |
-    | Generate a secure key with:
-    |   openssl rand -base64 32
+    | A sender proves its public key by presenting a certificate — a small
+    | statement "this key belongs to service X", signed by a cluster CA.
+    | Verifying any peer only requires the CA's public key, a single
+    | constant shared by every service, instead of a list of every
+    | individual peer's key that needs editing as services are added or
+    | rotated.
+    |
+    | private_key    This service's own PEM private key, base64-wrapped for
+    |                env storage. Never shared.
+    | certificate    This service's own certificate, issued by the CA for
+    |                the public key matching private_key. Not a secret.
+    | ca_public_key  The cluster CA's public key. The same value on every
+    |                service. Not a secret. The CA's private key is never
+    |                deployed anywhere — it only signs certificates, at
+    |                issuance time, off the running infrastructure.
+    |
+    | Generate this service's key pair with:
+    |   php artisan microservice:keygen
+    |
+    | Issue its certificate (run wherever the CA private key lives):
+    |   php artisan microservice:certificate:issue <service> <public_key>
     |
     */
-    'secret' => env('SERVICE_SECRET', ''),
-
-    /*
-    |--------------------------------------------------------------------------
-    | HMAC Algorithm
-    |--------------------------------------------------------------------------
-    |
-    | Hashing algorithm used for request and message signatures.
-    |
-    */
-    'algorithm' => 'sha256',
+    'signing' => [
+        'private_key' => env('SERVICE_PRIVATE_KEY', ''),
+        'certificate' => env('SERVICE_CERTIFICATE', ''),
+        'ca_public_key' => env('SERVICE_CA_PUBLIC_KEY', ''),
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -70,7 +85,6 @@ return [
     |
     */
     'timestamp_tolerance' => 60,
-
 
     /*
     |--------------------------------------------------------------------------
