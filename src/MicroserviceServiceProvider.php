@@ -20,12 +20,15 @@ use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Commands\EmitCommand;
 use Jurager\Microservice\Commands\EventsCommand;
 use Jurager\Microservice\Commands\ListenCommand;
-use Jurager\Microservice\Commands\SyncManifestsCommand;
+use Jurager\Microservice\Commands\Signing\AuthorityGenerateCommand;
+use Jurager\Microservice\Commands\Signing\CertificateIssueCommand;
+use Jurager\Microservice\Commands\Signing\KeygenCommand;
+use Jurager\Microservice\Commands\SyncCommand;
 use Jurager\Microservice\Http\Middleware\LogContext;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Registry\RouteRegistry;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use RuntimeException;
 use Throwable;
 
@@ -37,7 +40,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/microservice.php', 'microservice');
         $this->normalizeServicesConfig();
 
-        $this->app->singleton(HmacSigner::class);
+        $this->app->singleton(Signer::class);
         $this->app->singleton(ServiceClient::class);
         $this->app->singleton(Connection::class);
         $this->app->singleton(MessageBus::class);
@@ -50,7 +53,11 @@ class MicroserviceServiceProvider extends ServiceProvider
     /** Bootstrap application services. */
     public function boot(): void
     {
-        $this->validateSecret();
+        // Console commands assert signing config for themselves where needed.
+        if (! $this->app->runningInConsole()) {
+            $this->validateSigningConfig();
+        }
+
         $this->validateCache();
         $this->configureExceptions();
         $this->configureTrustedProxies();
@@ -66,10 +73,13 @@ class MicroserviceServiceProvider extends ServiceProvider
             ], 'microservice-config');
 
             $this->commands([
-                SyncManifestsCommand::class,
+                SyncCommand::class,
                 ListenCommand::class,
                 EventsCommand::class,
                 EmitCommand::class,
+                KeygenCommand::class,
+                AuthorityGenerateCommand::class,
+                CertificateIssueCommand::class,
             ]);
         }
     }
@@ -96,15 +106,17 @@ class MicroserviceServiceProvider extends ServiceProvider
         config(['microservice.manifest.services' => $services]);
     }
 
-    /** Validate HMAC shared secret presence. */
-    private function validateSecret(): void
+    /** Validate the signing configuration is present, well-formed, and internally consistent. */
+    private function validateSigningConfig(): void
     {
         if (config('microservice.debug', false) === true) {
             return;
         }
 
-        if (blank(config('microservice.secret'))) {
-            throw new RuntimeException('Invalid SERVICE_SECRET value. HMAC signing requires a non-empty shared secret.');
+        try {
+            $this->app->make(Signer::class)->assertConfigured();
+        } catch (RuntimeException $e) {
+            throw new RuntimeException("Invalid signing configuration: {$e->getMessage()}", previous: $e);
         }
     }
 
@@ -172,7 +184,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
 
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($interval): void {
-            $schedule->command(SyncManifestsCommand::class)->cron("*/{$interval} * * * *");
+            $schedule->command(SyncCommand::class)->cron("*/{$interval} * * * *");
         });
     }
 }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Bus;
 
 use JsonException;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use PhpAmqpLib\Exception\AMQPExceptionInterface;
 use PhpAmqpLib\Message\AMQPMessage;
 use Psr\Log\LoggerInterface;
@@ -15,7 +15,7 @@ use Throwable;
 readonly class MessageBus
 {
     public function __construct(
-        private HmacSigner $signer,
+        private Signer $signer,
         private Connection $connection,
         private LoggerInterface $logger,
     ) {
@@ -89,7 +89,7 @@ readonly class MessageBus
         );
     }
 
-    /** Verify envelope HMAC signature. */
+    /** Verify envelope signature against the public key certified for the publishing service. */
     public function verify(array $envelope): bool
     {
         if (config('microservice.debug', false) === true) {
@@ -97,17 +97,21 @@ readonly class MessageBus
         }
 
         $signature = $envelope['signature'] ?? null;
+        $service = $envelope['service'] ?? null;
+        $certificate = $envelope['certificate'] ?? null;
 
-        if (! is_string($signature) || $signature === '') {
+        if (! is_string($signature) || $signature === ''
+            || ! is_string($service) || $service === ''
+            || ! is_string($certificate) || $certificate === '') {
             return false;
         }
-
-        unset($envelope['signature']);
 
         try {
             return $this->signer->verifyRaw(
                 self::canonicalize($envelope),
                 $signature,
+                $certificate,
+                $service,
             );
         } catch (Throwable) {
             return false;
@@ -124,21 +128,24 @@ readonly class MessageBus
      * Create signed message envelope.
      *
      * @return array<string, mixed>
+     *
      * @throws JsonException
      */
     private function signedEnvelope(string $type, array $payload): array
     {
         $envelope = [
-            'type'        => $type,
-            'service'     => (string) config('microservice.name', 'app'),
+            'type' => $type,
+            'service' => (string) config('microservice.name', 'app'),
             'occurred_at' => now()->toIso8601String(),
-            'request_id'  => request()?->header('X-Request-Id'),
-            'payload'     => $payload,
+            'request_id' => request()?->header('X-Request-Id'),
+            'payload' => $payload,
         ];
 
         $envelope['signature'] = $this->signer->signRaw(
             self::canonicalize($envelope),
         );
+
+        $envelope['certificate'] = $this->signer->certificate();
 
         return $envelope;
     }
@@ -155,14 +162,14 @@ readonly class MessageBus
         return new AMQPMessage(
             json_encode($envelope, $flags),
             [
-                'content_type'  => 'application/json',
+                'content_type' => 'application/json',
                 'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
             ],
         );
     }
 
     /**
-     * Create deterministic JSON representation for HMAC signing.
+     * Create deterministic JSON representation for signing.
      *
      * @throws JsonException
      */
@@ -172,11 +179,11 @@ readonly class MessageBus
 
         return json_encode(
             [
-                'type'        => $envelope['type'] ?? null,
-                'service'     => $envelope['service'] ?? null,
+                'type' => $envelope['type'] ?? null,
+                'service' => $envelope['service'] ?? null,
                 'occurred_at' => $envelope['occurred_at'] ?? null,
-                'request_id'  => $envelope['request_id'] ?? null,
-                'payload'     => $envelope['payload'] ?? null,
+                'request_id' => $envelope['request_id'] ?? null,
+                'payload' => $envelope['payload'] ?? null,
             ],
             $flags,
         );

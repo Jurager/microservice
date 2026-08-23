@@ -15,7 +15,7 @@ use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
@@ -31,7 +31,7 @@ class ServiceClientTest extends TestCase
 
         $httpClient = new Client(['handler' => $stack]);
 
-        $client = Mockery::mock(ServiceClient::class, [$this->app->make(HmacSigner::class), $cache ?? Mockery::mock(Cache::class)])
+        $client = Mockery::mock(ServiceClient::class, [$this->app->make(Signer::class), $cache ?? Mockery::mock(Cache::class)])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -71,7 +71,7 @@ class ServiceClientTest extends TestCase
         $this->assertSame('ok', $response->json('data'));
     }
 
-    public function test_request_includes_hmac_headers(): void
+    public function test_request_includes_signature_headers(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 
@@ -291,7 +291,7 @@ class ServiceClientTest extends TestCase
         $this->assertNotSame('application/json', $request->getHeaderLine('Content-Type'));
     }
 
-    public function test_multipart_request_includes_hmac_headers(): void
+    public function test_multipart_request_includes_signature_headers(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
 

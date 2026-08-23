@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Log;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\Listener;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
@@ -114,9 +114,12 @@ class ListenerTest extends TestCase
             'payload' => $payload,
         ];
 
-        $envelope['signature'] = app(HmacSigner::class)->signRaw(
+        $signer = app(Signer::class);
+
+        $envelope['signature'] = $signer->signRaw(
             json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
         );
+        $envelope['certificate'] = $signer->certificate();
 
         return $envelope;
     }

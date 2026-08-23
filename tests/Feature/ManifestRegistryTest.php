@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
-use Closure;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Contracts\Routing\Registrar;
 use Illuminate\Support\Facades\Route;
@@ -109,6 +108,7 @@ class ManifestRegistryTest extends TestCase
                 $this->cache->shouldReceive('get')->with('microservice:manifests', [])->andReturn([]);
                 $this->cache->shouldReceive('put')->with('microservice:manifests', ['pim']);
                 $callback();
+
                 return true;
             });
 

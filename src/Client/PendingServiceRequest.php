@@ -15,15 +15,11 @@ class PendingServiceRequest
 {
     /**
      * HTTP request method.
-     *
-     * @var string
      */
     protected string $method = 'GET';
 
     /**
      * Request path.
-     *
-     * @var string
      */
     protected string $path = '/';
 
@@ -43,36 +39,26 @@ class PendingServiceRequest
 
     /**
      * JSON request body.
-     *
-     * @var array|null
      */
     protected ?array $body = null;
 
     /**
      * Multipart form data payload.
-     *
-     * @var array|null
      */
     protected ?array $multipart = null;
 
     /**
      * Request timeout in seconds.
-     *
-     * @var int|null
      */
     protected ?int $timeout = null;
 
     /**
      * Whether to expose upstream errors in exceptions.
-     *
-     * @var bool
      */
     protected bool $exposeError = true;
 
     /**
      * Whether to bypass the circuit breaker.
-     *
-     * @var bool
      */
     protected bool $bypassCircuitBreaker = false;
 
@@ -123,8 +109,8 @@ class PendingServiceRequest
     public function withMethod(string $method, string $path, ?array $body = null): static
     {
         $this->method = $method;
-        $this->path   = $path;
-        $this->body   = $body;
+        $this->path = $path;
+        $this->body = $body;
 
         if (! in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) {
             $this->headers['X-Request-Id'] ??= (string) Str::uuid();
@@ -163,17 +149,20 @@ class PendingServiceRequest
 
             if ($existing === null) {
                 $this->query[$key] = $value;
+
                 continue;
             }
 
             if (is_string($value) && is_string($existing)) {
                 $merged = [...explode(',', $existing), ...explode(',', $value)];
                 $this->query[$key] = implode(',', array_unique(array_filter($merged)));
+
                 continue;
             }
 
             if (is_array($value) && is_array($existing)) {
                 $this->query[$key] = array_replace_recursive($existing, $value);
+
                 continue;
             }
 
@@ -248,7 +237,7 @@ class PendingServiceRequest
     /**
      * Register a hook to process the query before sending or the body after receiving.
      *
-     * @param callable(array): (array|object)|object $processor
+     * @param  callable(array): (array|object)|object  $processor
      */
     public function after(callable|object $processor): static
     {
@@ -280,7 +269,8 @@ class PendingServiceRequest
      * Parse response into a JSON:API Collection Document.
      *
      * @template T of Item
-     * @param class-string<T> $itemClass
+     *
+     * @param  class-string<T>  $itemClass
      * @return CollectionDocument<T>
      */
     public function collect(string $itemClass = Item::class): CollectionDocument
@@ -296,7 +286,8 @@ class PendingServiceRequest
      * Parse response into a JSON:API Item Document.
      *
      * @template T of Item
-     * @param class-string<T> $itemClass
+     *
+     * @param  class-string<T>  $itemClass
      * @return ItemDocument<T>
      */
     public function item(string $itemClass = Item::class): ItemDocument

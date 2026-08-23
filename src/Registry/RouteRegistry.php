@@ -26,7 +26,7 @@ class RouteRegistry
         try {
             $services = $this->cache->get('microservice:manifests', []);
 
-            if (!$services || !is_array($services)) {
+            if (! $services || ! is_array($services)) {
                 return [];
             }
 

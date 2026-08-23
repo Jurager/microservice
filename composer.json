@@ -11,6 +11,7 @@
     ],
     "require": {
         "php": "^8.4",
+        "ext-openssl": "*",
         "guzzlehttp/guzzle": "^7.0",
         "illuminate/console": "^13.17",
         "illuminate/http": "^13.17",
@@ -18,6 +19,7 @@
         "illuminate/redis": "^13.17",
         "illuminate/routing": "^13.17",
         "illuminate/support": "^13.17",
+        "laravel/prompts": "^0.3",
         "php-amqplib/php-amqplib": "^3.7"
     },
     "require-dev": {

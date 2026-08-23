@@ -9,7 +9,7 @@ A Laravel package for secure communication between microservices.
 
 Features:
 
-- HMAC-signed requests for internal service authentication
+- ECDSA-signed requests for internal service authentication
 - Service discovery via shared cache manifests or DNS pattern (Kubernetes-ready)
 - Route manifest publishing and gateway proxying
 - Idempotency support for non-safe requests (POST, PUT, PATCH)

@@ -14,7 +14,7 @@ use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
-use Jurager\Microservice\Support\HmacSigner;
+use Jurager\Microservice\Support\Signer;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Random\RandomException;
@@ -22,7 +22,6 @@ use Throwable;
 
 class ServiceClient
 {
-
     protected Client $httpClient;
 
     /** @var array<string, array{string, int, int}> In-memory cache: service → [baseUrl, timeout, cachedAt] */
@@ -37,7 +36,7 @@ class ServiceClient
     protected int $circuitThreshold;
 
     public function __construct(
-        protected readonly HmacSigner $signer,
+        protected readonly Signer $signer,
         private readonly Cache $cache,
         ?Client $httpClient = null,
     ) {
@@ -302,6 +301,10 @@ class ServiceClient
             // Multipart body is excluded from the signature because its boundary changes per request.
             'X-Signature' => $this->signer->sign($method, $path, $timestamp, $multipart ? '' : ($body ?? '')),
         ];
+
+        if ($certificate = $this->signer->certificate()) {
+            $headers['X-Service-Cert'] = $certificate;
+        }
 
         $headers['Accept'] = 'application/json';
 

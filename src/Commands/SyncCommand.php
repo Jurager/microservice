@@ -18,7 +18,7 @@ use Throwable;
 
 #[Signature('microservice:sync {services?* : Service names to sync (defaults to all configured)}')]
 #[Description('Pull and store route manifests from configured microservices.')]
-class SyncManifestsCommand extends Command implements Isolatable
+class SyncCommand extends Command implements Isolatable
 {
     public function isolatableId(): string
     {

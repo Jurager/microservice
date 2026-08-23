@@ -16,7 +16,7 @@ class LogContext
     {
         Log::withContext(array_filter([
             'request_id' => $this->requestId($request),
-            'trace_id'   => $this->traceId($request),
+            'trace_id' => $this->traceId($request),
         ]));
 
         return $next($request);

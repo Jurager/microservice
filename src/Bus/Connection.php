@@ -14,15 +14,11 @@ class Connection
 {
     /**
      * Active AMQP stream connection.
-     *
-     * @var AMQPStreamConnection|null
      */
     private ?AMQPStreamConnection $connection = null;
 
     /**
      * Active AMQP channel.
-     *
-     * @var AMQPChannel|null
      */
     private ?AMQPChannel $channel = null;
 
@@ -32,7 +28,8 @@ class Connection
     /**
      * Get active AMQP channel, connecting if necessary.
      *
-     * @param int|null $heartbeat Overrides the configured heartbeat for a newly opened connection.
+     * @param  int|null  $heartbeat  Overrides the configured heartbeat for a newly opened connection.
+     *
      * @throws Exception
      */
     public function channel(?int $heartbeat = null): AMQPChannel
