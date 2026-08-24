@@ -60,7 +60,7 @@ class Idempotency
             $response = $next($request);
 
             if ($response->isSuccessful()) {
-                $response = $this->cacheResponse($cacheKey, $response);
+                $this->cacheResponse($cacheKey, $response);
             }
 
             return $response;
@@ -69,23 +69,22 @@ class Idempotency
         }
     }
 
-    /**
-     * Store the response for replay, returning the response to send to the client.
-     */
-    protected function cacheResponse(string $key, Response $response): Response
+    protected function cacheResponse(string $key, Response $response): void
     {
-        [$response, $content] = $this->materialize($response);
-
-        if ($content === null) {
-            return $response;
+        if ($response instanceof StreamedResponse) {
+            return;
         }
 
-        // A body too large to cache is still a valid response — send it,
-        // just don't let it flood the cache. A replay will re-run the request.
+        $content = $response->getContent();
+
+        if (! is_string($content)) {
+            return;
+        }
+        
         $limit = (int) config('microservice.idempotency.max_body_size', 1048576);
 
         if ($limit > 0 && strlen($content) > $limit) {
-            return $response;
+            return;
         }
 
         $exclude = ['date', 'set-cookie'];
@@ -98,40 +97,6 @@ class Idempotency
 
         $ttl = config('microservice.idempotency.ttl', 60);
         $this->cache->put($key, $data, $ttl);
-
-        return $response;
-    }
-
-    /**
-     * Resolve a response into [response to send, body to cache].
-     *
-     * @return array{Response, string|null}
-     */
-    private function materialize(Response $response): array
-    {
-        if (! $response instanceof StreamedResponse) {
-            $content = $response->getContent();
-
-            return [$response, is_string($content) ? $content : null];
-        }
-
-        $content = '';
-
-        // A callback buffer keeps the capture intact when the streaming callback
-        // flushes mid-way, which a plain ob_get_clean() would lose.
-        ob_start(static function (string $chunk) use (&$content): string {
-            $content .= $chunk;
-
-            return '';
-        });
-
-        try {
-            $response->sendContent();
-        } finally {
-            ob_end_clean();
-        }
-
-        return [new Response($content, $response->getStatusCode(), $response->headers->all()), $content];
     }
 
     protected function buildCachedResponse(mixed $data, string $requestId, Request $request): Response

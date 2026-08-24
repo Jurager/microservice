@@ -219,28 +219,20 @@ class IdempotencyMiddlewareTest extends TestCase
             ->assertHeader('x-custom', 'custom-value');
     }
 
-    public function test_caches_the_body_of_a_streamed_response(): void
+    public function test_leaves_a_streamed_response_untouched(): void
     {
-        $cached = null;
-
         $this->cache->shouldReceive('get')->once()->andReturn(null);
         $this->cache->shouldReceive('add')->once()->andReturn(true);
         $this->cache->shouldReceive('forget')->once();
 
-        $this->cache->shouldReceive('put')
-            ->once()
-            ->withArgs(function ($key, $data) use (&$cached) {
-                $cached = $data;
-
-                return true;
-            });
+        // Reading a streamed body means sending it, which would commit PHP's
+        // default headers mid-pipeline. It is delivered as-is and not cached.
+        $this->cache->shouldNotReceive('put');
 
         $this->postJson('/test/idempotent-stream', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440010'])
             ->assertOk()
-            ->assertContent('{"streamed":true}');
-
-        $this->assertSame('{"streamed":true}', $cached['content']);
-        $this->assertSame(200, $cached['status']);
+            ->assertHeader('Content-Type', 'application/json')
+            ->assertStreamedContent('{"streamed":true}');
     }
 
     public function test_does_not_cache_a_body_over_the_size_limit(): void
@@ -253,9 +245,9 @@ class IdempotencyMiddlewareTest extends TestCase
         $this->cache->shouldNotReceive('put');
 
         // Oversized responses are still delivered in full, just not cached.
-        $this->postJson('/test/idempotent-stream', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440011'])
-            ->assertOk()
-            ->assertContent('{"streamed":true}');
+        $this->postJson('/test/idempotent', [], ['X-Request-Id' => '550e8400-e29b-41d4-a716-446655440011'])
+            ->assertStatus(201)
+            ->assertContent('{"created":true}');
     }
 
     public function test_returns_500_for_cached_content_that_is_not_a_string(): void
