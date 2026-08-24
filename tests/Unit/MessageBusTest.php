@@ -14,19 +14,9 @@ use Psr\Log\LoggerInterface;
 
 class MessageBusTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // 'test-service' trusting itself lets verify() below check an
-        // envelope published under its own name — mirrors SignerTest's approach.
-        $this->trustPeer('test-service', static::$publicKey);
-    }
-
     public function test_publish_sends_signed_envelope_to_topic_exchange(): void
     {
         config()->set('microservice.name', 'sfm');
-        $this->trustPeer('sfm', static::$publicKey);
 
         $channel = Mockery::mock(AMQPChannel::class);
         $channel->shouldReceive('basic_publish')
@@ -41,7 +31,8 @@ class MessageBusTest extends TestCase
                     && $envelope['type'] === 'sfm.site.updated'
                     && $envelope['service'] === 'sfm'
                     && $envelope['payload'] === ['site_id' => 1]
-                    && is_string($envelope['signature']);
+                    && is_string($envelope['signature'])
+                    && is_string($envelope['certificate']);
             });
 
         $this->bindChannel($channel);
@@ -136,18 +127,24 @@ class MessageBusTest extends TestCase
         ]));
     }
 
-    public function test_verify_rejects_envelope_from_an_untrusted_service(): void
+    public function test_verify_rejects_envelope_with_certificate_for_a_different_service(): void
     {
-        // No trustPeer() call for 'never-trusted' — verify() must reject on
-        // that alone, regardless of what the signature actually is.
-        $this->assertFalse(app(MessageBus::class)->verify([
+        $signer = $this->app->make(\Jurager\Microservice\Support\Signer::class);
+
+        $envelope = [
             'type' => 'sfm.site.updated',
             'service' => 'never-trusted',
             'occurred_at' => now()->toIso8601String(),
             'request_id' => null,
             'payload' => ['site_id' => 1],
-            'signature' => 'anything',
-        ]));
+        ];
+
+        // Signed by, and certified for, 'test-service' — but claiming to be
+        // 'never-trusted' here.
+        $envelope['signature'] = $signer->signRaw(json_encode($envelope, JSON_UNESCAPED_SLASHES));
+        $envelope['certificate'] = $signer->certificate();
+
+        $this->assertFalse(app(MessageBus::class)->verify($envelope));
     }
 
     public function test_verify_passes_through_in_debug_mode(): void

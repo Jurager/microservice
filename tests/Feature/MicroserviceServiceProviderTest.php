@@ -64,6 +64,8 @@ class MicroserviceServiceProviderTest extends TestCase
 
         $this->assertContains('microservice:sync', $commands);
         $this->assertContains('microservice:keygen', $commands);
+        $this->assertContains('microservice:authority:generate', $commands);
+        $this->assertContains('microservice:certificate:issue', $commands);
     }
 
     public function test_manifest_route_is_registered(): void

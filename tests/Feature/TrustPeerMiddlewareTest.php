@@ -6,6 +6,8 @@ namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Testing\TestResponse;
 use Jurager\Microservice\Http\Middleware\TrustPeer;
+use Jurager\Microservice\Support\Certificate;
+use Jurager\Microservice\Support\Ecdsa;
 use Jurager\Microservice\Support\Signer;
 use Jurager\Microservice\Tests\TestCase;
 
@@ -15,16 +17,6 @@ class TrustPeerMiddlewareTest extends TestCase
     {
         $router->post('/test/endpoint', fn () => response()->json(['ok' => true]))
             ->middleware(TrustPeer::class);
-    }
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // 'test-service' trusting itself lets requests signed with its own
-        // key verify as coming from 'test-service' — the mechanics under
-        // test here, not any particular peer relationship.
-        $this->trustPeer('test-service', static::$publicKey);
     }
 
     private function signedRequest(string $method, string $path, array $data = []): TestResponse
@@ -37,6 +29,7 @@ class TrustPeerMiddlewareTest extends TestCase
             'X-Timestamp' => $timestamp,
             'X-Signature' => $signer->sign($method, $path, $timestamp, $body),
             'X-Service-Name' => 'test-service',
+            'X-Service-Cert' => $signer->certificate(),
         ];
 
         return $this->postJson($path, $data, $headers);
@@ -65,23 +58,13 @@ class TrustPeerMiddlewareTest extends TestCase
         $this->postJson('/test/endpoint', [], [
             'X-Timestamp' => $timestamp,
             'X-Signature' => $signer->sign('POST', '/test/endpoint', $timestamp, $body),
+            'X-Service-Cert' => $signer->certificate(),
         ])
             ->assertStatus(401)
             ->assertJson(['errors' => [['detail' => 'Missing service name header.']]]);
     }
 
-    public function test_rejects_invalid_signature(): void
-    {
-        $this->postJson('/test/endpoint', [], [
-            'X-Signature' => 'invalid',
-            'X-Timestamp' => (string) time(),
-            'X-Service-Name' => 'test-service',
-        ])
-            ->assertStatus(401)
-            ->assertJson(['errors' => [['detail' => 'Invalid signature or timestamp.']]]);
-    }
-
-    public function test_rejects_signature_claiming_a_different_service(): void
+    public function test_rejects_missing_certificate_header(): void
     {
         $signer = $this->app->make(Signer::class);
         $timestamp = (string) time();
@@ -90,24 +73,56 @@ class TrustPeerMiddlewareTest extends TestCase
         $this->postJson('/test/endpoint', [], [
             'X-Timestamp' => $timestamp,
             'X-Signature' => $signer->sign('POST', '/test/endpoint', $timestamp, $body),
-            'X-Service-Name' => 'unknown-service', // signed as 'test-service', claimed as someone else
+            'X-Service-Name' => 'test-service',
+        ])
+            ->assertStatus(401)
+            ->assertJson(['errors' => [['detail' => 'Missing service certificate.']]]);
+    }
+
+    public function test_rejects_invalid_signature(): void
+    {
+        $signer = $this->app->make(Signer::class);
+
+        $this->postJson('/test/endpoint', [], [
+            'X-Signature' => 'invalid',
+            'X-Timestamp' => (string) time(),
+            'X-Service-Name' => 'test-service',
+            'X-Service-Cert' => $signer->certificate(),
+        ])
+            ->assertStatus(401)
+            ->assertJson(['errors' => [['detail' => 'Invalid signature or timestamp.']]]);
+    }
+
+    public function test_rejects_certificate_claiming_a_different_service(): void
+    {
+        $signer = $this->app->make(Signer::class);
+        $timestamp = (string) time();
+        $body = json_encode([]);
+
+        $this->postJson('/test/endpoint', [], [
+            'X-Timestamp' => $timestamp,
+            'X-Signature' => $signer->sign('POST', '/test/endpoint', $timestamp, $body),
+            'X-Service-Name' => 'unknown-service',
+            'X-Service-Cert' => $signer->certificate(), // certified for 'test-service', not 'unknown-service'
         ])
             ->assertStatus(401);
     }
 
-    public function test_rejects_signature_from_an_untrusted_peer(): void
+    public function test_rejects_certificate_not_signed_by_the_configured_ca(): void
     {
-        $peerKeys = self::generateKeyPair();
-        // Deliberately not trusted — no trustPeer() call for 'billing'.
-        $peerSigner = new Signer(privateKey: $peerKeys['private']);
+        $rogueCa = self::generateKeyPair();
+        $signer = $this->app->make(Signer::class);
+        $ownPublicKey = Ecdsa::publicKeyFor(Ecdsa::loadPrivateKey(config('microservice.signing.private_key')));
+        $forgedCertificate = Certificate::issue('test-service', $ownPublicKey, Ecdsa::loadPrivateKey($rogueCa['private']))->encode();
 
         $timestamp = (string) time();
         $body = json_encode([]);
 
         $this->postJson('/test/endpoint', [], [
             'X-Timestamp' => $timestamp,
-            'X-Signature' => $peerSigner->sign('POST', '/test/endpoint', $timestamp, $body),
-            'X-Service-Name' => 'billing',
+            'X-Signature' => $signer->sign('POST', '/test/endpoint', $timestamp, $body),
+            'X-Service-Name' => 'test-service',
+            'X-Service-Cert' => $forgedCertificate,
         ])
             ->assertStatus(401);
     }
@@ -122,6 +137,7 @@ class TrustPeerMiddlewareTest extends TestCase
             'X-Timestamp' => $timestamp,
             'X-Signature' => $signer->sign('POST', '/test/endpoint', $timestamp, $body),
             'X-Service-Name' => 'test-service',
+            'X-Service-Cert' => $signer->certificate(),
         ])
             ->assertStatus(401);
     }

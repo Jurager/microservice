@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Jurager\Microservice\Commands;
+namespace Jurager\Microservice\Commands\Signing;
 
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -34,10 +34,12 @@ class KeygenCommand extends Command
         }
 
         $this->newLine();
-        $this->components->info('Public key — not a secret:');
+        $this->components->info('Public key — not a secret, hand it to whoever holds the CA key:');
         $this->line($publicKey);
         $this->newLine();
-        $this->line('This service\'s manifest publishes the public key automatically on the next request or sync — that\'s how peers learn to trust it.');
+        $this->line('Get it certified:');
+        $this->line('  php artisan microservice:certificate:issue '.config('microservice.name', 'app')." $publicKey");
+        $this->line("The output goes in this service's own .env as SERVICE_CERTIFICATE.");
         $this->newLine();
         $this->components->warn('Never commit or share the private key. Each service needs its own — do not reuse this pair elsewhere.');
     }

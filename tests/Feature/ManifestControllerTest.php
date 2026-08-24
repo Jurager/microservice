@@ -5,52 +5,56 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Support\Facades\Event;
+use Illuminate\Testing\TestResponse;
 use Jurager\Microservice\Events\RoutesRegistered;
+use Jurager\Microservice\Support\Signer;
 use Jurager\Microservice\Tests\TestCase;
 
 class ManifestControllerTest extends TestCase
 {
     public function test_returns_manifest_with_routes(): void
     {
-        $this->getJson('/microservice/manifest')
+        $this->signedRequest()
             ->assertOk()
-            ->assertJsonStructure(['service', 'routes', 'timestamp', 'base_url', 'public_key']);
+            ->assertJsonStructure(['service', 'routes', 'timestamp', 'base_url']);
     }
 
     public function test_returns_correct_service_name(): void
     {
         $this->app['config']->set('microservice.name', 'pim');
 
-        $this->getJson('/microservice/manifest')
+        $this->signedRequest()
             ->assertOk()
             ->assertJsonPath('service', 'pim');
-    }
-
-    public function test_returns_this_service_own_public_key(): void
-    {
-        $this->getJson('/microservice/manifest')
-            ->assertOk()
-            ->assertJsonPath('public_key', static::$publicKey);
     }
 
     public function test_dispatches_routes_registered_event(): void
     {
         Event::fake([RoutesRegistered::class]);
 
-        $this->getJson('/microservice/manifest')
-            ->assertOk();
+        $this->signedRequest()->assertOk();
 
         Event::assertDispatched(RoutesRegistered::class);
     }
 
-    public function test_is_public_and_unsigned(): void
+    public function test_requires_a_signed_request(): void
     {
-        // No X-Signature/X-Timestamp/X-Service-Name headers at all — this is
-        // how a peer's public key reaches the rest of the cluster in the
-        // first place, so it can't itself require a signature to read.
         $this->app['config']->set('microservice.debug', false);
 
-        $this->getJson('/microservice/manifest')
-            ->assertOk();
+        $this->get('/microservice/manifest')
+            ->assertStatus(401);
+    }
+
+    private function signedRequest(): TestResponse
+    {
+        $signer = $this->app->make(Signer::class);
+        $timestamp = (string) time();
+
+        return $this->get('/microservice/manifest', [
+            'X-Timestamp' => $timestamp,
+            'X-Signature' => $signer->sign('GET', '/microservice/manifest', $timestamp),
+            'X-Service-Name' => 'test-service',
+            'X-Service-Cert' => $signer->certificate(),
+        ]);
     }
 }

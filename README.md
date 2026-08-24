@@ -9,7 +9,7 @@ A Laravel package for secure communication between microservices.
 
 Features:
 
-- ECDSA-signed requests for internal service authentication — a service's public key travels with its own manifest
+- ECDSA-signed requests for internal service authentication — trust is anchored to a cluster CA
 - Service discovery via shared cache manifests or DNS pattern (Kubernetes-ready)
 - Route manifest publishing and gateway proxying
 - Idempotency support for non-safe requests (POST, PUT, PATCH)

@@ -5,20 +5,18 @@ weight: 30
 
 ## Introduction
 
-The package's security model gives every service its own ECDSA (P-256) key pair. Outbound requests are signed automatically by the [client](client.md) with the sending service's own private key; inbound requests are verified against the public key it published. Compromising one service's private key only lets an attacker forge traffic *as that service* — it never exposes any other service's signing capability.
+The package's security model gives every service its own ECDSA (P-256) key pair, and a certificate — issued by the cluster's own certificate authority — binding its public key to its name. Outbound requests are signed automatically by the [client](client.md) with the sending service's own private key and travel with its certificate attached; inbound requests are verified against the public key inside that certificate. Compromising one service's private key only lets an attacker forge traffic *as that service* — it never exposes any other service's signing capability, and it doesn't let them mint a certificate for a different name.
 
 This page covers the verification side: how peer trust is resolved, the middleware you apply to incoming routes, and the idempotency layer that protects mutating endpoints from duplicate processing.
 
 ### How Peer Trust Works
 
-A service's public key travels as part of its own manifest, the same endpoint already used for route discovery. Verifying an incoming request from `oms` means resolving `oms`'s manifest and reading its public key out of it — the same lookup as resolving `oms`'s `base_url`.
+Every request from one service to another carries a certificate alongside its signature — a small, CA-signed claim binding a service name to a public key. Verifying an incoming request from `oms` means checking that its certificate really was signed by the cluster CA, that the certificate's service name is `oms`, and that the signature on the request itself verifies against the public key the certificate contains. All three checks happen locally, against the one constant every service holds — `SERVICE_CA_PUBLIC_KEY` — so verifying a peer never requires calling out to it, or to anything else.
 
-Two sources are checked, in order: a manifest already cached locally (from a sync, or a previous request from that peer), and failing that, a live fetch using the same `SERVICE_DISCOVERY_PATTERN` the client uses for discovery. The result is cached the same way any manifest is, so this only costs a network round trip the first time a given peer is seen, or after its cache entry expires.
-
-If a signature fails to verify against a cached key, the resolver refetches once before giving up, in case the peer rotated its key since the last sync — so a rotation propagates as soon as the next call happens, not only on the cache's own TTL.
+That's what makes trust independent of network topology: a microservice sitting in a closed network segment can verify a request from a gateway on a completely different network, or vice versa, because nothing about verification depends on being able to reach the other side. It only depends on both sides trusting the same CA.
 
 > [!IMPORTANT]
-> Trust is bounded by network reachability: anything that can answer `GET /microservice/manifest` under a service's discovered address is trusted under that name. That's an appropriate boundary inside a private cluster network — the same one your `base_url`s and Redis already rely on — and not appropriate if these endpoints are reachable from outside it.
+> A certificate only proves who signed the request that carries it — it says nothing about what that service is allowed to do. Authorization is still the receiving service's own concern.
 
 > [!WARNING]
 > Setting `SERVICE_DEBUG=true` disables all signature verification. Local development only — never in production.
@@ -27,7 +25,7 @@ If a signature fails to verify against a cached key, the resolver refetches once
 
 ### Trust Peer
 
-The `TrustPeer` middleware verifies the ECDSA signature on an incoming request against the public key published in the manifest of the service named in `X-Service-Name`. Apply it to any route that accepts calls from another service, whether the call arrives directly or proxied through a [gateway](gateway.md):
+The `TrustPeer` middleware verifies the ECDSA signature on an incoming request against the public key carried in its certificate, and that the certificate itself is signed by the cluster CA and names the service in `X-Service-Name`. Apply it to any route that accepts calls from another service, whether the call arrives directly or proxied through a [gateway](gateway.md):
 
 ```php
 use Jurager\Microservice\Http\Middleware\TrustPeer;
@@ -37,15 +35,16 @@ Route::middleware(TrustPeer::class)->group(function () {
 });
 ```
 
-Three headers carry everything the middleware needs, and it checks them in order — each has to be present before the next one is even worth checking:
+Four headers carry everything the middleware needs, and it checks them in order — each has to be present before the next one is even worth checking:
 
 ```
 X-Signature    the request's ECDSA signature
 X-Timestamp    when the request was signed, for replay protection
 X-Service-Name which service claims to have sent it
+X-Service-Cert the sender's certificate, proving its public key
 ```
 
-A request missing `X-Signature` or `X-Timestamp` is rejected with `401` and a `MissingSignatureException`. Missing `X-Service-Name` gets a `MissingServiceNameException` — verification has to know who claims to have signed the request before it can resolve a public key to check it with. Once both are present, a signature that doesn't match the body, path, or timestamp — or that names a service whose manifest can't be resolved at all — is rejected with `401` and an `InvalidSignatureException`.
+A request missing `X-Signature` or `X-Timestamp` is rejected with `401` and a `MissingSignatureException`. Missing `X-Service-Name` gets a `MissingServiceNameException`, and missing `X-Service-Cert` gets a `MissingCertificateException` — verification needs both who claims to have signed the request and the certificate proving their public key before it can check anything. Once all four are present, a signature that doesn't match the body, path, or timestamp — or a certificate that isn't signed by the trusted CA, or names a different service than `X-Service-Name` claims — is rejected with `401` and an `InvalidSignatureException`.
 
 The default timestamp tolerance is 60 seconds (`microservice.timestamp_tolerance`), which protects against replay attacks while still accommodating modest clock skew between hosts.
 
@@ -90,7 +89,8 @@ The following exceptions are thrown by the security and transport layers. All of
 | `ServiceRequestException` | A service returned a non-2xx response |
 | `ServiceUnavailableException` | A service URL cannot be resolved, the request fails at the transport level, or its circuit breaker is open |
 | `MissingSignatureException` | `X-Signature` or `X-Timestamp` header is absent on an incoming request |
-| `InvalidSignatureException` | Signature does not match, the timestamp is outside the tolerance window, or the claimed service's public key couldn't be resolved |
+| `InvalidSignatureException` | Signature does not match, the timestamp is outside the tolerance window, or the certificate is not signed by the trusted CA or names a different service |
 | `MissingServiceNameException` | `X-Service-Name` header is required but absent |
+| `MissingCertificateException` | `X-Service-Cert` header is required but absent |
 | `InvalidRequestIdException` | `X-Request-Id` is not a valid UUID v4 |
 | `DuplicateRequestException` | A duplicate in-flight idempotent request was detected |

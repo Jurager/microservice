@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests;
 
-use Illuminate\Support\Facades\Cache;
 use Jurager\Microservice\MicroserviceServiceProvider;
+use Jurager\Microservice\Support\Certificate;
 use Jurager\Microservice\Support\Ecdsa;
 use Orchestra\Testbench\TestCase as OrchestraTestCase;
 
 abstract class TestCase extends OrchestraTestCase
 {
-    /** Base64 private key for 'test-service'. */
-    protected static string $privateKey;
+    /** Base64 CA private key, so tests can mint certificates for peers other than 'test-service'. */
+    protected static string $caPrivateKey;
 
-    /** Base64 public key for 'test-service' — the counterpart of $privateKey. */
-    protected static string $publicKey;
+    /** Base64 CA public key, matching $caPrivateKey. */
+    protected static string $caPublicKey;
 
     protected function getPackageProviders($app): array
     {
@@ -26,12 +26,17 @@ abstract class TestCase extends OrchestraTestCase
 
     protected function defineEnvironment($app): void
     {
-        $pair = self::generateKeyPair();
-        static::$privateKey = $pair['private'];
-        static::$publicKey = $pair['public'];
+        $ca = self::generateKeyPair();
+        static::$caPrivateKey = $ca['private'];
+        static::$caPublicKey = $ca['public'];
+
+        $service = self::generateKeyPair();
+        $certificate = $this->issueCertificateFor('test-service', $service['public']);
 
         $app['config']->set('microservice.name', 'test-service');
-        $app['config']->set('microservice.signing.private_key', static::$privateKey);
+        $app['config']->set('microservice.signing.private_key', $service['private']);
+        $app['config']->set('microservice.signing.certificate', $certificate);
+        $app['config']->set('microservice.signing.ca_public_key', static::$caPublicKey);
         $app['config']->set('microservice.timestamp_tolerance', 60);
         $app['config']->set('microservice.redis.connection', 'default');
         $app['config']->set('microservice.redis.prefix', 'microservice:test:');
@@ -46,17 +51,10 @@ abstract class TestCase extends OrchestraTestCase
         $app['config']->set('microservice.bus.dead_letter.exchange', 'events.dlx');
     }
 
-    /**
-     * Put a peer's public key where PublicKeyResolver looks first — its cached
-     * manifest — so verifying its signature doesn't require a live HTTP fetch.
-     */
-    protected function trustPeer(string $service, string $publicKey): void
+    /** Issue a certificate for an arbitrary service, signed by the same CA every test trusts. */
+    protected function issueCertificateFor(string $service, string $publicKeyEncoded): string
     {
-        Cache::put("microservice:manifest:$service", [
-            'service' => $service,
-            'base_url' => "https://$service.test",
-            'public_key' => $publicKey,
-        ]);
+        return Certificate::issue($service, $publicKeyEncoded, Ecdsa::loadPrivateKey(static::$caPrivateKey))->encode();
     }
 
     /** @return array{private: string, public: string} Base64-wrapped EC key pair. */

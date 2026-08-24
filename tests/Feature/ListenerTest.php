@@ -21,16 +21,6 @@ use Mockery;
  */
 class ListenerTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-
-        // Envelopes built via signedEnvelope() below are signed with
-        // 'test-service''s own key and claim to be from 'test-service' —
-        // trust it as its own peer so MessageBus::verify() accepts them.
-        $this->trustPeer('test-service', static::$publicKey);
-    }
-
     public function test_sync_handler_is_invoked_inline_for_valid_envelope(): void
     {
         FakeSyncHandler::$invocations = [];
@@ -129,6 +119,7 @@ class ListenerTest extends TestCase
         $envelope['signature'] = $signer->signRaw(
             json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
         );
+        $envelope['certificate'] = $signer->certificate();
 
         return $envelope;
     }
