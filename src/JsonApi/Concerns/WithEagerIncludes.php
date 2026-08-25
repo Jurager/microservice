@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\JsonApi\JsonApiRequest;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
+use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 
 /** Batch-load Eloquent relations before JSON:API serialization. */
 trait WithEagerIncludes
@@ -75,6 +76,14 @@ trait WithEagerIncludes
 
         static::validateRelationTree($template, $tree);
         static::loadRelationLevel($models, $template, $tree);
+
+        if ($template instanceof ProvidesEagerLoads) {
+            $relations = $template->eagerLoads(array_keys($includes));
+
+            if ($relations !== []) {
+                $models->loadMissing($relations);
+            }
+        }
     }
 
     /** Build a nested relation tree, applying eager overrides. */
