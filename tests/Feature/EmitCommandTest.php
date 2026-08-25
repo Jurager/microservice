@@ -28,6 +28,9 @@ class EmitCommandTest extends TestCase
                     && is_string($envelope['signature']);
             });
 
+        // A publish is only complete once the broker has accounted for it.
+        $channel->shouldReceive('wait_for_pending_acks_returns')->once();
+
         $connection = Mockery::mock(Connection::class);
         $connection->shouldReceive('channel')->andReturn($channel);
         $connection->shouldReceive('exchange')->andReturn('events');
