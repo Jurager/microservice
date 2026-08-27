@@ -15,19 +15,6 @@ use Throwable;
 
 /**
  * Converts exceptions to structured JSON error responses.
- *
- * By default renders JSON:API-compliant errors. Override the renderer
- * to produce any format your project needs:
- *
- *   ResponseError::renderUsing(function (array $errors, int $status, array $headers): JsonResponse {
- *       return new JsonResponse(['errors' => $errors], $status, $headers);
- *   });
- *
- * Usage in bootstrap/app.php:
- *
- *   ->withExceptions(function (Exceptions $exceptions): void {
- *       $exceptions->render(fn (Throwable $e) => ResponseError::fromException($e));
- *   })
  */
 final class ResponseError
 {
@@ -85,7 +72,8 @@ final class ResponseError
         $errors = [];
 
         foreach ($e->errors() as $field => $messages) {
-            $pointer = '/'.str_replace('.', '/', $field);
+
+            $pointer = '/'.str_replace('.', '/', (string) $field);
 
             foreach ($messages as $message) {
                 $errors[] = [
@@ -110,7 +98,6 @@ final class ResponseError
             return (self::$renderer)($errors, $status, $headers);
         }
 
-        // Default: JSON:API format
         return new JsonResponse(
             data: ['errors' => $errors],
             status: $status,

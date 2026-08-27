@@ -104,6 +104,18 @@ class ResponseErrorTest extends TestCase
         $this->assertSame('/attributes/0/id', $payload['errors'][0]['source']['pointer']);
     }
 
+    public function test_validation_exception_with_numeric_field_name_does_not_crash(): void
+    {
+        // A purely numeric field name (e.g. an attribute code like "10002") becomes an int
+        // array key in $e->errors() — PHP casts numeric string keys automatically.
+        $response = ResponseError::fromException(
+            ValidationException::withMessages(['10002' => ['Invalid.']])
+        );
+
+        $payload = json_decode($response->getContent(), true);
+        $this->assertSame('/10002', $payload['errors'][0]['source']['pointer']);
+    }
+
     public function test_default_render_returns_json_api_format(): void
     {
         $response = ResponseError::fromException(new \RuntimeException('Oops.'));
