@@ -100,7 +100,7 @@ class CollectionDocument implements Responsable
     public function applyPolicy(callable $policy): static
     {
         $this->included->applyPolicy($policy);
-        $this->items->each(fn (Item $item) => $item->withoutOrphanLinks($this->included));
+        $this->included->pruneUnreachable($this->items->all());
 
         return $this;
     }

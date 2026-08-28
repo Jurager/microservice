@@ -131,6 +131,42 @@ class ItemDocumentTest extends TestCase
         $this->assertCount(1, $doc->rawIncluded());
     }
 
+    /**
+     * Regression guard: a resource orphaned two levels deep (its only parent removed by the
+     * policy, not the root item itself) must not linger in `included`.
+     */
+    public function test_apply_policy_prunes_resources_orphaned_by_a_removed_parent(): void
+    {
+        $body = [
+            'data' => [
+                'id' => '1', 'type' => 'products', 'attributes' => [],
+                'relationships' => ['attributes' => ['data' => [
+                    ['type' => 'entityAttribute', 'id' => 'a'],
+                    ['type' => 'entityAttribute', 'id' => 'b'],
+                ]]],
+            ],
+            'included' => [
+                [
+                    'id' => 'a', 'type' => 'entityAttribute', 'attributes' => ['visible' => true],
+                    'relationships' => ['translations' => ['data' => [['type' => 'translation', 'id' => 'a1']]]],
+                ],
+                [
+                    'id' => 'b', 'type' => 'entityAttribute', 'attributes' => ['visible' => false],
+                    'relationships' => ['translations' => ['data' => [['type' => 'translation', 'id' => 'b1']]]],
+                ],
+                ['id' => 'a1', 'type' => 'translation', 'attributes' => ['label' => 'kept']],
+                ['id' => 'b1', 'type' => 'translation', 'attributes' => ['label' => 'orphaned']],
+            ],
+        ];
+
+        $doc = new ItemDocument($body);
+        $doc->applyPolicy(fn ($r) => ($r['type'] === 'entityAttribute' && ! $r['attributes']['visible']) ? null : $r);
+
+        $ids = array_column($doc->rawIncluded(), 'id');
+        sort($ids);
+        $this->assertSame(['a', 'a1'], $ids);
+    }
+
     public function test_auto_attach_runs_on_construction(): void
     {
         $body = [

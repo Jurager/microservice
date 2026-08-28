@@ -86,7 +86,7 @@ class ItemDocument implements Responsable
     public function applyPolicy(callable $policy): static
     {
         $this->included->applyPolicy($policy);
-        $this->item->withoutOrphanLinks($this->included);
+        $this->included->pruneUnreachable([$this->item]);
 
         return $this;
     }

@@ -76,7 +76,16 @@ class Includes
     public function rebuild(callable $filter, array $roots): void
     {
         $this->filter($filter);
+        $this->pruneUnreachable($roots);
+    }
 
+    /**
+     * Remove included resources unreachable from the given roots, and strip the roots.
+     *
+     * @param  array<Item>  $roots
+     */
+    public function pruneUnreachable(array $roots): void
+    {
         if (empty($roots)) {
             return;
         }
