@@ -22,33 +22,42 @@ class TrustPeer
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (config('microservice.debug', false)) {
-            return $next($request);
+        $service = $request->header('X-Service-Name');
+
+        if (! config('microservice.debug', false)) {
+            $this->verify($request, $service);
+        }
+
+        return $next($request);
+    }
+
+    private function verify(Request $request, ?string $service): void
+    {
+        if ($service === null) {
+            throw new MissingServiceNameException();
         }
 
         $signature = $request->header('X-Signature');
         $timestamp = $request->header('X-Timestamp');
+        $certificate = $request->header('X-Service-Cert');
 
         if ($signature === null || $timestamp === null) {
             throw new MissingSignatureException();
         }
 
-        $service = $request->header('X-Service-Name');
-
-        if ($service === null) {
-            throw new MissingServiceNameException();
-        }
-
-        $certificate = $request->header('X-Service-Cert');
-
         if ($certificate === null) {
             throw new MissingCertificateException();
         }
 
-        if (! $this->signer->verify($request, $signature, $timestamp, $certificate, $service)) {
+        if (! $this->signer->verify(
+            $request,
+            $signature,
+            $timestamp,
+            $certificate,
+            $service,
+        )) {
             throw new InvalidSignatureException();
         }
-
-        return $next($request);
     }
+
 }
