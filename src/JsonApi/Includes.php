@@ -130,6 +130,16 @@ class Includes
         ));
 
         $this->rebuildIndex();
+
+        $this->raw = array_map(function (array $resource) {
+            if (isset($resource['relationships'])) {
+                $resource['relationships'] = Item::pruneRelationships($resource['relationships'], $this);
+            }
+
+            return $resource;
+        }, $this->raw);
+
+        $this->rebuildIndex();
     }
 
     public function autoAttach(Item $item): void

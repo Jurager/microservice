@@ -89,7 +89,18 @@ class Item
      */
     public function withoutOrphanLinks(Includes $included): void
     {
-        foreach ($this->relationships as $name => &$rel) {
+        $this->relationships = self::pruneRelationships($this->relationships, $included);
+    }
+
+    /**
+     * Strip refs from a `relationships` array that point to a resource no longer in `included`.
+     *
+     * @param  array<string, array{data: array|list<array>|null}>  $relationships
+     * @return array<string, array{data: array|list<array>}>
+     */
+    public static function pruneRelationships(array $relationships, Includes $included): array
+    {
+        foreach ($relationships as $name => &$rel) {
             $data = $rel['data'] ?? null;
 
             if ($data === null) {
@@ -104,13 +115,15 @@ class Item
             )));
 
             if ($kept === []) {
-                unset($this->relationships[$name]);
+                unset($relationships[$name]);
             } else {
                 $rel['data'] = array_is_list($data) ? $kept : $kept[0];
             }
         }
 
         unset($rel);
+
+        return $relationships;
     }
 
     public function relationships(): array
