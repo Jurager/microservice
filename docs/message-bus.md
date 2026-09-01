@@ -152,9 +152,30 @@ Handlers that implement `ShouldQueue` are pushed to the Laravel queue as soon as
 
 ### Discovering Handlers
 
-Handlers are registered automatically. When the listener starts, the package scans for every concrete class that implements `MessageHandler` and binds a queue for each one it finds. Add a new handler class to your project and restart the worker — that's the entire setup, there's nothing to register by hand.
+Handlers are registered automatically. When the listener starts, the package scans for every concrete class that implements `MessageHandler` and binds a queue for each type it finds. Add a new handler class to your project and restart the worker — that's the entire setup, there's nothing to register by hand.
 
 The scan happens once at boot and takes a single filesystem walk, so it doesn't add meaningfully to startup time even in a large application. If you do need to narrow the scan path, or filter which handlers are picked up, extend `Jurager\Microservice\Bus\HandlerDiscovery` and override its singleton binding.
+
+A handler's `type()` doesn't have to be a fixed string — it can compute its answer at call time (query a table of active subscriptions, read a config value, and so on), in which case the set of types it wants can change while the worker is already running. See [Rescanning for New Types](#rescanning-for-new-types) below for how the listener picks that up without a restart.
+
+### Rescanning for New Types
+
+The filesystem walk that finds handler *classes* only needs to run once — but what a handler's `type()` reports can change at runtime, e.g. a handler that derives its types from a database table of active subscriptions. Restarting the worker every time such a subscription changes is exactly the operational overhead this is meant to avoid, so the listener re-evaluates `type()` on its already-discovered handlers periodically, on its own, and binds a queue for any type that's newly reporting:
+
+```bash
+php artisan microservice:listen --rescan=30
+```
+
+`--rescan` is in seconds and defaults to 30; pass `0` to disable it and go back to the fixed, boot-time-only handler set. A rescan is cheap — it doesn't touch the filesystem, just calls `type()` again on the classes already found — so a short interval is fine even for a handler with many types.
+
+Rescanning is deliberately additive only: a type that stops being reported stays subscribed rather than being unbound. Write handlers to no-op gracefully for a type they no longer care about (the common case — check the condition that made the type active in the first place, and return early if it no longer holds) rather than relying on the listener to tear down the subscription for you.
+
+If every handler currently reports zero types — nothing has activated a subscription yet — the listener doesn't exit; with `--rescan` enabled it keeps the broker connection open and waits, picking up the first type as soon as one appears:
+
+```
+[2026-05-21 12:34:56] No event types active yet — waiting (rescanning every 30s)
+[2026-05-21 12:35:26] Now also listening for: sfm.site.config
+```
 
 ### Running the Listener
 

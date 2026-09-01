@@ -31,7 +31,8 @@ use Throwable;
              {--max-jobs=0 : Stop after this many messages (0 = unlimited)}
              {--max-reconnects=10 : Reconnect attempts before exiting (0 = unlimited)}
              {--backoff=30 : Longest wait between reconnect attempts, in seconds}
-             {--heartbeat= : Path to a file whose mtime is refreshed while the loop runs}')]
+             {--heartbeat= : Path to a file whose mtime is refreshed while the loop runs}
+             {--rescan=30 : Seconds between checks for handlers whose type() list changed (0 = disable)}')]
 #[Description('Listen for inter-service events from RabbitMQ.')]
 class ListenCommand extends Command
 {
@@ -53,6 +54,10 @@ class ListenCommand extends Command
 
     private int $beatAt = 0;
 
+    private int $rescanInterval = 0;
+
+    private int $rescanAt = 0;
+
     public function handle(MessageBus $bus, Connection $connection, Listener $listener, HandlerDiscovery $discovery, LoggerInterface $logger, Signer $signer): void
     {
         if (! $bus->enabled()) {
@@ -68,10 +73,23 @@ class ListenCommand extends Command
             }
         }
 
-        $handlers = $this->discoverHandlers($discovery);
+        $classes = $this->discoverHandlerClasses($discovery);
 
-        if ($handlers === []) {
-            $this->warn('No message handlers discovered — nothing to listen for.');
+        if ($classes === []) {
+            $this->warn('No message handler classes discovered — nothing to listen for.');
+
+            return;
+        }
+
+        $this->rescanInterval = max(0, (int) $this->input('rescan'));
+
+        $handlers = $this->mapHandlerTypes($classes);
+
+        // A handler class whose type() list is empty right now (e.g. no active
+        // NotificationTrigger yet) isn't a dead end as long as rescanning is on —
+        // it may start reporting types once its underlying data changes.
+        if ($handlers === [] && $this->rescanInterval <= 0) {
+            $this->warn('No handlers currently report any event type, and --rescan is disabled — nothing to listen for.');
 
             return;
         }
@@ -86,7 +104,10 @@ class ListenCommand extends Command
 
         while (! $this->shouldStop) {
             try {
-                $this->consume($connection, $listener, $logger, $handlers);
+                // Carries forward whatever the loop picked up via rescanning, so a
+                // reconnect resubscribes to those types immediately instead of
+                // waiting for the next rescan tick to rediscover them.
+                $handlers = $this->consume($connection, $listener, $logger, $classes, $handlers);
 
                 // Returns only once the loop was asked to stop.
                 break;
@@ -136,11 +157,14 @@ class ListenCommand extends Command
     /**
      * Consume messages until the loop is asked to stop.
      *
+     * @param  list<class-string<MessageHandler>>  $classes
      * @param  array<string, class-string<MessageHandler>>  $handlers
+     * @return array<string, class-string<MessageHandler>> the handler map as it stood when the loop exited,
+     *                                                       including anything picked up by rescanning
      *
      * @throws Throwable
      */
-    private function consume(Connection $connection, Listener $listener, LoggerInterface $logger, array $handlers): void
+    private function consume(Connection $connection, Listener $listener, LoggerInterface $logger, array $classes, array $handlers): array
     {
         $channel = $connection->channel();
 
@@ -156,29 +180,24 @@ class ListenCommand extends Command
         $channel->basic_qos(prefetch_size: 0, prefetch_count: 1, a_global: false);
 
         foreach ($handlers as $type => $class) {
-            $this->declareQueues($channel, $service, $type, $exchange, $dlqEnabled, $dlxName);
-
-            $channel->basic_consume(
-                "$service.$type",
-                consumer_tag: "$service-$type",
-                callback: function (AMQPMessage $message) use ($class, $listener, $logger, $dlqEnabled): void {
-                    $this->dispatch($message, $class, $listener, $logger, $dlqEnabled);
-                    $this->checkStopConditions();
-                },
-            );
+            $this->registerConsumer($channel, $service, $type, $class, $exchange, $dlqEnabled, $dlxName, $listener, $logger);
         }
 
         // The outage is over, so earlier attempts no longer count.
         $this->reconnects = 0;
 
-        $this->info('Listening for events: '.implode(', ', array_keys($handlers))
-            .($dlqEnabled ? " (DLQ → $dlxName)" : ''));
+        $this->announceListening($handlers, $dlqEnabled, $dlxName);
 
         // First beat marks the loop as alive before the first wait window, so a
         // startup probe stops waiting as soon as the broker connection is up.
         $this->heartbeat();
+        $this->rescanAt = time();
 
-        while (! $this->shouldStop && $channel->is_consuming()) {
+        // With rescanning on, an empty handler map isn't a reason to stop: a
+        // handler may start reporting types later (e.g. the first active
+        // NotificationTrigger row), so keep polling the broker connection even
+        // with zero consumers registered yet.
+        while (! $this->shouldStop && ($channel->is_consuming() || $this->rescanInterval > 0)) {
             try {
                 $channel->wait(null, false, 1);
             } catch (AMQPTimeoutException) {
@@ -189,7 +208,107 @@ class ListenCommand extends Command
             // re-check between wait windows, not only after a message.
             $this->checkStopConditions();
             $this->heartbeat();
+
+            $handlers = $this->rescan($channel, $service, $exchange, $dlqEnabled, $dlxName, $classes, $handlers, $listener, $logger);
         }
+
+        return $handlers;
+    }
+
+    /**
+     * Declare a handler's queue and start consuming from it on the given channel.
+     */
+    private function registerConsumer(
+        AMQPChannel $channel,
+        string $service,
+        string $type,
+        string $class,
+        string $exchange,
+        bool $dlqEnabled,
+        string $dlxName,
+        Listener $listener,
+        LoggerInterface $logger,
+    ): void {
+        $this->declareQueues($channel, $service, $type, $exchange, $dlqEnabled, $dlxName);
+
+        $channel->basic_consume(
+            "$service.$type",
+            consumer_tag: "$service-$type",
+            callback: function (AMQPMessage $message) use ($class, $listener, $logger, $dlqEnabled): void {
+                $this->dispatch($message, $class, $listener, $logger, $dlqEnabled);
+                $this->checkStopConditions();
+            },
+        );
+    }
+
+    /**
+     * Pick up event types that became active since boot (or since the last
+     * rescan) without restarting the process — e.g. a NotificationTrigger
+     * activated after the worker was already running.
+     *
+     * Deliberately additive only: a type that stops being reported is left
+     * subscribed rather than unbound. Handlers are expected to no-op for
+     * event types they no longer care about, and tearing down a consumer
+     * risks dropping a message that's already in flight for it.
+     *
+     * @param  list<class-string<MessageHandler>>  $classes
+     * @param  array<string, class-string<MessageHandler>>  $handlers
+     * @return array<string, class-string<MessageHandler>>
+     */
+    private function rescan(
+        AMQPChannel $channel,
+        string $service,
+        string $exchange,
+        bool $dlqEnabled,
+        string $dlxName,
+        array $classes,
+        array $handlers,
+        Listener $listener,
+        LoggerInterface $logger,
+    ): array {
+        if ($this->rescanInterval <= 0) {
+            return $handlers;
+        }
+
+        $now = time();
+
+        if ($now - $this->rescanAt < $this->rescanInterval) {
+            return $handlers;
+        }
+
+        $this->rescanAt = $now;
+
+        $added = array_diff_key($this->mapHandlerTypes($classes), $handlers);
+
+        if ($added === []) {
+            return $handlers;
+        }
+
+        foreach ($added as $type => $class) {
+            $this->registerConsumer($channel, $service, $type, $class, $exchange, $dlqEnabled, $dlxName, $listener, $logger);
+        }
+
+        $this->info('Now also listening for: '.implode(', ', array_keys($added)));
+
+        return $handlers + $added;
+    }
+
+    /**
+     * @param  array<string, class-string<MessageHandler>>  $handlers
+     */
+    private function announceListening(array $handlers, bool $dlqEnabled, string $dlxName): void
+    {
+        $suffix = $dlqEnabled ? " (DLQ → $dlxName)" : '';
+
+        if ($handlers === []) {
+            $this->info("No event types active yet — waiting"
+                .($this->rescanInterval > 0 ? " (rescanning every {$this->rescanInterval}s)" : '')
+                .$suffix);
+
+            return;
+        }
+
+        $this->info('Listening for events: '.implode(', ', array_keys($handlers)).$suffix);
     }
 
     /**
@@ -234,13 +353,33 @@ class ListenCommand extends Command
     }
 
     /**
+     * Walk the filesystem for handler classes. Expensive — a Symfony Finder
+     * pass over the whole application — so this runs exactly once per worker
+     * lifetime. What varies afterward is which types each class reports, not
+     * the set of classes itself; see mapHandlerTypes().
+     *
+     * @return list<class-string<MessageHandler>>
+     */
+    private function discoverHandlerClasses(HandlerDiscovery $discovery): array
+    {
+        return $discovery->discover();
+    }
+
+    /**
+     * Ask each already-discovered handler class which event type(s) it
+     * currently wants, e.g. DispatchNotificationTrigger reflects the active
+     * NotificationTrigger rows at the moment this is called. Cheap enough to
+     * call repeatedly, which is what lets consume() rescan for newly-active
+     * types without ever re-walking the filesystem.
+     *
+     * @param  list<class-string<MessageHandler>>  $classes
      * @return array<string, class-string<MessageHandler>>
      */
-    private function discoverHandlers(HandlerDiscovery $discovery): array
+    private function mapHandlerTypes(array $classes): array
     {
         $map = [];
 
-        foreach ($discovery->discover() as $class) {
+        foreach ($classes as $class) {
             foreach ((array) $class::type() as $type) {
                 if (isset($map[$type]) && $map[$type] !== $class) {
                     $this->warn("Duplicate handler for '$type': {$map[$type]} replaced by $class.");
