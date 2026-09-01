@@ -85,9 +85,6 @@ class ListenCommand extends Command
 
         $handlers = $this->mapHandlerTypes($classes);
 
-        // A handler class whose type() list is empty right now (e.g. no active
-        // NotificationTrigger yet) isn't a dead end as long as rescanning is on —
-        // it may start reporting types once its underlying data changes.
         if ($handlers === [] && $this->rescanInterval <= 0) {
             $this->warn('No handlers currently report any event type, and --rescan is disabled — nothing to listen for.');
 
@@ -158,9 +155,9 @@ class ListenCommand extends Command
      * Consume messages until the loop is asked to stop.
      *
      * @param  list<class-string<MessageHandler>>  $classes
-     * @param  array<string, class-string<MessageHandler>>  $handlers
+     * @param  array<string, class-string<MessageHandler>> $handlers
      * @return array<string, class-string<MessageHandler>> the handler map as it stood when the loop exited,
-     *                                                       including anything picked up by rescanning
+     *                                                     including anything picked up by rescanning
      *
      * @throws Throwable
      */
@@ -193,10 +190,6 @@ class ListenCommand extends Command
         $this->heartbeat();
         $this->rescanAt = time();
 
-        // With rescanning on, an empty handler map isn't a reason to stop: a
-        // handler may start reporting types later (e.g. the first active
-        // NotificationTrigger row), so keep polling the broker connection even
-        // with zero consumers registered yet.
         while (! $this->shouldStop && ($channel->is_consuming() || $this->rescanInterval > 0)) {
             try {
                 $channel->wait(null, false, 1);
@@ -242,14 +235,8 @@ class ListenCommand extends Command
     }
 
     /**
-     * Pick up event types that became active since boot (or since the last
-     * rescan) without restarting the process — e.g. a NotificationTrigger
-     * activated after the worker was already running.
+     * Pick up event types that became active since boot.
      *
-     * Deliberately additive only: a type that stops being reported is left
-     * subscribed rather than unbound. Handlers are expected to no-op for
-     * event types they no longer care about, and tearing down a consumer
-     * risks dropping a message that's already in flight for it.
      *
      * @param  list<class-string<MessageHandler>>  $classes
      * @param  array<string, class-string<MessageHandler>>  $handlers
@@ -353,10 +340,8 @@ class ListenCommand extends Command
     }
 
     /**
-     * Walk the filesystem for handler classes. Expensive — a Symfony Finder
-     * pass over the whole application — so this runs exactly once per worker
-     * lifetime. What varies afterward is which types each class reports, not
-     * the set of classes itself; see mapHandlerTypes().
+     * Walk the filesystem for handler classes. 
+     * Expensive — so this runs exactly once per worker lifetime.
      *
      * @return list<class-string<MessageHandler>>
      */
@@ -366,11 +351,7 @@ class ListenCommand extends Command
     }
 
     /**
-     * Ask each already-discovered handler class which event type(s) it
-     * currently wants, e.g. DispatchNotificationTrigger reflects the active
-     * NotificationTrigger rows at the moment this is called. Cheap enough to
-     * call repeatedly, which is what lets consume() rescan for newly-active
-     * types without ever re-walking the filesystem.
+     * Ask each already-discovered handler class which event type(s) it currently wants.
      *
      * @param  list<class-string<MessageHandler>>  $classes
      * @return array<string, class-string<MessageHandler>>
