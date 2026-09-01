@@ -235,8 +235,13 @@ class ListenCommand extends Command
     }
 
     /**
-     * Pick up event types that became active since boot.
+     * Pick up event types that became active since boot, and drop ones that
+     * stopped being reported — both without restarting the process.
      *
+     * A dropped type is cancelled via basic_cancel(), not unbound: its queue
+     * stays declared and bound to the exchange, so nothing is lost if the
+     * type becomes active again — a later rescan just resumes consuming it,
+     * backlog and all. Only the local consumer for it goes away.
      *
      * @param  list<class-string<MessageHandler>>  $classes
      * @param  array<string, class-string<MessageHandler>>  $handlers
@@ -265,19 +270,32 @@ class ListenCommand extends Command
 
         $this->rescanAt = $now;
 
-        $added = array_diff_key($this->mapHandlerTypes($classes), $handlers);
+        $fresh = $this->mapHandlerTypes($classes);
 
-        if ($added === []) {
+        $removed = array_diff_assoc($handlers, $fresh);
+        $added = array_diff_assoc($fresh, $handlers);
+
+        if ($removed === [] && $added === []) {
             return $handlers;
+        }
+
+        foreach ($removed as $type => $class) {
+            $channel->basic_cancel("$service-$type");
         }
 
         foreach ($added as $type => $class) {
             $this->registerConsumer($channel, $service, $type, $class, $exchange, $dlqEnabled, $dlxName, $listener, $logger);
         }
 
-        $this->info('Now also listening for: '.implode(', ', array_keys($added)));
+        if ($removed !== []) {
+            $this->info('No longer listening for: '.implode(', ', array_keys($removed)));
+        }
 
-        return $handlers + $added;
+        if ($added !== []) {
+            $this->info('Now also listening for: '.implode(', ', array_keys($added)));
+        }
+
+        return array_diff_key($handlers, $removed) + $added;
     }
 
     /**

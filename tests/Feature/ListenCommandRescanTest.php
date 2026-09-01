@@ -83,6 +83,64 @@ class ListenCommandRescanTest extends TestCase
             ->assertSuccessful();
     }
 
+    public function test_drops_a_deactivated_event_type_without_restarting(): void
+    {
+        DynamicFakeHandler::$activeTypes = ['test.dynamic'];
+
+        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
+        {
+            public function discover(): array
+            {
+                return [DynamicFakeHandler::class];
+            }
+        });
+
+        $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('basic_qos')->once();
+        $channel->shouldReceive('is_consuming')->andReturn(false);
+
+        $channel->shouldReceive('queue_declare')
+            ->once()
+            ->withArgs(fn (string $queue): bool => $queue === 'test-service.test.dynamic');
+        $channel->shouldReceive('queue_bind')
+            ->once()
+            ->withArgs(fn (string $queue, string $exchange, string $type): bool => $queue === 'test-service.test.dynamic'
+                && $exchange === 'events'
+                && $type === 'test.dynamic');
+        $channel->shouldReceive('basic_consume')
+            ->once()
+            ->withArgs(fn (string $queue): bool => $queue === 'test-service.test.dynamic');
+
+        // Stands in for the last active trigger for this type being
+        // deactivated while the worker is already blocked in the wait
+        // window, then the window elapses without a message to explicitly
+        // cross the --rescan threshold below.
+        $channel->shouldReceive('wait')->once()->andReturnUsing(function (): void {
+            DynamicFakeHandler::$activeTypes = [];
+            usleep(1_100_000);
+
+            throw new AMQPTimeoutException();
+        });
+
+        // Cancels the local consumer only — never unbinds or deletes the queue.
+        $channel->shouldReceive('basic_cancel')
+            ->once()
+            ->withArgs(fn (string $consumerTag): bool => $consumerTag === 'test-service-test.dynamic');
+        $channel->shouldNotReceive('queue_unbind');
+        $channel->shouldNotReceive('queue_delete');
+
+        $connection = Mockery::mock(Connection::class);
+        $connection->shouldReceive('channel')->andReturn($channel);
+        $connection->shouldReceive('exchange')->andReturn('events');
+        $connection->shouldReceive('close')->zeroOrMoreTimes();
+        $this->app->instance(Connection::class, $connection);
+
+        $this->artisan('microservice:listen', ['--rescan' => 1, '--memory' => 1])
+            ->expectsOutputToContain('Listening for events: test.dynamic')
+            ->expectsOutputToContain('No longer listening for: test.dynamic')
+            ->assertSuccessful();
+    }
+
     public function test_keeps_running_with_no_active_types_when_rescan_is_enabled(): void
     {
         DynamicFakeHandler::$activeTypes = [];
