@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Client;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Handler\CurlMultiHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
@@ -26,6 +27,13 @@ class ServiceClient
 
     /** @var array<string, array{string, int, int}> In-memory cache: service → [baseUrl, timeout, cachedAt] */
     protected array $resolvedConfigs = [];
+
+    /**
+     * Within-request memoization, keyed by request signature.
+     *
+     * @var array<string, ServiceResponse>
+     */
+    protected array $memo = [];
 
     protected string $serviceName;
 
@@ -60,27 +68,45 @@ class ServiceClient
             $multiplier = (float) config('microservice.retries.multiplier', 2.0);
 
             $handler->push(Middleware::retry(
-                function (
+                static fn (
                     int $retries,
                     RequestInterface $request,
                     ?ResponseInterface $response = null,
                     ?Throwable $exception = null,
-                ) use ($maxRetries): bool {
-                    if ($retries >= $maxRetries) {
-                        return false;
-                    }
-
-                    if ($exception instanceof ConnectException) {
-                        return true;
-                    }
-
-                    return $response !== null && $response->getStatusCode() >= 500;
-                },
+                ): bool => self::shouldRetryRequest($retries, $maxRetries, $request, $response, $exception),
                 static fn (int $retries) => (int) ($delay * ($multiplier ** ($retries - 1))),
             ));
         }
 
         return new Client(['handler' => $handler]);
+    }
+
+    /** Decide whether a failed request is safe to retry. */
+    private static function shouldRetryRequest(
+        int $retries,
+        int $maxRetries,
+        RequestInterface $request,
+        ?ResponseInterface $response,
+        ?Throwable $exception,
+    ): bool {
+        if ($retries >= $maxRetries) {
+            return false;
+        }
+
+        if ($exception instanceof ConnectException) {
+            return true;
+        }
+
+        if ($exception instanceof RequestException) {
+            if (($exception->getHandlerContext()['errno'] ?? null) === CURLE_SEND_ERROR) {
+                return true;
+            }
+
+            return in_array($request->getMethod(), ['GET', 'HEAD', 'OPTIONS'], true)
+                || $request->hasHeader('X-Request-Id');
+        }
+
+        return $response !== null && $response->getStatusCode() >= 500;
     }
 
     public function service(string $name): PendingServiceRequest
@@ -93,6 +119,12 @@ class ServiceClient
      */
     public function send(PendingServiceRequest $request): ServiceResponse
     {
+        $memoKey = $this->memoKey($request);
+
+        if ($memoKey !== null && isset($this->memo[$memoKey])) {
+            return $this->memo[$memoKey];
+        }
+
         $service = $request->getService();
         $trackCircuit = ! $request->getBypassCircuitBreaker();
 
@@ -107,6 +139,10 @@ class ServiceClient
 
             if ($trackCircuit) {
                 $this->recordCircuitResult($service, true);
+            }
+
+            if ($memoKey !== null) {
+                $this->memo[$memoKey] = $response;
             }
 
             return $response;
@@ -139,28 +175,79 @@ class ServiceClient
      */
     public function parallel(array $requests): array
     {
+        $responses = [];
         $promises = [];
+        $memoKeys = [];
 
         foreach ($requests as $key => $pending) {
+            $memoKey = $this->memoKey($pending);
+
+            if ($memoKey !== null && isset($this->memo[$memoKey])) {
+                $responses[$key] = $this->memo[$memoKey];
+
+                continue;
+            }
+
+            $memoKeys[$key] = $memoKey;
+
             $service = $pending->getService();
             [$baseUrl, $timeout] = $this->resolveServiceConfig($service, $pending->getTimeout());
 
             $promises[$key] = $this->executeRequestAsync($pending, $baseUrl, $timeout);
         }
 
-        $settled = Utils::settle($promises)->wait();
+        if ($promises === []) {
+            return $responses;
+        }
 
-        $responses = [];
+        $settled = Utils::settle($promises)->wait();
 
         foreach ($settled as $key => $result) {
             if ($result['state'] === 'fulfilled') {
-                $responses[$key] = new ServiceResponse($result['value']);
+                $response = new ServiceResponse($result['value']);
+                $responses[$key] = $response;
+
+                if (($memoKey = $memoKeys[$key] ?? null) !== null) {
+                    $this->memo[$memoKey] = $response;
+                }
             } else {
                 throw new ServiceUnavailableException($requests[$key]->getService(), previous: $result['reason']);
             }
         }
 
         return $responses;
+    }
+
+    /** Clear the within-request memoization cache. Called automatically at the end of every HTTP request and after each bus message (see MicroserviceServiceProvider and ListenCommand) — the client itself is a long-lived singleton under Octane/FrankenPHP. */
+    public function resetMemo(): void
+    {
+        $this->memo = [];
+    }
+
+    /** Build a memoization key for a request, or null if it must never be memoized. */
+    private function memoKey(PendingServiceRequest $request): ?string
+    {
+        if (! $request->shouldMemoize() || $request->getMultipart() !== null) {
+            return null;
+        }
+
+        $query = $request->getQuery();
+        ksort($query);
+
+        $headers = $request->getHeaders();
+
+        unset($headers['X-Request-Id']);
+
+        ksort($headers);
+
+        return md5(implode('|', [
+            $request->getService(),
+            $request->getMethod(),
+            $request->getPath(),
+            json_encode($query),
+            json_encode($request->getBody()),
+            json_encode($headers),
+        ]));
     }
 
     /**

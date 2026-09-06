@@ -63,6 +63,11 @@ class PendingServiceRequest
     protected bool $bypassCircuitBreaker = false;
 
     /**
+     * Within-request memoization override.
+     */
+    protected ?bool $memoize = null;
+
+    /**
      * Registered response/query processing hooks.
      *
      * @var array<int, callable|object>
@@ -224,6 +229,32 @@ class PendingServiceRequest
     public function getBypassCircuitBreaker(): bool
     {
         return $this->bypassCircuitBreaker;
+    }
+
+    /** Force this request to be memoized within the current request lifecycle. */
+    public function memoize(): static
+    {
+        $this->memoize = true;
+
+        return $this;
+    }
+
+    /** Opt a request out of within-request memoization. */
+    public function withoutMemo(): static
+    {
+        $this->memoize = false;
+
+        return $this;
+    }
+
+    /** Whether this request should be memoized within the current request lifecycle. */
+    public function shouldMemoize(): bool
+    {
+        if ($this->memoize !== null) {
+            return $this->memoize;
+        }
+
+        return in_array($this->method, ['GET', 'HEAD'], true);
     }
 
     /** Set request timeout in seconds. */

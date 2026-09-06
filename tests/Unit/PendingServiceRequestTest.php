@@ -174,6 +174,34 @@ class PendingServiceRequestTest extends TestCase
         }
     }
 
+    public function test_get_is_memoized_by_default(): void
+    {
+        $this->request->get('/api/orders');
+
+        $this->assertTrue($this->request->shouldMemoize());
+    }
+
+    public function test_post_is_not_memoized_by_default(): void
+    {
+        $this->request->post('/api/orders', ['a' => 1]);
+
+        $this->assertFalse($this->request->shouldMemoize());
+    }
+
+    public function test_memoize_opts_a_post_request_in(): void
+    {
+        $this->request->post('/api/attributes/search', ['a' => 1])->memoize();
+
+        $this->assertTrue($this->request->shouldMemoize());
+    }
+
+    public function test_without_memo_opts_a_get_request_out(): void
+    {
+        $this->request->get('/api/orders')->withoutMemo();
+
+        $this->assertFalse($this->request->shouldMemoize());
+    }
+
     public function test_without_errors_suppresses_error_details(): void
     {
         $mockResponse = Mockery::mock(ServiceResponse::class);

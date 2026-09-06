@@ -9,6 +9,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Jurager\Microservice\Bus\Connection;
+use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
@@ -446,6 +447,10 @@ class ListenCommand extends Command
         } else {
             $message->nack();
             $this->writeLine('FAIL', $type, $dlqEnabled ? "$class → DLQ" : "$class — discarded (DLQ off)", 'error');
+        }
+        
+        if (app()->resolved(ServiceClient::class)) {
+            app(ServiceClient::class)->resetMemo();
         }
     }
 

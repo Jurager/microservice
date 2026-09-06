@@ -63,6 +63,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->configureTrustedProxies();
         $this->registerLogContext();
         $this->registerSchedule();
+        $this->registerMemoReset();
 
         $this->loadTranslationsFrom(__DIR__.'/../lang', 'microservice');
         $this->loadRoutesFrom(__DIR__.'/../routes/microservice.php');
@@ -170,6 +171,16 @@ class MicroserviceServiceProvider extends ServiceProvider
     {
         $this->callAfterResolving(Router::class, function (Router $router): void {
             $router->prependMiddlewareToGroup('api', LogContext::class);
+        });
+    }
+
+    /** Clear within-request memoization cache at the end of every request. */
+    private function registerMemoReset(): void
+    {
+        $this->app->terminating(function (): void {
+            if ($this->app->resolved(ServiceClient::class)) {
+                $this->app->make(ServiceClient::class)->resetMemo();
+            }
         });
     }
 

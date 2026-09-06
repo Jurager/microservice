@@ -33,6 +33,9 @@ class ProxyControllerTest extends TestCase
 
         $mock = Mockery::mock(ServiceClient::class);
 
+        // The service provider resets memoization on every request's terminating callback.
+        $mock->shouldReceive('resetMemo')->zeroOrMoreTimes();
+
         $mock->shouldReceive('service')
             ->andReturnUsing(function ($name) use ($test) {
                 $pending = Mockery::mock(PendingServiceRequest::class);

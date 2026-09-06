@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Tests\Feature;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Middleware;
@@ -311,5 +312,193 @@ class ServiceClientTest extends TestCase
         $this->assertTrue($request->hasHeader('X-Signature'));
         $this->assertTrue($request->hasHeader('X-Timestamp'));
         $this->assertTrue($request->hasHeader('X-Service-Name'));
+    }
+
+    public function test_get_requests_are_memoized_within_request(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([new Response(200, [], '{"data":"first"}')]);
+
+        $first = $client->service('oms')->get('/api/orders/1')->send();
+        $second = $client->service('oms')->get('/api/orders/1')->send();
+
+        $this->assertSame($first, $second);
+        $this->assertCount(1, $this->history);
+    }
+
+    public function test_memoization_key_includes_query_parameters(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(200, [], '{"data":"b"}'),
+        ]);
+
+        $client->service('oms')->get('/api/orders')->with(['page' => 1])->send();
+        $client->service('oms')->get('/api/orders')->with(['page' => 2])->send();
+
+        $this->assertCount(2, $this->history);
+    }
+
+    public function test_post_requests_are_not_memoized_by_default(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(200, [], '{"data":"a"}'),
+        ]);
+
+        $client->service('pim')->post('/api/attributes/search', ['filter' => ['id' => 1]])->send();
+        $client->service('pim')->post('/api/attributes/search', ['filter' => ['id' => 1]])->send();
+
+        $this->assertCount(2, $this->history);
+    }
+
+    public function test_post_request_is_memoized_when_opted_in(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([new Response(200, [], '{"data":"a"}')]);
+
+        $client->service('pim')->post('/api/attributes/search', ['filter' => ['id' => 1]])->memoize()->send();
+        $client->service('pim')->post('/api/attributes/search', ['filter' => ['id' => 1]])->memoize()->send();
+
+        $this->assertCount(1, $this->history);
+    }
+
+    public function test_without_memo_forces_fresh_request(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(200, [], '{"data":"b"}'),
+        ]);
+
+        $client->service('oms')->get('/api/orders/1')->send();
+        $second = $client->service('oms')->get('/api/orders/1')->withoutMemo()->send();
+
+        $this->assertCount(2, $this->history);
+        $this->assertSame('b', $second->json('data'));
+    }
+
+    public function test_reset_memo_clears_cache(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(200, [], '{"data":"b"}'),
+        ]);
+
+        $client->service('oms')->get('/api/orders/1')->send();
+        $client->resetMemo();
+        $client->service('oms')->get('/api/orders/1')->send();
+
+        $this->assertCount(2, $this->history);
+    }
+
+    public function test_parallel_uses_memoized_response_without_network_call(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(200, [], '{"data":"b"}'),
+        ]);
+
+        $client->service('oms')->get('/api/orders/1')->send();
+
+        $responses = $client->parallel([
+            'first' => $client->service('oms')->get('/api/orders/1'),
+            'second' => $client->service('oms')->get('/api/orders/2'),
+        ]);
+
+        $this->assertCount(2, $this->history);
+        $this->assertSame('a', $responses['first']->json('data'));
+        $this->assertSame('b', $responses['second']->json('data'));
+    }
+
+    public function test_should_retry_on_connect_exception(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        $request = new Request('POST', 'http://oms:8000/api/orders');
+        $exception = new ConnectException('refused', $request);
+
+        $this->assertTrue($method->invoke(null, 0, 2, $request, null, $exception));
+    }
+
+    public function test_should_retry_on_curl_send_error_regardless_of_method(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        // No X-Request-Id — the send never reached the peer, so it's safe anyway.
+        $request = new Request('POST', 'http://oms:8000/api/orders');
+        $exception = new RequestException('broken pipe', $request, handlerContext: ['errno' => CURLE_SEND_ERROR]);
+
+        $this->assertTrue($method->invoke(null, 0, 2, $request, null, $exception));
+    }
+
+    public function test_should_not_retry_unsafe_method_without_request_id_on_generic_failure(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        $request = new Request('POST', 'http://oms:8000/api/orders');
+        $exception = new RequestException('reset', $request, handlerContext: ['errno' => CURLE_RECV_ERROR]);
+
+        $this->assertFalse($method->invoke(null, 0, 2, $request, null, $exception));
+    }
+
+    public function test_should_retry_unsafe_method_with_request_id_on_generic_failure(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        $request = new Request('POST', 'http://oms:8000/api/orders', [
+            'X-Request-Id' => '550e8400-e29b-41d4-a716-446655440000',
+        ]);
+        $exception = new RequestException('reset', $request, handlerContext: ['errno' => CURLE_RECV_ERROR]);
+
+        $this->assertTrue($method->invoke(null, 0, 2, $request, null, $exception));
+    }
+
+    public function test_should_retry_get_on_generic_transport_failure_even_without_request_id(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        $request = new Request('GET', 'http://oms:8000/api/orders');
+        $exception = new RequestException('reset', $request, handlerContext: ['errno' => CURLE_RECV_ERROR]);
+
+        $this->assertTrue($method->invoke(null, 0, 2, $request, null, $exception));
+    }
+
+    public function test_should_not_retry_when_max_retries_reached(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        $request = new Request('GET', 'http://oms:8000/api/orders');
+        $exception = new ConnectException('refused', $request);
+
+        $this->assertFalse($method->invoke(null, 2, 2, $request, null, $exception));
+    }
+
+    public function test_should_retry_5xx_response(): void
+    {
+        $method = new \ReflectionMethod(ServiceClient::class, 'shouldRetryRequest');
+        $method->setAccessible(true);
+
+        $request = new Request('GET', 'http://oms:8000/api/orders');
+        $response = new Response(500);
+
+        $this->assertTrue($method->invoke(null, 0, 2, $request, $response, null));
     }
 }
