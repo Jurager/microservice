@@ -35,6 +35,19 @@ class ItemDocument implements Responsable
         $this->included->autoAttach($this->item);
     }
 
+    /**
+     * Build an empty document without a network round trip.
+     *
+     * @template TItem of Item
+     *
+     * @param  class-string<TItem>  $itemClass
+     * @return static<TItem>
+     */
+    public static function empty(string $itemClass = Item::class): static
+    {
+        return new static([], $itemClass);
+    }
+
     /** @return T */
     public function data(): Item
     {

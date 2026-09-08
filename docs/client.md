@@ -46,10 +46,12 @@ Builder methods may be chained onto it in any order, before calling `send`:
 ->merge(array $query)         // like with(), but deep-merges: comma strings are concatenated, arrays are merged recursively
 ->headers(array $headers)     // merge additional headers (withHeaders is an alias)
 ->withBody(array $body)       // set the JSON body directly, instead of passing it to post/put/patch
+->fields(array $fields)       // merge fields into the body, dropping any null values — the body-side counterpart of with()
 ->withMultipart(array $parts) // send a multipart/form-data body instead of JSON — see Uploading Files below
 ->timeout(int $seconds)       // override the per-request timeout
 ->withoutErrors()             // suppress upstream error details in the exception thrown by send()
 ->withoutCircuitBreaker()     // send even while the circuit breaker for this service is open
+->skipIf(bool $condition)     // when true, collect()/item() return an empty document instead of sending — see below
 ->send()                      // execute the request — throws ServiceRequestException on a non-2xx response
 ```
 
@@ -59,6 +61,16 @@ Builder methods may be chained onto it in any order, before calling `send`:
 $client->service('pim')->get('/v1/products')
     ->with(['sort' => 'name'])
     ->merge(['sort' => 'price']); // -> sort=name,price
+```
+
+`withBody` and `fields` are the same relationship on the request body instead of the query string: `withBody` replaces the body outright, `fields` merges in — dropping any value that's `null`, so an optional field you didn't set is simply left out of the request instead of being sent as a literal `null`:
+
+```php
+$client->service('oms')->post('/v1/customers/store')
+    ->fields([
+        'type' => $type,
+        'external_id' => $externalId, // omitted entirely when null
+    ]);
 ```
 
 ### Uploading Files
@@ -109,24 +121,50 @@ $responses['warehouse']->json();
 
 All three requests are sent at the same time and the call blocks until every response has arrived — it takes as long as the slowest one, not the sum of all three. Array keys are preserved, so you can match each response back to the request that produced it.
 
-Transport-level failures (a service that's unreachable, or times out) throw `ServiceUnavailableException` for the whole batch. Non-2xx responses, on the other hand, are returned as-is rather than thrown — `parallel` only raises on failures it can't hand back to you as a response, so you're expected to inspect status codes yourself when that matters:
+Transport-level failures (a service that's unreachable, or times out) throw `ServiceUnavailableException` for the whole batch. Non-2xx responses, on the other hand, are returned as-is rather than thrown — `parallel` only raises on failures it can't hand back to you as a response, so you're expected to inspect status codes yourself when that matters.
+
+Two shapes built on top of `parallel` — fetching a set of records by id (or any other value), and checking that a set of them all exist — come up often enough to have their own builder methods; see [Fetching in Bulk](#fetching-in-bulk) below.
+
+## Fetching in Bulk
+
+Reading many records from another service by id — or any other value it filters by — is common enough to deserve its own tools on top of `parallel`: `chunk` and `missing` both split your list into concurrent requests, so you're not building that scatter/gather by hand.
+
+### Chunking
+
+`chunk` fetches a resource filtered by an arbitrary set of values, batching them into concurrent requests so a list too large for one request doesn't have to be one:
 
 ```php
-$requests = array_combine(
-    $ids,
-    array_map(fn (int $id) => $client->service('pim')->get("/v1/warehouses/$id"), $ids)
-);
+$client->service($name)->get($path)->chunk(
+    array $values,
+    callable $callback,
+    int $chunkSize = 100,
+    int $concurrency = 5,
+): array;
+```
 
-foreach ($client->parallel($requests) as $id => $response) {
-    if ($response->status() === 404) {
-        throw ValidationException::withMessages([
-            'warehouse_id' => ["Warehouse [$id] not found."],
-        ]);
-    }
+```php
+$products = $client->service('pim')->get('/v1/products')
+    ->chunk($productIds, fn ($request, $ids) => $request->withBody([
+        'filter' => ['id' => ['in' => $ids]],
+        'page' => ['size' => count($ids)],
+    ]));
+```
+
+`chunk` makes no assumption about how the target service expects a filter to be expressed — that's entirely up to `$callback`. It receives a clone of the request you built (the same service, method, path, and headers) along with the current chunk of values, and returns that clone configured however this particular endpoint needs — a `filter[id][in]` body like above, a comma-joined query string, or anything else. `chunk` splits `$values` into groups of `$chunkSize`, runs `$concurrency` of those chunk requests at a time through `parallel`, and concatenates the `data` from every response into one array. A failed chunk throws `ServiceRequestException` immediately, same as `send`.
+
+### Checking Existence
+
+`missing` answers a narrower question: which of these values don't exist on the other service? It sends one request per value — the path built by your callback — in parallel, and treats a `404` response as "missing":
+
+```php
+foreach ($client->service('pim')->missing($priceTypeIds, fn ($id) => "/v1/price_types/{$id}") as $id) {
+    throw ValidationException::withMessages([
+        'price_type_id' => ["Price type [$id] not found."],
+    ]);
 }
 ```
 
-That pattern — batch-validating a list of ids in a single round trip instead of one request per id — is the most common reason to reach for `parallel` in the first place.
+This is the usual way to validate a foreign key from another service — a `price_type_id`, a `warehouse_id`, a category slug — before persisting it locally.
 
 ## Retries
 
@@ -236,6 +274,27 @@ $document = $client->service('sfm')
 
 $document->data();   // SiteItem
 return $document->toResponse();
+```
+
+### Skipping The Request
+
+Some calls to `collect` or `item` are only worth making some of the time — a search whose filters have already narrowed the result set to nothing, a lookup that only makes sense for an authenticated user. Rather than branch around the whole call and construct an empty document by hand for the other case, pass the condition to `skipIf`:
+
+```php
+$client->service('oms')->get('/v1/orders')
+    ->merge(['filter' => ['customer.user_id' => ['eq' => $userId]]])
+    ->skipIf($userId === null)
+    ->collect(OrderItem::class);
+```
+
+When the condition is true, `collect` and `item` return an empty `CollectionDocument` or `ItemDocument` — same shape as a real response with no results — without the request ever being sent. `skipIf` has no effect on `send`, `json`, or `status`; it only short-circuits document building.
+
+The empty document itself comes from `CollectionDocument::empty(ItemClass::class)` and `ItemDocument::empty(ItemClass::class)`, which you may call directly for a branch that never reaches a request builder at all — a guest with no possible orders, an id list that's empty before any filtering happens:
+
+```php
+if ($catalogIds === []) {
+    return CollectionDocument::empty(ProductItem::class);
+}
 ```
 
 ### Defining Custom Items

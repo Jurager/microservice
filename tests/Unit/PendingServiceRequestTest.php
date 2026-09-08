@@ -134,9 +134,173 @@ class PendingServiceRequestTest extends TestCase
         $this->assertSame($data, $this->request->getMultipart());
     }
 
+    public function test_skip_if_true_returns_empty_collection_without_sending(): void
+    {
+        // The mocked client has no shouldReceive('send') expectation — collect() would
+        // throw if it tried to reach the network, so a clean result proves it didn't.
+        $document = $this->request->get('/api/orders')->skipIf(true)->collect();
+
+        $this->assertTrue($document->isEmpty());
+    }
+
+    public function test_skip_if_true_returns_empty_item_without_sending(): void
+    {
+        $document = $this->request->get('/api/orders/1')->skipIf(true)->item();
+
+        $this->assertSame('', $document->data()->id);
+    }
+
+    public function test_skip_if_false_sends_request_normally(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->once()->andReturn(false);
+        $mockResponse->shouldReceive('json')->once()->andReturn(['data' => []]);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        $document = (new PendingServiceRequest($client, 'oms'))->get('/api/orders')->skipIf(false)->collect();
+
+        $this->assertTrue($document->isEmpty());
+    }
+
     public function test_multipart_is_null_by_default(): void
     {
         $this->assertNull($this->request->getMultipart());
+    }
+
+    public function test_chunk_returns_empty_array_without_a_request(): void
+    {
+        $result = $this->request->get('/v1/products')->chunk([], fn ($request) => $request);
+
+        $this->assertSame([], $result);
+    }
+
+    public function test_chunk_lets_the_caller_shape_the_chunk_request(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->andReturn(false);
+        $mockResponse->shouldReceive('json')->with('data')->andReturn([['id' => '1'], ['id' => '2']]);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('parallel')->once()->andReturnUsing(function (array $requests) use ($mockResponse) {
+            $this->assertCount(1, $requests);
+            $this->assertSame(['filter' => ['id' => ['in' => [1, 2]]]], $requests[0]->getBody());
+
+            return [$mockResponse];
+        });
+
+        $result = (new PendingServiceRequest($client, 'pim'))
+            ->get('/v1/products')
+            ->chunk([1, 2], fn ($request, $values) => $request->withBody(['filter' => ['id' => ['in' => $values]]]));
+
+        $this->assertSame([['id' => '1'], ['id' => '2']], $result);
+    }
+
+    public function test_chunk_works_for_non_id_values_too(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->andReturn(false);
+        $mockResponse->shouldReceive('json')->with('data')->andReturn([['id' => '1', 'code' => 'sku-a']]);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('parallel')->once()->andReturnUsing(function (array $requests) use ($mockResponse) {
+            $this->assertSame(['filter' => ['code' => ['in' => ['sku-a', 'sku-b']]]], $requests[0]->getBody());
+
+            return [$mockResponse];
+        });
+
+        $result = (new PendingServiceRequest($client, 'pim'))
+            ->get('/v1/products')
+            ->chunk(['sku-a', 'sku-b'], fn ($request, $values) => $request->withBody(['filter' => ['code' => ['in' => $values]]]));
+
+        $this->assertSame([['id' => '1', 'code' => 'sku-a']], $result);
+    }
+
+    public function test_chunk_splits_by_chunk_size(): void
+    {
+        $first = Mockery::mock(ServiceResponse::class);
+        $first->shouldReceive('failed')->andReturn(false);
+        $first->shouldReceive('json')->with('data')->andReturn([['id' => '1']]);
+
+        $second = Mockery::mock(ServiceResponse::class);
+        $second->shouldReceive('failed')->andReturn(false);
+        $second->shouldReceive('json')->with('data')->andReturn([['id' => '2']]);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('parallel')->once()->andReturnUsing(function (array $requests) use ($first, $second) {
+            $this->assertCount(2, $requests);
+
+            return [$first, $second];
+        });
+
+        $result = (new PendingServiceRequest($client, 'pim'))
+            ->get('/v1/products')
+            ->chunk([1, 2], fn ($request, $values) => $request->withBody(['ids' => $values]), chunkSize: 1);
+
+        $this->assertSame([['id' => '1'], ['id' => '2']], $result);
+    }
+
+    public function test_chunk_throws_on_failed_chunk(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->andReturn(true);
+        $mockResponse->shouldReceive('status')->andReturn(500);
+        $mockResponse->shouldReceive('json')->with('errors')->andReturn(null);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('parallel')->once()->andReturn([$mockResponse]);
+
+        $this->expectException(ServiceRequestException::class);
+
+        (new PendingServiceRequest($client, 'pim'))
+            ->get('/v1/products')
+            ->chunk([1], fn ($request, $values) => $request->withBody(['ids' => $values]));
+    }
+
+    public function test_missing_returns_empty_array_without_a_request(): void
+    {
+        $result = $this->request->missing([], fn ($value) => "/v1/price_types/{$value}");
+
+        $this->assertSame([], $result);
+    }
+
+    public function test_missing_goes_through_service_and_returns_404_values(): void
+    {
+        $ok = Mockery::mock(ServiceResponse::class);
+        $ok->shouldReceive('status')->andReturn(200);
+
+        $notFound = Mockery::mock(ServiceResponse::class);
+        $notFound->shouldReceive('status')->andReturn(404);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('service')->with('pim')->andReturnUsing(fn () => new PendingServiceRequest($client, 'pim'));
+        $client->shouldReceive('parallel')->once()->andReturnUsing(function (array $requests) use ($ok, $notFound) {
+            $this->assertSame(['/v1/price_types/1', '/v1/price_types/2'], array_values(array_map(fn ($r) => $r->getPath(), $requests)));
+
+            return [0 => $ok, 1 => $notFound];
+        });
+
+        $result = (new PendingServiceRequest($client, 'pim'))->missing([1, 2], fn ($value) => "/v1/price_types/{$value}");
+
+        $this->assertSame([2], $result);
+    }
+
+    public function test_missing_works_for_non_id_values_too(): void
+    {
+        $ok = Mockery::mock(ServiceResponse::class);
+        $ok->shouldReceive('status')->andReturn(200);
+
+        $notFound = Mockery::mock(ServiceResponse::class);
+        $notFound->shouldReceive('status')->andReturn(404);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('service')->with('pim')->andReturnUsing(fn () => new PendingServiceRequest($client, 'pim'));
+        $client->shouldReceive('parallel')->once()->andReturn([0 => $ok, 1 => $notFound]);
+
+        $result = (new PendingServiceRequest($client, 'pim'))->missing(['sku-a', 'sku-b'], fn ($value) => "/v1/products/by-code/{$value}");
+
+        $this->assertSame(['sku-b'], $result);
     }
 
     public function test_send_delegates_to_client(): void

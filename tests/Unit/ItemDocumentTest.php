@@ -27,6 +27,13 @@ class ItemDocumentTest extends TestCase
         $this->assertSame('42', $doc->data()->id);
     }
 
+    public function test_empty_builds_document_with_no_id(): void
+    {
+        $doc = ItemDocument::empty();
+
+        $this->assertSame('', $doc->data()->id);
+    }
+
     public function test_meta_returns_meta_array(): void
     {
         $this->assertSame(['server_time' => '2025-01-01'], (new ItemDocument($this->body))->meta());

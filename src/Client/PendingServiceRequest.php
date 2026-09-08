@@ -63,6 +63,11 @@ class PendingServiceRequest
     protected bool $bypassCircuitBreaker = false;
 
     /**
+     * Return an empty document without sending the request.
+     */
+    protected bool $skipped = false;
+
+    /**
      * Registered response/query processing hooks.
      *
      * @var array<int, callable|object>
@@ -228,10 +233,90 @@ class PendingServiceRequest
         return $this;
     }
 
+    /**
+     * Skip sending this request when condition is true.
+     */
+    public function skipIf(bool $condition): static
+    {
+        $this->skipped = $this->skipped || $condition;
+
+        return $this;
+    }
+
     /** Check if circuit breaker bypass is active. */
     public function getBypassCircuitBreaker(): bool
     {
         return $this->bypassCircuitBreaker;
+    }
+
+    /**
+     * Fetch a resource by an arbitrary set of values, chunked and batched for parallel execution.
+     *
+     * @param  array<int, mixed>  $values
+     * @param  callable(static, array<int, mixed>): static  $callback  configures one chunk's request from a clone of this one and that chunk of values
+     * @return array<int, array<string, mixed>> raw `data` entries from every chunk's response, concatenated
+     *
+     * @throws ServiceUnavailableException
+     * @throws ServiceRequestException if any chunk's response is not 2xx
+     */
+    public function chunk(array $values, callable $callback, int $chunkSize = 100, int $concurrency = 5): array
+    {
+        if ($values === []) {
+            return [];
+        }
+
+        $requests = [];
+
+        foreach (array_chunk(array_values($values), $chunkSize) as $chunk) {
+            $requests[] = $callback(clone $this, $chunk);
+        }
+
+        $results = [];
+
+        foreach (array_chunk($requests, $concurrency) as $batch) {
+            foreach ($this->client->parallel($batch) as $response) {
+                if ($response->failed()) {
+                    throw new ServiceRequestException($response->status(), errors: $response->json('errors') ?: null);
+                }
+
+                $results = [...$results, ...($response->json('data') ?? [])];
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Which of the given values don't exist on this service. 
+     * Used to validate foreign keys from another service before persisting them.
+     *
+     * @param  array<int|string, mixed>  $values
+     * @param  callable(mixed): string  $path  builds the check path for one value
+     * @return array<int|string, mixed> the values that returned 404, keyed as in $values
+     *
+     * @throws ServiceUnavailableException
+     */
+    public function missing(array $values, callable $path): array
+    {
+        if ($values === []) {
+            return [];
+        }
+
+        $requests = [];
+
+        foreach ($values as $key => $value) {
+            $requests[$key] = $this->client->service($this->service)->get($path($value));
+        }
+
+        $missing = [];
+
+        foreach ($this->client->parallel($requests) as $key => $response) {
+            if ($response->status() === 404) {
+                $missing[] = $values[$key];
+            }
+        }
+
+        return $missing;
     }
 
     /** Whether this request should be memoized within the current request lifecycle. */
@@ -289,6 +374,10 @@ class PendingServiceRequest
      */
     public function collect(string $itemClass = Item::class): CollectionDocument
     {
+        if ($this->skipped) {
+            return CollectionDocument::empty($itemClass);
+        }
+
         $this->runPrepare();
 
         $body = $this->applyAfterHooks($this->json());
@@ -306,6 +395,10 @@ class PendingServiceRequest
      */
     public function item(string $itemClass = Item::class): ItemDocument
     {
+        if ($this->skipped) {
+            return ItemDocument::empty($itemClass);
+        }
+
         $this->runPrepare();
 
         $body = $this->applyAfterHooks($this->json());
