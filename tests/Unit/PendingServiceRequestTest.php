@@ -91,6 +91,20 @@ class PendingServiceRequestTest extends TestCase
         $this->assertSame(['b' => 2], $this->request->getBody());
     }
 
+    public function test_fields_merges_body_and_drops_nulls(): void
+    {
+        $this->request->post('/api/orders')->fields(['a' => 1, 'b' => null])->fields(['c' => 2]);
+
+        $this->assertSame(['a' => 1, 'c' => 2], $this->request->getBody());
+    }
+
+    public function test_fields_keeps_falsy_non_null_values(): void
+    {
+        $this->request->post('/api/orders')->fields(['qty' => 0, 'active' => false, 'name' => '']);
+
+        $this->assertSame(['qty' => 0, 'active' => false, 'name' => ''], $this->request->getBody());
+    }
+
     public function test_timeout_sets_timeout(): void
     {
         $this->request->timeout(10);

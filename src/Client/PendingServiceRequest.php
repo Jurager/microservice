@@ -196,6 +196,14 @@ class PendingServiceRequest
         return $this;
     }
 
+    /** Merge body fields, dropping nulls recursively. */
+    public function fields(array $fields): static
+    {
+        $this->body = array_merge($this->body ?? [], $this->stripEmpty($fields));
+
+        return $this;
+    }
+
     /** Set multipart form payload. */
     public function withMultipart(array $multipart): static
     {
