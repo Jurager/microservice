@@ -36,6 +36,22 @@ class CollectionDocumentTest extends TestCase
         $this->assertNull((new CollectionDocument(['data' => []]))->first());
     }
 
+    public function test_empty_builds_document_with_no_items(): void
+    {
+        $doc = CollectionDocument::empty();
+
+        $this->assertTrue($doc->isEmpty());
+        $this->assertCount(0, $doc->data());
+        $this->assertNull($doc->first());
+    }
+
+    public function test_empty_uses_given_item_class(): void
+    {
+        $doc = CollectionDocument::empty(Item::class);
+
+        $this->assertSame(0, $doc->count());
+    }
+
     public function test_meta_returns_meta_array(): void
     {
         $this->assertSame(['total' => 2], (new CollectionDocument($this->body))->meta());

@@ -38,6 +38,20 @@ class CollectionDocument implements Responsable
         $this->items->each(fn (Item $item) => $this->included->autoAttach($item));
     }
 
+    /**
+     * Build an empty document without a network round trip — for short-circuit
+     * cases (e.g. an empty filter that would otherwise trivially return no results).
+     *
+     * @template TItem of Item
+     *
+     * @param  class-string<TItem>  $itemClass
+     * @return static<TItem>
+     */
+    public static function empty(string $itemClass = Item::class): static
+    {
+        return new static(['data' => []], $itemClass);
+    }
+
     /** @return Collection<int, T> */
     public function data(): Collection
     {
