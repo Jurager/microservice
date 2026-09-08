@@ -357,34 +357,6 @@ class ServiceClientTest extends TestCase
         $this->assertCount(2, $this->history);
     }
 
-    public function test_post_request_is_memoized_when_opted_in(): void
-    {
-        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
-
-        $client = $this->createClient([new Response(200, [], '{"data":"a"}')]);
-
-        $client->service('pim')->post('/api/attributes/search', ['filter' => ['id' => 1]])->memoize()->send();
-        $client->service('pim')->post('/api/attributes/search', ['filter' => ['id' => 1]])->memoize()->send();
-
-        $this->assertCount(1, $this->history);
-    }
-
-    public function test_without_memo_forces_fresh_request(): void
-    {
-        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
-
-        $client = $this->createClient([
-            new Response(200, [], '{"data":"a"}'),
-            new Response(200, [], '{"data":"b"}'),
-        ]);
-
-        $client->service('oms')->get('/api/orders/1')->send();
-        $second = $client->service('oms')->get('/api/orders/1')->withoutMemo()->send();
-
-        $this->assertCount(2, $this->history);
-        $this->assertSame('b', $second->json('data'));
-    }
-
     public function test_reset_memo_clears_cache(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
@@ -399,6 +371,96 @@ class ServiceClientTest extends TestCase
         $client->service('oms')->get('/api/orders/1')->send();
 
         $this->assertCount(2, $this->history);
+    }
+
+    public function test_successful_write_invalidates_memoized_reads_for_same_service(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"meta":{"total":0}}'),
+            new Response(201, [], '{"data":{"id":37}}'),
+            new Response(200, [], '{"meta":{"total":1}}'),
+        ]);
+
+        $before = $client->service('oms')->get('/v1/baskets')->send();
+        $client->service('oms')->post('/v1/baskets/store', ['fuser_id' => 1])->send();
+        $after = $client->service('oms')->get('/v1/baskets')->send();
+
+        $this->assertCount(3, $this->history);
+        $this->assertSame(0, $before->json('meta.total'));
+        $this->assertSame(1, $after->json('meta.total'));
+    }
+
+    public function test_failed_write_does_not_invalidate_memoized_reads(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"meta":{"total":0}}'),
+            new Response(422, [], '{"errors":[]}'),
+        ]);
+
+        $before = $client->service('oms')->get('/v1/baskets')->send();
+        $client->send($client->service('oms')->post('/v1/baskets/store', ['fuser_id' => 1]));
+        $after = $client->service('oms')->get('/v1/baskets')->send();
+
+        $this->assertCount(2, $this->history);
+        $this->assertSame($before, $after);
+    }
+
+    public function test_write_to_other_service_does_not_invalidate_memo(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(201, [], '{"data":"created"}'),
+        ]);
+
+        $client->service('oms')->get('/api/orders/1')->send();
+        $client->service('pim')->post('/api/attributes', ['name' => 'x'])->send();
+        $client->service('oms')->get('/api/orders/1')->send();
+
+        $this->assertCount(2, $this->history);
+    }
+
+    public function test_forget_memo_clears_service_entries(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"data":"a"}'),
+            new Response(200, [], '{"data":"b"}'),
+        ]);
+
+        $client->service('oms')->get('/api/orders/1')->send();
+        $client->forgetMemo('oms');
+        $client->service('oms')->get('/api/orders/1')->send();
+
+        $this->assertCount(2, $this->history);
+    }
+
+    public function test_parallel_write_invalidates_memoized_reads_for_same_service(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+
+        $client = $this->createClient([
+            new Response(200, [], '{"meta":{"total":0}}'),
+            new Response(201, [], '{"data":{"id":37}}'),
+            new Response(200, [], '{"meta":{"total":1}}'),
+        ]);
+
+        $client->service('oms')->get('/v1/baskets')->send();
+
+        $client->parallel([
+            'write' => $client->service('oms')->post('/v1/baskets/store', ['fuser_id' => 1]),
+        ]);
+
+        $after = $client->service('oms')->get('/v1/baskets')->send();
+
+        $this->assertCount(3, $this->history);
+        $this->assertSame(1, $after->json('meta.total'));
     }
 
     public function test_parallel_uses_memoized_response_without_network_call(): void

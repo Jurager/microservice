@@ -28,12 +28,9 @@ class ServiceClient
     /** @var array<string, array{string, int, int}> In-memory cache: service → [baseUrl, timeout, cachedAt] */
     protected array $resolvedConfigs = [];
 
-    /**
-     * Within-request memoization, keyed by request signature.
-     *
-     * @var array<string, ServiceResponse>
-     */
     protected array $memo = [];
+
+    protected array $memoByService = [];
 
     protected string $serviceName;
 
@@ -141,8 +138,13 @@ class ServiceClient
                 $this->recordCircuitResult($service, true);
             }
 
+            if (! self::isSafeMethod($request->getMethod()) && $response->ok()) {
+                $this->forgetMemo($service);
+            }
+
             if ($memoKey !== null) {
                 $this->memo[$memoKey] = $response;
+                $this->memoByService[$service][$memoKey] = true;
             }
 
             return $response;
@@ -206,9 +208,15 @@ class ServiceClient
             if ($result['state'] === 'fulfilled') {
                 $response = new ServiceResponse($result['value']);
                 $responses[$key] = $response;
+                $service = $requests[$key]->getService();
+
+                if (! self::isSafeMethod($requests[$key]->getMethod()) && $response->ok()) {
+                    $this->forgetMemo($service);
+                }
 
                 if (($memoKey = $memoKeys[$key] ?? null) !== null) {
                     $this->memo[$memoKey] = $response;
+                    $this->memoByService[$service][$memoKey] = true;
                 }
             } else {
                 throw new ServiceUnavailableException($requests[$key]->getService(), previous: $result['reason']);
@@ -218,10 +226,27 @@ class ServiceClient
         return $responses;
     }
 
-    /** Clear the within-request memoization cache. Called automatically at the end of every HTTP request and after each bus message (see MicroserviceServiceProvider and ListenCommand) — the client itself is a long-lived singleton under Octane/FrankenPHP. */
+    /** Clear the within-request memoization cache. */
     public function resetMemo(): void
     {
         $this->memo = [];
+        $this->memoByService = [];
+    }
+
+    /** Drop memoized entries for a single service. */
+    public function forgetMemo(string $service): void
+    {
+        foreach (array_keys($this->memoByService[$service] ?? []) as $memoKey) {
+            unset($this->memo[$memoKey]);
+        }
+
+        unset($this->memoByService[$service]);
+    }
+
+    /** Whether a method is side-effect-free, i.e. never needs to invalidate memoized reads. */
+    private static function isSafeMethod(string $method): bool
+    {
+        return in_array($method, ['GET', 'HEAD', 'OPTIONS'], true);
     }
 
     /** Build a memoization key for a request, or null if it must never be memoized. */
@@ -234,19 +259,12 @@ class ServiceClient
         $query = $request->getQuery();
         ksort($query);
 
-        $headers = $request->getHeaders();
-
-        unset($headers['X-Request-Id']);
-
-        ksort($headers);
-
         return md5(implode('|', [
             $request->getService(),
             $request->getMethod(),
             $request->getPath(),
             json_encode($query),
             json_encode($request->getBody()),
-            json_encode($headers),
         ]));
     }
 
