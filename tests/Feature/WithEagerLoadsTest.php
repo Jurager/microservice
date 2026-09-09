@@ -91,9 +91,10 @@ class VariantPost extends Model implements ProvidesEagerLoads
 
     /**
      * @param list<string> $included
+     * @param list<string>|null $fields
      * @return list<string>
      */
-    public function eagerLoads(array $included): array
+    public function eagerLoads(array $included, ?array $fields = null): array
     {
         static::$lastIncluded = $included;
 

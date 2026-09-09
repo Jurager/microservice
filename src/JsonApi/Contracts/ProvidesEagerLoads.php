@@ -10,7 +10,10 @@ interface ProvidesEagerLoads
      * Relations to eager-load alongside the requested includes.
      *
      * @param list<string> $included
-     * @return list<string>
+     * @param list<string>|null $fields Sparse fields requested for this resource's own type
+     *                                  (fields[type]=...), or null when none were requested.
+     * @return array<int|string, string|\Closure> Plain relation names, or relation => constraint
+     *                                             closure pairs, exactly as accepted by loadMissing().
      */
-    public function eagerLoads(array $included): array;
+    public function eagerLoads(array $included, ?array $fields = null): array;
 }

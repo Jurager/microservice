@@ -19,13 +19,14 @@ trait WithEagerIncludes
     /** Create a new anonymous resource collection. */
     public static function collection($resource): AnonymousResourceCollection
     {
-        $includes = static::getSparseIncludes(JsonApiRequest::createFrom(request()));
+        $request = JsonApiRequest::createFrom(request());
+        $includes = static::getSparseIncludes($request);
 
         if (! empty($includes)) {
             $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
 
             if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
-                static::loadEagerIncludes($models, $includes, request()->input('filter', []));
+                static::loadEagerIncludes($models, $includes, request()->input('filter', []), static::sparseFieldsForOwnType($models->first(), $request));
             }
         }
 
@@ -35,13 +36,27 @@ trait WithEagerIncludes
     /** Create an HTTP response that represents the object. */
     public function toResponse($request): JsonResponse
     {
-        $includes = static::getSparseIncludes(JsonApiRequest::createFrom($request));
+        $jsonApiRequest = JsonApiRequest::createFrom($request);
+        $includes = static::getSparseIncludes($jsonApiRequest);
 
         if (! empty($includes) && $this->resource instanceof Model) {
-            static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []));
+            static::loadEagerIncludes(
+                EloquentCollection::make([$this->resource]),
+                $includes,
+                $request->input('filter', []),
+                static::sparseFieldsForOwnType($this->resource, $jsonApiRequest),
+            );
         }
 
         return parent::toResponse($request);
+    }
+
+    /** Get the sparse fields requested for this resource's own JSON:API type, or null when none were requested. */
+    protected static function sparseFieldsForOwnType(Model $sample, JsonApiRequest $request): ?array
+    {
+        $type = (new static($sample))->resolveResourceType($request);
+
+        return $request->hasSparseFieldset($type) ? $request->sparseFields($type) : null;
     }
 
     /** Get the sparse include map from the JSON:API request. */
@@ -60,7 +75,7 @@ trait WithEagerIncludes
     }
 
     /** Load the requested includes into the given model collection. */
-    protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = []): void
+    protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = [], ?array $fields = null): void
     {
         $template = $models->first();
 
@@ -71,7 +86,7 @@ trait WithEagerIncludes
         $tree = static::buildRelationTree($includes, $template);
 
         static::validateRelationTree($template, $tree);
-        static::loadProvidedEagerLoads($models, $template, array_keys($includes));
+        static::loadProvidedEagerLoads($models, $template, array_keys($includes), $fields);
         static::loadRelationLevel($models, $template, $tree);
     }
 
@@ -92,13 +107,13 @@ trait WithEagerIncludes
     }
 
     /** Load a model's own declared eager-loads for a batch of its instances. */
-    protected static function loadProvidedEagerLoads(EloquentCollection $models, Model $template, array $included): void
+    protected static function loadProvidedEagerLoads(EloquentCollection $models, Model $template, array $included, ?array $fields = null): void
     {
         if ($models->isEmpty() || ! $template instanceof ProvidesEagerLoads) {
             return;
         }
 
-        $relations = $template->eagerLoads($included);
+        $relations = $template->eagerLoads($included, $fields);
 
         if ($relations !== []) {
             $models->loadMissing($relations);
