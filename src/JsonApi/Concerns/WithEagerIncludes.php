@@ -64,10 +64,8 @@ trait WithEagerIncludes
     {
         $template = $models->first();
 
-        if (! empty($filter) && method_exists($template, 'loadIncludedRelations')) {
-            foreach ($models as $model) {
-                $model->loadIncludedRelations($filter);
-            }
+        if (! empty($filter)) {
+            static::loadIncludedRelations($models, $template, $filter);
         }
 
         $tree = static::buildRelationTree($includes, $template);
@@ -75,6 +73,22 @@ trait WithEagerIncludes
         static::validateRelationTree($template, $tree);
         static::loadProvidedEagerLoads($models, $template, array_keys($includes));
         static::loadRelationLevel($models, $template, $tree);
+    }
+
+    /** Apply the included filter scope to a batch of models. */
+    protected static function loadIncludedRelations(EloquentCollection $models, Model $template, array $filter): void
+    {
+        if (method_exists($template, 'loadIncludedRelationsForMany')) {
+            $template::loadIncludedRelationsForMany($models, $filter);
+
+            return;
+        }
+
+        if (method_exists($template, 'loadIncludedRelations')) {
+            foreach ($models as $model) {
+                $model->loadIncludedRelations($filter);
+            }
+        }
     }
 
     /** Load a model's own declared eager-loads for a batch of its instances. */
