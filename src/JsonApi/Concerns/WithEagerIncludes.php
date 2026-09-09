@@ -59,9 +59,7 @@ trait WithEagerIncludes
         );
     }
 
-    /**
-     * Load the requested includes into the given model collection.
-     */
+    /** Load the requested includes into the given model collection. */
     protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = []): void
     {
         $template = $models->first();
@@ -75,14 +73,21 @@ trait WithEagerIncludes
         $tree = static::buildRelationTree($includes, $template);
 
         static::validateRelationTree($template, $tree);
+        static::loadProvidedEagerLoads($models, $template, array_keys($includes));
         static::loadRelationLevel($models, $template, $tree);
+    }
 
-        if ($template instanceof ProvidesEagerLoads) {
-            $relations = $template->eagerLoads(array_keys($includes));
+    /** Load a model's own declared eager-loads for a batch of its instances. */
+    protected static function loadProvidedEagerLoads(EloquentCollection $models, Model $template, array $included): void
+    {
+        if ($models->isEmpty() || ! $template instanceof ProvidesEagerLoads) {
+            return;
+        }
 
-            if ($relations !== []) {
-                $models->loadMissing($relations);
-            }
+        $relations = $template->eagerLoads($included);
+
+        if ($relations !== []) {
+            $models->loadMissing($relations);
         }
     }
 
@@ -143,10 +148,12 @@ trait WithEagerIncludes
                 $models->loadMissing($relation);
             }
 
-            if (! empty($children)) {
-                $relatedTemplate = $template->{$relation}()->getRelated();
-                $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter());
+            $relatedTemplate = $template->{$relation}()->getRelated();
+            $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter());
 
+            static::loadProvidedEagerLoads($relatedModels, $relatedTemplate, array_keys($children));
+
+            if (! empty($children)) {
                 static::loadRelationLevel($relatedModels, $relatedTemplate, $children);
             }
         }
