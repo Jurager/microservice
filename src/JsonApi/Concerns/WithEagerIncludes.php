@@ -26,7 +26,12 @@ trait WithEagerIncludes
             $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
 
             if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
-                static::loadEagerIncludes($models, $includes, request()->input('filter', []), static::sparseFieldsForOwnType($models->first(), $request));
+                $fields = static::sparseFieldsForOwnType($models->first(), $request);
+                $includes = static::includesWithinFields($includes, $fields);
+
+                if (! empty($includes)) {
+                    static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
+                }
             }
         }
 
@@ -40,15 +45,52 @@ trait WithEagerIncludes
         $includes = static::getSparseIncludes($jsonApiRequest);
 
         if (! empty($includes) && $this->resource instanceof Model) {
-            static::loadEagerIncludes(
-                EloquentCollection::make([$this->resource]),
-                $includes,
-                $request->input('filter', []),
-                static::sparseFieldsForOwnType($this->resource, $jsonApiRequest),
-            );
+            $fields = static::sparseFieldsForOwnType($this->resource, $jsonApiRequest);
+            $includes = static::includesWithinFields($includes, $fields);
+
+            if (! empty($includes)) {
+                static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []), $fields);
+            }
         }
 
         return parent::toResponse($request);
+    }
+
+    /**
+     * Relationships of this resource that a sparse fieldset lets through.
+     *
+     * Laravel applies fields[type] to attributes only. The JSON:API spec makes a fieldset cover
+     * relationships too, so a relationship the fieldset doesn't name is dropped here, and with it
+     * its `included` resources. A resource with no fieldset keeps every requested relationship.
+     */
+    protected function requestedResourceRelationships(JsonApiRequest $request, ?string $relationName = null): array
+    {
+        $requested = parent::requestedResourceRelationships($request, $relationName);
+
+        if ($relationName !== null || ! $this->usesRequestQueryString) {
+            return $requested;
+        }
+
+        $type = $this->resolveResourceType($request);
+
+        if (! $request->hasSparseFieldset($type)) {
+            return $requested;
+        }
+
+        return array_values(array_intersect($requested, $request->sparseFields($type)));
+    }
+
+    /**
+     * Drop the includes a sparse fieldset doesn't name, so relations that won't be
+     * serialized aren't loaded either. Null means no fieldset was requested.
+     *
+     * @param  array<string, mixed>  $includes
+     * @param  list<string>|null  $fields
+     * @return array<string, mixed>
+     */
+    protected static function includesWithinFields(array $includes, ?array $fields): array
+    {
+        return $fields === null ? $includes : array_intersect_key($includes, array_flip($fields));
     }
 
     /** Get the sparse fields requested for this resource's own JSON:API type, or null when none were requested. */
