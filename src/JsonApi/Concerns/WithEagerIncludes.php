@@ -30,9 +30,7 @@ trait WithEagerIncludes
             $fields = static::sparseFieldsForOwnType($models->first(), $request);
             $includes = static::includesToLoad(static::getSparseIncludes($request), $fields, $models->first());
 
-            if (! empty($includes)) {
-                static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
-            }
+            static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
         }
 
         return parent::collection($resource);
@@ -47,9 +45,7 @@ trait WithEagerIncludes
             $fields = static::sparseFieldsForOwnType($this->resource, $jsonApiRequest);
             $includes = static::includesToLoad(static::getSparseIncludes($jsonApiRequest), $fields, $this->resource);
 
-            if (! empty($includes)) {
-                static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []), $fields);
-            }
+            static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []), $fields);
         }
 
         return parent::toResponse($request);
@@ -176,12 +172,17 @@ trait WithEagerIncludes
         );
     }
 
-    /** Load the requested includes into the given model collection. */
+    /**
+     * Load the requested includes into the given model collection.
+     *
+     * The model's own eagerLoads() runs even when nothing was included: it decides, from the
+     * includes and the fieldset it is handed, what its resource reads regardless of the request.
+     */
     protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = [], ?array $fields = null): void
     {
         $template = $models->first();
 
-        if (! empty($filter)) {
+        if ($includes !== [] && ! empty($filter)) {
             static::loadIncludedRelations($models, $template, $filter);
         }
 

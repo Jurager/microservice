@@ -57,6 +57,17 @@ class WithEagerLoadsTest extends TestCase
         );
     }
 
+    public function test_eager_loads_run_even_when_nothing_was_included(): void
+    {
+        $request = Request::create('/posts');
+        app()->instance('request', $request);
+        VariantPost::$lastIncluded = null;
+
+        VariantPostResource::collection(VariantPost::query()->get());
+
+        $this->assertSame([], VariantPost::$lastIncluded, 'A model may declare relations its resource always reads.');
+    }
+
     public function test_eager_loads_receive_the_requested_include_keys(): void
     {
         $request = Request::create('/posts?include=values');
