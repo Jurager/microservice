@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
 use Jurager\Microservice\JsonApi\Concerns\WithEagerIncludes;
 use Jurager\Microservice\Tests\TestCase;
 
-/** A sparse fieldset covers relationships too: one it doesn't name is neither loaded nor serialized. */
+/** A sparse fieldset narrows the resource's own fields; relationships the client included are never cut by it. */
 class WithSparseRelationshipsTest extends TestCase
 {
     protected function setUp(): void
@@ -53,44 +53,25 @@ class WithSparseRelationshipsTest extends TestCase
         $this->assertCount(1, $document['included']);
     }
 
-    public function test_relationship_not_named_in_fieldset_is_dropped_with_its_included(): void
+    public function test_fieldset_narrows_attributes_but_keeps_the_included_relationship(): void
     {
         $document = $this->single('include=comments&fields[sparsePost]=title');
 
         $this->assertSame(['title' => 'Hello'], $document['data']['attributes']);
-        $this->assertArrayNotHasKey('relationships', $document['data']);
-        $this->assertArrayNotHasKey('included', $document);
-    }
-
-    public function test_relationship_named_in_fieldset_is_returned(): void
-    {
-        $document = $this->single('include=comments&fields[sparsePost]=title,comments');
-
         $this->assertArrayHasKey('comments', $document['data']['relationships']);
         $this->assertSame('comment', $document['included'][0]['type']);
     }
 
     public function test_included_resource_is_limited_by_its_own_fieldset(): void
     {
-        $document = $this->single('include=comments&fields[sparsePost]=title,comments&fields[comment]=body');
+        $document = $this->single('include=comments&fields[sparsePost]=title&fields[comment]=body');
 
         $this->assertSame(['body' => 'Nice'], $document['included'][0]['attributes']);
     }
 
-    public function test_relation_outside_fieldset_is_not_loaded(): void
+    public function test_included_relation_is_loaded_under_a_fieldset(): void
     {
         $request = Request::create('/sparse-posts?include=comments&fields[sparsePost]=title');
-        app()->instance('request', $request);
-
-        $posts = SparsePost::query()->get();
-        SparsePostResource::collection($posts);
-
-        $this->assertFalse($posts->first()->relationLoaded('comments'));
-    }
-
-    public function test_relation_inside_fieldset_is_loaded(): void
-    {
-        $request = Request::create('/sparse-posts?include=comments&fields[sparsePost]=title,comments');
         app()->instance('request', $request);
 
         $posts = SparsePost::query()->get();
@@ -99,7 +80,7 @@ class WithSparseRelationshipsTest extends TestCase
         $this->assertTrue($posts->first()->relationLoaded('comments'));
     }
 
-    public function test_collection_response_drops_relationships_outside_fieldset(): void
+    public function test_collection_response_keeps_the_included_relationship(): void
     {
         $request = Request::create('/sparse-posts?include=comments&fields[sparsePost]=title');
         app()->instance('request', $request);
@@ -107,8 +88,8 @@ class WithSparseRelationshipsTest extends TestCase
         $document = SparsePostResource::collection(SparsePost::query()->get())->toResponse($request)->getData(true);
 
         $this->assertSame(['title' => 'Hello'], $document['data'][0]['attributes']);
-        $this->assertArrayNotHasKey('relationships', $document['data'][0]);
-        $this->assertArrayNotHasKey('included', $document);
+        $this->assertArrayHasKey('comments', $document['data'][0]['relationships']);
+        $this->assertCount(1, $document['included']);
     }
 }
 

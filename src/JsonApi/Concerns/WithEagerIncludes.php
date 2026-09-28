@@ -28,9 +28,7 @@ trait WithEagerIncludes
             $models->withRelationshipAutoloading();
 
             $fields = static::sparseFieldsForOwnType($models->first(), $request);
-            $includes = static::includesToLoad(static::getSparseIncludes($request), $fields, $models->first());
-
-            static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
+            static::loadEagerIncludes($models, static::getSparseIncludes($request), request()->input('filter', []), $fields);
         }
 
         return parent::collection($resource);
@@ -43,39 +41,10 @@ trait WithEagerIncludes
 
         if ($this->resource instanceof Model) {
             $fields = static::sparseFieldsForOwnType($this->resource, $jsonApiRequest);
-            $includes = static::includesToLoad(static::getSparseIncludes($jsonApiRequest), $fields, $this->resource);
-
-            static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []), $fields);
+            static::loadEagerIncludes(EloquentCollection::make([$this->resource]), static::getSparseIncludes($jsonApiRequest), $request->input('filter', []), $fields);
         }
 
         return parent::toResponse($request);
-    }
-
-    /**
-     * Relationships of this resource that a sparse fieldset lets through.
-     *
-     * Laravel applies fields[type] to attributes only. The JSON:API spec makes a fieldset cover
-     * relationships too, so a relationship the fieldset doesn't name is dropped here, and with it
-     * its `included` resources. Relations a name addresses (see fieldRelationsOf) stay.
-     * A resource with no fieldset keeps every requested relationship.
-     */
-    protected function requestedResourceRelationships(JsonApiRequest $request, ?string $relationName = null): array
-    {
-        $requested = parent::requestedResourceRelationships($request, $relationName);
-
-        if ($relationName !== null || ! $this->usesRequestQueryString) {
-            return $requested;
-        }
-
-        $type = $this->resolveResourceType($request);
-
-        if (! $request->hasSparseFieldset($type)) {
-            return $requested;
-        }
-
-        $fields = $request->sparseFields($type);
-
-        return array_values(array_intersect($requested, static::relationsWithinFields($fields, $this->resource)));
     }
 
     /**
@@ -91,7 +60,7 @@ trait WithEagerIncludes
         }
 
         // A name is served through its relation only when that relation was asked for; otherwise it stays an attribute.
-        $requested = parent::requestedResourceRelationships($request);
+        $requested = $this->requestedResourceRelationships($request);
         $addressed = [];
 
         foreach (static::fieldRelationsOf($this->resource, $request->sparseFields($resourceType)) as $relation => $names) {
@@ -101,38 +70,6 @@ trait WithEagerIncludes
         }
 
         return array_diff_key($attributes, array_flip($addressed));
-    }
-
-    /**
-     * The includes to load under a sparse fieldset: the requested ones the fieldset doesn't name are
-     * dropped, so relations that won't be serialized aren't loaded, and the relations its names
-     * address are added, because the resource reads them even when they aren't returned (an EAV code
-     * kept as an attribute is read from `attribute_values`). Null means no fieldset was requested.
-     *
-     * @param  array<string, mixed>  $includes
-     * @param  list<string>|null  $fields
-     * @return array<string, mixed>
-     */
-    protected static function includesToLoad(array $includes, ?array $fields, mixed $model): array
-    {
-        if ($fields === null) {
-            return $includes;
-        }
-
-        $kept = array_intersect_key($includes, array_flip(static::relationsWithinFields($fields, $model)));
-
-        return $kept + array_map(static fn () => [], static::fieldRelationsOf($model, $fields));
-    }
-
-    /**
-     * Relations a fieldset keeps: the ones it names, and the ones its names address.
-     *
-     * @param  list<string>  $fields
-     * @return list<string>
-     */
-    protected static function relationsWithinFields(array $fields, mixed $model): array
-    {
-        return array_values(array_unique([...$fields, ...array_keys(static::fieldRelationsOf($model, $fields))]));
     }
 
     /**

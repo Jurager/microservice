@@ -17,8 +17,8 @@ use Jurager\Microservice\Tests\TestCase;
 
 /**
  * A field that addresses a relation's rows (an EAV code selecting `attribute_values`), reported by the
- * model's optional fieldRelations(), keeps that relation in the response and is not repeated as an
- * attribute.
+ * model's optional fieldRelations(), is served through that relation when it is included, and is not
+ * repeated as an attribute.
  */
 class WithFieldRelationsTest extends TestCase
 {
@@ -50,44 +50,13 @@ class WithFieldRelationsTest extends TestCase
         return json_decode(AddressedPostResource::make(AddressedPost::query()->first())->toResponse($request)->getContent(), true);
     }
 
-    public function test_relation_addressed_by_a_field_is_kept_although_the_fieldset_does_not_name_it(): void
-    {
-        $document = $this->single('include=values&fields[addressedPost]=author');
-
-        $this->assertArrayHasKey('values', $document['data']['relationships']);
-        $this->assertSame('addressedValue', $document['included'][0]['type']);
-    }
-
-    public function test_addressing_field_is_not_repeated_as_an_attribute(): void
+    public function test_addressing_field_is_served_through_the_included_relation_not_as_an_attribute(): void
     {
         $document = $this->single('include=values&fields[addressedPost]=author,title');
 
         $this->assertSame(['title' => 'Hello'], $document['data']['attributes']);
-    }
-
-    public function test_relation_stays_dropped_when_no_field_addresses_it(): void
-    {
-        $document = $this->single('include=values&fields[addressedPost]=title');
-
-        $this->assertSame(['title' => 'Hello'], $document['data']['attributes']);
-        $this->assertArrayNotHasKey('included', $document);
-    }
-
-    public function test_addressed_relation_is_loaded_and_unaddressed_one_is_not(): void
-    {
-        $request = Request::create('/addressed-posts?include=values&fields[addressedPost]=author');
-        app()->instance('request', $request);
-        $posts = AddressedPost::query()->get();
-        AddressedPostResource::collection($posts);
-
-        $this->assertTrue($posts->first()->relationLoaded('values'));
-
-        $request = Request::create('/addressed-posts?include=values&fields[addressedPost]=title');
-        app()->instance('request', $request);
-        $posts = AddressedPost::query()->get();
-        AddressedPostResource::collection($posts);
-
-        $this->assertFalse($posts->first()->relationLoaded('values'));
+        $this->assertArrayHasKey('values', $document['data']['relationships']);
+        $this->assertSame('addressedValue', $document['included'][0]['type']);
     }
 
     public function test_addressing_field_stays_an_attribute_when_its_relation_was_not_requested(): void
@@ -97,7 +66,15 @@ class WithFieldRelationsTest extends TestCase
         $this->assertSame(['title' => 'Hello', 'author' => 'ann'], $document['data']['attributes']);
     }
 
-    public function test_addressed_relation_is_loaded_once_for_the_attribute_even_when_not_included(): void
+    public function test_other_included_relations_are_not_cut_by_the_fieldset(): void
+    {
+        $document = $this->single('include=values&fields[addressedPost]=title');
+
+        $this->assertSame(['title' => 'Hello'], $document['data']['attributes']);
+        $this->assertArrayHasKey('values', $document['data']['relationships']);
+    }
+
+    public function test_the_model_loads_its_relation_under_the_fieldset_even_when_not_included(): void
     {
         $request = Request::create('/addressed-posts?fields[addressedPost]=author,title');
         app()->instance('request', $request);
@@ -173,7 +150,7 @@ class AddressedPost extends Model implements ProvidesEagerLoads
     /** @return array<string, \Closure> */
     public function eagerLoads(array $included, ?array $fields = null): array
     {
-        if ($fields === null || ! in_array('values', $included, true)) {
+        if ($fields === null) {
             return [];
         }
 
