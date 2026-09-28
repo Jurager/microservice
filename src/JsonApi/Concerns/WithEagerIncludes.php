@@ -27,7 +27,7 @@ trait WithEagerIncludes
 
             if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
                 $fields = static::sparseFieldsForOwnType($models->first(), $request);
-                $includes = static::includesWithinFields($includes, $fields);
+                $includes = static::includesWithinFields($includes, $fields, $models->first());
 
                 if (! empty($includes)) {
                     static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
@@ -46,7 +46,7 @@ trait WithEagerIncludes
 
         if (! empty($includes) && $this->resource instanceof Model) {
             $fields = static::sparseFieldsForOwnType($this->resource, $jsonApiRequest);
-            $includes = static::includesWithinFields($includes, $fields);
+            $includes = static::includesWithinFields($includes, $fields, $this->resource);
 
             if (! empty($includes)) {
                 static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []), $fields);
@@ -61,7 +61,8 @@ trait WithEagerIncludes
      *
      * Laravel applies fields[type] to attributes only. The JSON:API spec makes a fieldset cover
      * relationships too, so a relationship the fieldset doesn't name is dropped here, and with it
-     * its `included` resources. A resource with no fieldset keeps every requested relationship.
+     * its `included` resources. Relations a name addresses (see fieldRelationsOf) stay.
+     * A resource with no fieldset keeps every requested relationship.
      */
     protected function requestedResourceRelationships(JsonApiRequest $request, ?string $relationName = null): array
     {
@@ -77,7 +78,26 @@ trait WithEagerIncludes
             return $requested;
         }
 
-        return array_values(array_intersect($requested, $request->sparseFields($type)));
+        $fields = $request->sparseFields($type);
+
+        return array_values(array_intersect($requested, static::relationsWithinFields($fields, $this->resource)));
+    }
+
+    /**
+     * Resource attributes, minus the fields that address a relation's rows instead
+     * (an EAV code is served through `attribute_values`, not repeated as an attribute).
+     */
+    protected function resolveResourceAttributes(JsonApiRequest $request, string $resourceType): array
+    {
+        $attributes = parent::resolveResourceAttributes($request, $resourceType);
+
+        if (! $this->usesRequestQueryString || ! $request->hasSparseFieldset($resourceType)) {
+            return $attributes;
+        }
+
+        $addressed = array_merge(...array_values(static::fieldRelationsOf($this->resource, $request->sparseFields($resourceType))));
+
+        return array_diff_key($attributes, array_flip($addressed));
     }
 
     /**
@@ -88,9 +108,34 @@ trait WithEagerIncludes
      * @param  list<string>|null  $fields
      * @return array<string, mixed>
      */
-    protected static function includesWithinFields(array $includes, ?array $fields): array
+    protected static function includesWithinFields(array $includes, ?array $fields, mixed $model = null): array
     {
-        return $fields === null ? $includes : array_intersect_key($includes, array_flip($fields));
+        return $fields === null ? $includes : array_intersect_key($includes, array_flip(static::relationsWithinFields($fields, $model)));
+    }
+
+    /**
+     * Relations a fieldset keeps: the ones it names, and the ones its names address.
+     *
+     * @param  list<string>  $fields
+     * @return list<string>
+     */
+    protected static function relationsWithinFields(array $fields, mixed $model): array
+    {
+        return array_values(array_unique([...$fields, ...array_keys(static::fieldRelationsOf($model, $fields))]));
+    }
+
+    /**
+     * Ask the model which relations the fieldset's names address, through its optional
+     * `public static fieldRelations(array $fields): array` — duck-typed, like loadIncludedRelations(),
+     * so neither side depends on the package that supplies the names (e.g. EAV attribute codes
+     * selecting rows of `attribute_values`).
+     *
+     * @param  list<string>  $fields
+     * @return array<string, list<string>>  Relation => the names among $fields that address its rows.
+     */
+    protected static function fieldRelationsOf(mixed $model, array $fields): array
+    {
+        return is_object($model) && method_exists($model, 'fieldRelations') ? $model::fieldRelations($fields) : [];
     }
 
     /** Get the sparse fields requested for this resource's own JSON:API type, or null when none were requested. */
