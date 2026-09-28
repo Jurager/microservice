@@ -9,8 +9,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Jurager\Microservice\JsonApi\Concerns\WithEagerIncludes;
+use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 use Jurager\Microservice\Tests\TestCase;
 
 /**
@@ -88,6 +90,55 @@ class WithFieldRelationsTest extends TestCase
         $this->assertFalse($posts->first()->relationLoaded('values'));
     }
 
+    public function test_addressing_field_stays_an_attribute_when_its_relation_was_not_requested(): void
+    {
+        $document = $this->single('fields[addressedPost]=author,title');
+
+        $this->assertSame(['title' => 'Hello', 'author' => 'ann'], $document['data']['attributes']);
+    }
+
+    public function test_addressed_relation_is_loaded_once_for_the_attribute_even_when_not_included(): void
+    {
+        $request = Request::create('/addressed-posts?fields[addressedPost]=author,title');
+        app()->instance('request', $request);
+        $posts = AddressedPost::query()->get();
+        AddressedPostResource::collection($posts);
+
+        $this->assertTrue($posts->first()->relationLoaded('values'));
+    }
+
+    public function test_relation_read_lazily_while_serializing_is_loaded_for_the_whole_collection(): void
+    {
+        AddressedPost::query()->create(['title' => 'Second']);
+        AddressedPost::query()->create(['title' => 'Third']);
+
+        $request = Request::create('/addressed-posts');
+        app()->instance('request', $request);
+        $posts = AddressedPost::query()->get();
+
+        DB::enableQueryLog();
+        LazyPostResource::collection($posts)->toResponse($request);
+        $valueQueries = collect(DB::getQueryLog())->filter(fn ($q) => str_contains($q['query'], 'addressed_values'))->count();
+        DB::disableQueryLog();
+
+        $this->assertSame(1, $valueQueries);
+    }
+
+    public function test_constraint_wins_over_a_copy_of_the_relation_loaded_earlier(): void
+    {
+        AddressedValue::query()->create(['post_id' => 1, 'code' => 'other']);
+
+        $request = Request::create('/addressed-posts?include=values&fields[addressedPost]=author');
+        app()->instance('request', $request);
+        $posts = AddressedPost::query()->with('values')->get();
+
+        $this->assertCount(2, $posts->first()->values);
+
+        AddressedPostResource::collection($posts);
+
+        $this->assertSame(['author'], $posts->first()->values->pluck('code')->all());
+    }
+
     public function test_without_a_fieldset_nothing_changes(): void
     {
         $document = $this->single('include=values');
@@ -106,7 +157,7 @@ class AddressedValue extends Model
     protected $guarded = [];
 }
 
-class AddressedPost extends Model
+class AddressedPost extends Model implements ProvidesEagerLoads
 {
     public $timestamps = false;
 
@@ -117,6 +168,16 @@ class AddressedPost extends Model
     public function values(): HasMany
     {
         return $this->hasMany(AddressedValue::class, 'post_id');
+    }
+
+    /** @return array<string, \Closure> */
+    public function eagerLoads(array $included, ?array $fields = null): array
+    {
+        if ($fields === null || ! in_array('values', $included, true)) {
+            return [];
+        }
+
+        return ['values' => fn ($query) => $query->whereIn('code', $fields)];
     }
 
     /** @param  list<string>  $fields */
@@ -160,5 +221,20 @@ class AddressedPostResource extends JsonApiResource
     public function toRelationships(Request $request): array
     {
         return ['values' => AddressedValueResource::class];
+    }
+}
+
+class LazyPostResource extends JsonApiResource
+{
+    use WithEagerIncludes;
+
+    public function toType(Request $request): string
+    {
+        return 'lazyPost';
+    }
+
+    public function toAttributes(Request $request): array
+    {
+        return ['values' => $this->values->count()];
     }
 }

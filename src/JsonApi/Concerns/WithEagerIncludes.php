@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\JsonApi\Concerns;
 
+use Closure;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
@@ -20,18 +21,17 @@ trait WithEagerIncludes
     public static function collection($resource): AnonymousResourceCollection
     {
         $request = JsonApiRequest::createFrom(request());
-        $includes = static::getSparseIncludes($request);
+        $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
 
-        if (! empty($includes)) {
-            $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
+        if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
+            // A relation the resource reads lazily is loaded for the whole collection at once, not per model.
+            $models->withRelationshipAutoloading();
 
-            if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
-                $fields = static::sparseFieldsForOwnType($models->first(), $request);
-                $includes = static::includesWithinFields($includes, $fields, $models->first());
+            $fields = static::sparseFieldsForOwnType($models->first(), $request);
+            $includes = static::includesToLoad(static::getSparseIncludes($request), $fields, $models->first());
 
-                if (! empty($includes)) {
-                    static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
-                }
+            if (! empty($includes)) {
+                static::loadEagerIncludes($models, $includes, request()->input('filter', []), $fields);
             }
         }
 
@@ -42,11 +42,10 @@ trait WithEagerIncludes
     public function toResponse($request): JsonResponse
     {
         $jsonApiRequest = JsonApiRequest::createFrom($request);
-        $includes = static::getSparseIncludes($jsonApiRequest);
 
-        if (! empty($includes) && $this->resource instanceof Model) {
+        if ($this->resource instanceof Model) {
             $fields = static::sparseFieldsForOwnType($this->resource, $jsonApiRequest);
-            $includes = static::includesWithinFields($includes, $fields, $this->resource);
+            $includes = static::includesToLoad(static::getSparseIncludes($jsonApiRequest), $fields, $this->resource);
 
             if (! empty($includes)) {
                 static::loadEagerIncludes(EloquentCollection::make([$this->resource]), $includes, $request->input('filter', []), $fields);
@@ -95,22 +94,38 @@ trait WithEagerIncludes
             return $attributes;
         }
 
-        $addressed = array_merge(...array_values(static::fieldRelationsOf($this->resource, $request->sparseFields($resourceType))));
+        // A name is served through its relation only when that relation was asked for; otherwise it stays an attribute.
+        $requested = parent::requestedResourceRelationships($request);
+        $addressed = [];
+
+        foreach (static::fieldRelationsOf($this->resource, $request->sparseFields($resourceType)) as $relation => $names) {
+            if (in_array($relation, $requested, true)) {
+                array_push($addressed, ...$names);
+            }
+        }
 
         return array_diff_key($attributes, array_flip($addressed));
     }
 
     /**
-     * Drop the includes a sparse fieldset doesn't name, so relations that won't be
-     * serialized aren't loaded either. Null means no fieldset was requested.
+     * The includes to load under a sparse fieldset: the requested ones the fieldset doesn't name are
+     * dropped, so relations that won't be serialized aren't loaded, and the relations its names
+     * address are added, because the resource reads them even when they aren't returned (an EAV code
+     * kept as an attribute is read from `attribute_values`). Null means no fieldset was requested.
      *
      * @param  array<string, mixed>  $includes
      * @param  list<string>|null  $fields
      * @return array<string, mixed>
      */
-    protected static function includesWithinFields(array $includes, ?array $fields, mixed $model = null): array
+    protected static function includesToLoad(array $includes, ?array $fields, mixed $model): array
     {
-        return $fields === null ? $includes : array_intersect_key($includes, array_flip(static::relationsWithinFields($fields, $model)));
+        if ($fields === null) {
+            return $includes;
+        }
+
+        $kept = array_intersect_key($includes, array_flip(static::relationsWithinFields($fields, $model)));
+
+        return $kept + array_map(static fn () => [], static::fieldRelationsOf($model, $fields));
     }
 
     /**
@@ -202,9 +217,19 @@ trait WithEagerIncludes
 
         $relations = $template->eagerLoads($included, $fields);
 
-        if ($relations !== []) {
-            $models->loadMissing($relations);
+        if ($relations === []) {
+            return;
         }
+
+        // A closure constrains its relation (e.g. attribute_values narrowed to the fieldset's codes), so it has
+        // to win over a full copy something loaded earlier; loadMissing would keep that copy and skip the constraint.
+        $constrained = array_filter($relations, static fn ($relation) => $relation instanceof Closure);
+
+        if ($constrained !== []) {
+            $models->load($constrained);
+        }
+
+        $models->loadMissing(array_diff_key($relations, $constrained));
     }
 
     /** Build a nested relation tree, applying eager overrides. */
