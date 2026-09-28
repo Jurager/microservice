@@ -13,6 +13,7 @@ use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Registry\RouteRegistry;
+use Jurager\Microservice\Support\Peers;
 use Laravel\Octane\Commands\ReloadCommand;
 use Throwable;
 
@@ -31,10 +32,10 @@ class SyncCommand extends Command implements Isolatable
 
     public function handle(ServiceClient $client, ManifestRegistry $registry): void
     {
-        $services = $this->input('services', []) ?: config('microservice.manifest.services', []);
+        $services = $this->input('services', []) ?: Peers::withServices();
 
         if (empty($services)) {
-            $this->components->warn('No services configured. Set manifest.services in config.');
+            $this->components->warn('No services configured. Set manifest.services or peers in config.');
 
             return;
         }

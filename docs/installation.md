@@ -157,6 +157,8 @@ The following environment variables control package behavior. All of them have s
 | `SERVICE_MANIFEST_TTL` | `0` | How long a synced manifest lives in cache, in seconds (`0` = until replaced) |
 | `SERVICE_MANIFEST_PREFIX` | `api` | Only routes under this URI prefix are published in this service's manifest |
 
+Services outside the pattern are not listed here: they are declared by name in the `peers` config key — see [Peers](gateway.md#peers).
+
 #### Idempotency
 
 | Variable | Default | Description |

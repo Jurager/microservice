@@ -15,6 +15,7 @@ use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Promise\Utils;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\Support\Peers;
 use Jurager\Microservice\Support\Signer;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -272,8 +273,9 @@ class ServiceClient
      * Resolve the base URL and effective timeout for a service.
      *
      * URL resolution order:
-     *   1. DNS pattern (SERVICE_DISCOVERY_PATTERN) — e.g. Kubernetes in-cluster DNS
-     *   2. Manifest stored in shared Redis by the service itself
+     *   1. Peer URL (microservice.peers) — a service outside the discovery pattern
+     *   2. DNS pattern (SERVICE_DISCOVERY_PATTERN) — e.g. Kubernetes in-cluster DNS
+     *   3. Manifest stored in shared Redis by the service itself
      *
      * Timeout resolution order:
      *   1. Per-request override
@@ -286,6 +288,10 @@ class ServiceClient
      */
     protected function resolveServiceConfig(string $service, ?int $requestTimeout): array
     {
+        if ($peerUrl = Peers::url($service)) {
+            return [$peerUrl, $requestTimeout ?? (int) config('microservice.manifest.timeout', 30)];
+        }
+
         $pattern = config('microservice.discovery.pattern');
 
         if ($pattern) {

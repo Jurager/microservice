@@ -20,6 +20,23 @@ SERVICE_DISCOVERY_PATTERN=http://{service}:8000
 
 `SERVICE_MANIFEST_SERVICES` is a comma-separated list of the services whose manifests the gateway should sync. `SERVICE_DISCOVERY_PATTERN` is a URL template in which the `{service}` placeholder is replaced with each service's name — the pattern above suits Docker Compose, while a Kubernetes deployment would typically use something like `http://{service}.default.svc.cluster.local`.
 
+### Peers
+
+The discovery pattern describes one network. A service that lives outside it — another gateway in a public contour, say — is declared as a peer instead, by name, with its own URL:
+
+```php
+// config/microservice.php
+return [
+    'peers' => [
+        'api' => env('API_URL'),
+    ],
+];
+```
+
+A peer is addressed by that URL and never through the pattern, so its host can be anything. The gateway pulls its manifest with `microservice:sync` together with the manifest services, and `Gateway::routes()` proxies it like any other service — the routes appear as `api/...` and are named `api.*`. Nothing about a peer goes into `SERVICE_MANIFEST_SERVICES`, which stays the list of services behind the pattern.
+
+Two rules keep the addressing unambiguous. A name may not be both a peer and a manifest service, and a peer's URL must be an `http(s)` URL; either mistake stops the application from booting rather than sending the service's traffic somewhere unintended. A peer whose URL is empty — an unset env — is skipped. Trust doesn't depend on where a service runs: requests are signed and verified against the cluster CA either way, so a peer needs its own certificate like any other service.
+
 `GET /microservice/manifest` is signed and verified like any other inter-service call — a certificate carries everything a verifier needs, so there's no bootstrapping problem to work around. The gateway needs its own key pair and certificate like any other service — see [How Peer Trust Works](security.md#how-peer-trust-works).
 
 ## Syncing Manifests

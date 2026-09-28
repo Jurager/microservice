@@ -119,6 +119,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Peers
+    |--------------------------------------------------------------------------
+    |
+    | Services outside the discovery network, addressed by their own URL.
+    | Peers are synced with microservice:sync alongside manifest services.
+    |
+    | A peer must not also be listed in manifest.services. Entries without a URL
+    | are skipped.
+    |
+    | Example:
+    |   'api' => env('API_URL'),
+    |
+    */
+    'peers' => [],
+
+    /*
+    |--------------------------------------------------------------------------
     | Manifest Registration
     |--------------------------------------------------------------------------
     |

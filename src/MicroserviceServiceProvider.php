@@ -12,6 +12,7 @@ use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
+use InvalidArgumentException;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Bus\Listener;
@@ -28,6 +29,7 @@ use Jurager\Microservice\Http\Middleware\LogContext;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Registry\ManifestRegistry;
 use Jurager\Microservice\Registry\RouteRegistry;
+use Jurager\Microservice\Support\Peers;
 use Jurager\Microservice\Support\Signer;
 use RuntimeException;
 use Throwable;
@@ -39,6 +41,7 @@ class MicroserviceServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/microservice.php', 'microservice');
         $this->normalizeServicesConfig();
+        $this->normalizePeersConfig();
 
         $this->app->singleton(ManifestRegistry::class);
         $this->app->singleton(Signer::class);
@@ -107,6 +110,39 @@ class MicroserviceServiceProvider extends ServiceProvider
         config(['microservice.manifest.services' => $services]);
     }
 
+    /**
+     * Normalize peers to a name => base URL map.
+     *
+     * An entry without a URL is an unset env and is skipped. Anything else that
+     * is malformed fails fast: dropping it would silently send that service's
+     * traffic through the discovery pattern instead.
+     */
+    private function normalizePeersConfig(): void
+    {
+        $services = (array) config('microservice.manifest.services', []);
+        $peers = [];
+
+        foreach ((array) config('microservice.peers', []) as $name => $url) {
+            $url = is_string($url) ? rtrim(trim($url), '/') : '';
+
+            if ($url === '') {
+                continue;
+            }
+
+            if (! is_string($name) || $name === '' || ! preg_match('#^https?://[^\s/]+#i', $url)) {
+                throw new InvalidArgumentException("Invalid microservice.peers entry [$name]: expected a service name and an http(s) URL.");
+            }
+
+            if (in_array($name, $services, true)) {
+                throw new InvalidArgumentException("Service [$name] is both a peer and a manifest service; it must be addressed one way only.");
+            }
+
+            $peers[$name] = $url;
+        }
+
+        config(['microservice.peers' => $peers]);
+    }
+
     /** Validate the signing configuration is present, well-formed, and internally consistent. */
     private function validateSigningConfig(): void
     {
@@ -158,7 +194,7 @@ class MicroserviceServiceProvider extends ServiceProvider
     /** Configure trusted proxies based on config. */
     protected function configureTrustedProxies(): void
     {
-        $services = config('microservice.manifest.services', []);
+        $services = Peers::withServices();
         $trustAll = config('microservice.trust_all_proxies', true);
 
         if (empty($services) && $trustAll) {
@@ -188,7 +224,7 @@ class MicroserviceServiceProvider extends ServiceProvider
     protected function registerSchedule(): void
     {
         $interval = (int) config('microservice.manifest.sync_interval', 5);
-        $services = config('microservice.manifest.services', []);
+        $services = Peers::withServices();
 
         if ($interval <= 0 || empty($services)) {
             return;

@@ -344,7 +344,7 @@ class HealthChecker
     }
 
     /**
-     * Normalized list of configured services.
+     * Normalized list of configured services and peers.
      * Accepts an array or a comma-separated string.
      *
      * @return string[]
@@ -357,7 +357,10 @@ class HealthChecker
             ? $raw
             : array_map('trim', explode(',', (string) $raw));
 
-        return array_values(array_filter($items, static fn ($s) => $s !== ''));
+        return array_values(array_unique([
+            ...array_filter($items, static fn ($s) => $s !== ''),
+            ...Peers::names(),
+        ]));
     }
 
     /**

@@ -72,6 +72,31 @@ class ServiceClientTest extends TestCase
         $this->assertSame('ok', $response->json('data'));
     }
 
+    public function test_peer_url_takes_precedence_over_discovery_pattern(): void
+    {
+        $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');
+        $this->app['config']->set('microservice.peers', ['api' => 'https://api.example.com']);
+
+        $client = $this->createClient([new Response(200), new Response(200)]);
+
+        $client->service('api')->get('/v1/secure/attributes')->send();
+        $client->service('oms')->get('/v1/orders')->send();
+
+        $this->assertSame('https://api.example.com/v1/secure/attributes', (string) $this->history[0]['request']->getUri());
+        $this->assertSame('http://oms:8000/v1/orders', (string) $this->history[1]['request']->getUri());
+    }
+
+    public function test_peer_is_never_resolved_from_its_own_manifest(): void
+    {
+        $this->app['config']->set('microservice.peers', ['api' => 'https://api.example.com']);
+
+        $client = $this->createClient([new Response(200)], $this->mockCacheWithManifest('api', 'https://elsewhere.internal'));
+
+        $client->service('api')->get('/v1/secure/attributes')->send();
+
+        $this->assertSame('api.example.com', $this->history[0]['request']->getUri()->getHost());
+    }
+
     public function test_request_includes_signature_headers(): void
     {
         $this->app['config']->set('microservice.discovery.pattern', 'http://{service}:8000');

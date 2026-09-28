@@ -5,7 +5,7 @@ weight: 20
 
 ## Introduction
 
-The `ServiceClient` is the package's HTTP client for talking to other services. Every request it sends is automatically signed with this service's own private key, propagates distributed tracing headers, and resolves the destination service's URL from either a configured discovery pattern or the gateway's manifest registry — so you never hardcode another service's address.
+The `ServiceClient` is the package's HTTP client for talking to other services. Every request it sends is automatically signed with this service's own private key, propagates distributed tracing headers, and resolves the destination service's URL from a configured peer URL, a discovery pattern or the gateway's manifest registry, in that order — so you never hardcode another service's address.
 
 On top of that, the client can retry failed requests, trip a circuit breaker against a service that's clearly down, and parse JSON:API responses into typed objects. None of that is required to get started, though — a plain request is just as simple as it looks below.
 
