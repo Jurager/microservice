@@ -11,6 +11,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 use Jurager\Microservice\JsonApi\Concerns\WithEagerIncludes;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 use Jurager\Microservice\Tests\TestCase;
@@ -26,9 +27,14 @@ class RequestedIncludesTest extends TestCase
             $table->unsignedBigInteger('parent_id')->nullable();
             $table->string('name');
         });
+        Schema::create('include_definitions', function (Blueprint $table) {
+            $table->id();
+            $table->string('code');
+        });
         Schema::create('include_values', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('entity_id');
+            $table->unsignedBigInteger('definition_id')->nullable();
             $table->string('code');
         });
 
@@ -41,6 +47,8 @@ class RequestedIncludesTest extends TestCase
     protected function tearDown(): void
     {
         IncludeEntity::$expanded = false;
+        IncludeEntity::$expandDefinitions = false;
+        IncludeEntity::$recursive = false;
         parent::tearDown();
     }
 
@@ -76,6 +84,64 @@ class RequestedIncludesTest extends TestCase
 
         $this->assertCount(3, $body['included']);
         $this->assertCount(2, $body['included'][0]['relationships']['values']['data']);
+    }
+
+    public function test_nested_models_keep_declared_include_expansions_without_serialization_queries(): void
+    {
+        IncludeEntity::$expandDefinitions = true;
+        foreach (IncludeValue::query()->get() as $value) {
+            $definition = IncludeDefinition::query()->create(['code' => $value->code]);
+            $value->update(['definition_id' => $definition->id]);
+        }
+        $request = Request::create('/entities?include=parent.values');
+        app()->instance('request', $request);
+        $resource = IncludeEntityResource::collection(IncludeEntity::query()->whereNotNull('parent_id')->get());
+
+        DB::enableQueryLog();
+        $body = $resource->toResponse($request)->getData(true);
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $values = array_values(array_filter($body['included'], fn ($item) => $item['type'] === 'includeValue'));
+        $definitions = array_values(array_filter($body['included'], fn ($item) => $item['type'] === 'includeDefinition'));
+        $this->assertCount(2, $definitions);
+        $this->assertSame(['name', 'unused'], array_column(array_column($definitions, 'attributes'), 'code'));
+        foreach ($values as $value) {
+            $this->assertSame('includeDefinition', $value['relationships']['definition']['data']['type']);
+        }
+        $this->assertSame([], $queries, 'Declared nested includes must be prepared before serialization.');
+    }
+
+    public function test_nested_declarations_apply_even_when_the_root_model_has_none(): void
+    {
+        IncludeEntity::$expandDefinitions = true;
+        foreach (IncludeValue::query()->get() as $value) {
+            $definition = IncludeDefinition::query()->create(['code' => $value->code]);
+            $value->update(['definition_id' => $definition->id]);
+        }
+        $request = Request::create('/values?include=owner.values');
+        app()->instance('request', $request);
+
+        $body = IncludeValueResource::collection(IncludeValue::query()->get())->toResponse($request)->getData(true);
+        $definitions = array_filter($body['included'], fn ($item) => $item['type'] === 'includeDefinition');
+
+        $this->assertCount(2, $definitions);
+    }
+
+    public function test_declarations_do_not_recursively_expand_their_own_defaults(): void
+    {
+        IncludeEntity::$recursive = true;
+        $grandparent = IncludeEntity::query()->create(['name' => 'Grandparent']);
+        IncludeEntity::query()->findOrFail(1)->update(['parent_id' => $grandparent->id]);
+        $request = Request::create('/entities?include=parent');
+        app()->instance('request', $request);
+        $child = IncludeEntity::query()->where('name', 'Child')->get();
+
+        $body = IncludeEntityResource::collection($child)->toResponse($request)->getData(true);
+
+        $this->assertCount(2, $body['included']);
+        $this->assertSame(['includeEntity', 'includeEntity'], array_column($body['included'], 'type'));
+        $this->assertArrayNotHasKey('relationships', $body['included'][1]);
     }
 
     public function test_partially_preloaded_relationships_are_completed_for_the_whole_batch(): void
@@ -122,6 +188,10 @@ class IncludeEntity extends Model implements ProvidesEagerLoads
 
     public static bool $expanded = false;
 
+    public static bool $expandDefinitions = false;
+
+    public static bool $recursive = false;
+
     public function parent(): BelongsTo
     {
         return $this->belongsTo(self::class, 'parent_id');
@@ -134,7 +204,10 @@ class IncludeEntity extends Model implements ProvidesEagerLoads
 
     public static function eagerRelations(): array
     {
-        return self::$expanded ? ['parent' => ['parent.values']] : [];
+        return [
+            ...(self::$recursive ? ['parent' => ['parent.parent']] : (self::$expanded ? ['parent' => ['parent.values']] : [])),
+            ...(self::$expandDefinitions ? ['values' => ['values.definition']] : []),
+        ];
     }
 
     public function eagerLoads(array $included, ?array $fields = null): array
@@ -158,9 +231,43 @@ class IncludeValue extends Model implements ProvidesEagerLoads
 
     public $timestamps = false;
 
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(IncludeEntity::class, 'entity_id');
+    }
+
+    public function definition(): BelongsTo
+    {
+        return $this->belongsTo(IncludeDefinition::class, 'definition_id');
+    }
+
     protected $table = 'include_values';
 
     protected $guarded = [];
+}
+
+class IncludeDefinition extends Model
+{
+    public $timestamps = false;
+
+    protected $table = 'include_definitions';
+
+    protected $guarded = [];
+}
+
+class IncludeDefinitionResource extends JsonApiResource
+{
+    use WithEagerIncludes;
+
+    public function toType(Request $request): string
+    {
+        return 'includeDefinition';
+    }
+
+    public function toAttributes(Request $request): array
+    {
+        return ['code' => $this->code];
+    }
 }
 
 class IncludeEntityResource extends JsonApiResource
@@ -186,6 +293,11 @@ class IncludeEntityResource extends JsonApiResource
 class IncludeValueResource extends JsonApiResource
 {
     use WithEagerIncludes;
+
+    public function toRelationships(Request $request): array
+    {
+        return ['definition' => IncludeDefinitionResource::class, 'owner' => IncludeEntityResource::class];
+    }
 
     public function toType(Request $request): string
     {

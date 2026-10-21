@@ -13,6 +13,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\JsonApi\JsonApiRequest;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 use Illuminate\Http\Resources\JsonApi\RelationResolver;
+use Illuminate\Support\Arr;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 
@@ -74,12 +75,9 @@ trait WithEagerIncludes
             $paths = parent::requestedResourceRelationships($request, $relationName);
         }
 
-        if ($relationName !== null && $this->requestedRelationships === null && is_object($this->resource) && method_exists($this->resource, 'eagerRelations')) {
-            $prefix = $relationName.'.';
-
-            foreach ($this->resource::eagerRelations()[$relationName] ?? [] as $path) {
-                $paths[] = str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path;
-            }
+        if ($relationName !== null && $this->requestedRelationships === null && $this->resource instanceof Model) {
+            $tree = static::buildRelationTree([$relationName => $paths], $this->resource);
+            $paths = array_keys(Arr::dot($tree[$relationName]));
         }
 
         return array_values(array_unique($paths));
@@ -211,25 +209,34 @@ trait WithEagerIncludes
     /** Build a nested relation tree, applying eager overrides. */
     protected static function buildRelationTree(array $includes, Model $owner): array
     {
-        $overrides = method_exists($owner, 'eagerRelations') ? $owner::eagerRelations() : [];
         $tree = [];
 
         foreach ($includes as $relation => $nested) {
-            $nestedRelations = array_values(array_filter((array) $nested));
+            $tree[$relation] = static::buildTreeFromPaths(array_values(array_filter((array) $nested)));
+        }
 
-            if (isset($overrides[$relation])) {
-                $prefix = $relation.'.';
-                $deepIncludes = array_map(
-                    fn (string $path) => str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path,
-                    $overrides[$relation]
-                );
+        static::validateRelationTree($owner, $tree);
 
-                $nestedRelations = empty($nestedRelations)
-                    ? $deepIncludes
-                    : array_values(array_unique(array_merge($deepIncludes, $nestedRelations)));
+        return static::expandRelationTree($owner, $tree);
+    }
+
+    /** Apply declarations to requested nodes before merging their defaults, keeping recursive defaults finite. */
+    protected static function expandRelationTree(Model $owner, array $tree): array
+    {
+        $overrides = method_exists($owner, 'eagerRelations') ? $owner::eagerRelations() : [];
+
+        foreach ($tree as $relation => $children) {
+            if ($children !== []) {
+                $children = static::expandRelationTree($owner->{$relation}()->getRelated(), $children);
             }
 
-            $tree[$relation] = static::buildTreeFromPaths($nestedRelations);
+            $prefix = $relation.'.';
+            $paths = array_map(
+                static fn (string $path) => str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path,
+                $overrides[$relation] ?? [],
+            );
+
+            $tree[$relation] = array_replace_recursive(static::buildTreeFromPaths($paths), $children);
         }
 
         return $tree;
