@@ -23,6 +23,10 @@ class CompoundResourceCollectionTest extends TestCase
     {
         parent::setUp();
         CompoundDefinitionResource::$resolutions = 0;
+        CompoundDefinitionResource::$resolveTranslations = false;
+        CompoundDefinitionResource::$relationshipReads = 0;
+        CompoundValueResource::$contextualDefinitions = false;
+        CompoundOwnerResource::$selfReference = false;
         CompoundTranslationResource::$resolutions = 0;
     }
 
@@ -32,6 +36,7 @@ class CompoundResourceCollectionTest extends TestCase
         foreach ([1, 2] as $id) {
             $locale = new CompoundLocale(['id' => 1]);
             $locale->setRelation('pivot', new Pivot(['id' => 100 + $id, 'label' => 'Label '.$id]));
+            $locale->setRelation('language', new CompoundLanguage(['id' => 1]));
             $definitions->push((new CompoundDefinition(['id' => $id]))->setRelation('translations', new Collection([$locale])));
         }
 
@@ -42,14 +47,14 @@ class CompoundResourceCollectionTest extends TestCase
         }, range(1, 15)));
     }
 
-    private function response(Collection $models, bool $native = false, string $include = 'values.definition.translations', bool $paginate = false): array
+    private function response(Collection $models, bool $native = false, string $include = 'values.definition.translations', bool $paginate = false, string $resourceClass = CompoundOwnerResource::class): array
     {
         $request = Request::create('/owners?include='.$include);
         app()->instance('request', $request);
         $models = $paginate ? new LengthAwarePaginator($models, 45, 15, 1) : $models;
         $resource = $native
-            ? new AnonymousResourceCollection($models, CompoundOwnerResource::class)
-            : CompoundOwnerResource::collection($models);
+            ? new AnonymousResourceCollection($models, $resourceClass)
+            : $resourceClass::collection($models);
 
         return $resource->toResponse($request)->getData(true);
     }
@@ -62,6 +67,26 @@ class CompoundResourceCollectionTest extends TestCase
         $this->assertSame(2, CompoundDefinitionResource::$resolutions);
         $this->assertSame(2, CompoundTranslationResource::$resolutions);
         $this->assertCount(34, $body['included']);
+    }
+
+    public function test_shared_models_are_prepared_once_before_serialization(): void
+    {
+        CompoundDefinitionResource::$resolveTranslations = true;
+        app()->instance('request', Request::create('/owners?include=values.definition.translations.language'));
+
+        CompoundOwnerResource::collection($this->models());
+
+        $this->assertSame(2, CompoundDefinitionResource::$relationshipReads);
+    }
+
+    public function test_leaf_relationship_callbacks_are_only_evaluated_during_serialization(): void
+    {
+        CompoundDefinitionResource::$resolveTranslations = true;
+        app()->instance('request', Request::create('/owners?include=values.definition.translations'));
+
+        CompoundOwnerResource::collection($this->models());
+
+        $this->assertSame(0, CompoundDefinitionResource::$relationshipReads);
     }
 
     public function test_distinct_pivot_translations_are_preserved(): void
@@ -156,6 +181,41 @@ class CompoundResourceCollectionTest extends TestCase
     {
         $this->assertSame(['data' => []], $this->response(new Collection));
     }
+
+    public function test_leaf_callbacks_can_resolve_a_primary_resource(): void
+    {
+        CompoundOwnerResource::$selfReference = true;
+        $models = $this->models();
+        foreach ($models as $model) {
+            $model->setRelation('featuredDefinition', $model->values->first()->definition);
+        }
+
+        $this->assertSame($this->response($models, native: true, include: 'featuredDefinition'), $this->response($models, include: 'featuredDefinition'));
+    }
+
+    public function test_callbacks_can_choose_different_resource_classes_for_the_same_models(): void
+    {
+        CompoundValueResource::$contextualDefinitions = true;
+        $models = $this->models();
+
+        $this->assertSame($this->response($models, native: true), $this->response($models));
+    }
+
+    public function test_resources_without_query_string_inclusions_keep_their_behavior(): void
+    {
+        $this->assertSame(
+            $this->response($this->models(), native: true, resourceClass: CompoundFixedOwnerResource::class),
+            $this->response($this->models(), resourceClass: CompoundFixedOwnerResource::class),
+        );
+    }
+
+    public function test_native_nested_resources_keep_laravels_behavior(): void
+    {
+        $models = $this->models();
+        $include = 'values.definition.translations.language';
+
+        $this->assertSame($this->response($models, native: true, include: $include), $this->response($models, include: $include));
+    }
 }
 
 class CompoundOwner extends Model
@@ -211,11 +271,23 @@ class CompoundDefinition extends Model
 class CompoundLocale extends Model
 {
     protected $guarded = [];
+
+    public function language(): BelongsTo
+    {
+        return $this->belongsTo(CompoundLanguage::class, 'language_id');
+    }
+}
+
+class CompoundLanguage extends Model
+{
+    protected $guarded = [];
 }
 
 class CompoundOwnerResource extends JsonApiResource
 {
     use WithEagerIncludes;
+
+    public static bool $selfReference = false;
 
     public function toType(Request $request): string
     {
@@ -231,7 +303,7 @@ class CompoundOwnerResource extends JsonApiResource
     {
         return [
             'values' => CompoundValueResource::class,
-            'featuredDefinition' => CompoundDefinitionResource::class,
+            'featuredDefinition' => self::$selfReference ? fn () => self::make($this->resource) : CompoundDefinitionResource::class,
             'alternateDefinition' => CompoundAlternateDefinitionResource::class,
             'otherDefinition' => CompoundOtherDefinitionResource::class,
             'parent' => self::class,
@@ -242,6 +314,8 @@ class CompoundOwnerResource extends JsonApiResource
 class CompoundValueResource extends JsonApiResource
 {
     use WithEagerIncludes;
+
+    public static bool $contextualDefinitions = false;
 
     public function toType(Request $request): string
     {
@@ -255,6 +329,14 @@ class CompoundValueResource extends JsonApiResource
 
     public function toRelationships(Request $request): array
     {
+        if (self::$contextualDefinitions) {
+            return ['definition' => function () {
+                $class = intdiv($this->id, 10) % 2 ? CompoundDefinitionResource::class : CompoundAlternateDefinitionResource::class;
+
+                return new $class($this->definition);
+            }];
+        }
+
         return ['definition' => CompoundDefinitionResource::class];
     }
 }
@@ -264,6 +346,10 @@ class CompoundDefinitionResource extends JsonApiResource
     use WithEagerIncludes;
 
     public static int $resolutions = 0;
+
+    public static bool $resolveTranslations = false;
+
+    public static int $relationshipReads = 0;
 
     public function toType(Request $request): string
     {
@@ -279,6 +365,14 @@ class CompoundDefinitionResource extends JsonApiResource
 
     public function toRelationships(Request $request): array
     {
+        if (self::$resolveTranslations) {
+            return ['translations' => function () {
+                self::$relationshipReads++;
+
+                return new AnonymousResourceCollection($this->translations, CompoundTranslationResource::class);
+            }];
+        }
+
         return ['translations' => CompoundTranslationResource::class];
     }
 }
@@ -305,6 +399,11 @@ class CompoundTranslationResource extends JsonApiResource
 
         return ['label' => $this->pivot->label];
     }
+
+    public function toRelationships(Request $request): array
+    {
+        return ['language' => JsonApiResource::class];
+    }
 }
 
 class CompoundAlternateDefinitionResource extends CompoundDefinitionResource
@@ -321,4 +420,9 @@ class CompoundOtherDefinitionResource extends CompoundDefinitionResource
     {
         return 'compoundOtherDefinition';
     }
+}
+
+class CompoundFixedOwnerResource extends CompoundOwnerResource
+{
+    protected bool $usesRequestQueryString = false;
 }

@@ -19,8 +19,8 @@ use Illuminate\Support\Collection;
 use JsonSerializable;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
+use Jurager\Microservice\JsonApi\IncludePlan;
 use Jurager\Microservice\JsonApi\ResourceCollection;
-use WeakMap;
 
 /** Batch-load Eloquent relations before JSON:API serialization. */
 trait WithEagerIncludes
@@ -30,66 +30,11 @@ trait WithEagerIncludes
         return new ResourceCollection($resource, static::class);
     }
 
-    /**
-     * Resolve a compatible collection's shared graph in one native Laravel traversal.
-     *
-     * @internal
-     */
-    public function resolveCollectionIncludedResourceObjects(JsonApiRequest $request, Collection $resources): Collection
-    {
-        $fallback = fn () => $resources->flatMap(fn ($resource) => $resource->resolveIncludedResourceObjects($request));
-        $primary = new WeakMap;
-
-        foreach ($resources as $resource) {
-            if (! $resource->resource instanceof Model) {
-                return $fallback();
-            }
-
-            $primary[$resource->resource] = true;
-            $resource->compileResourceRelationships($request);
-        }
-
-        $roots = $resources->flatMap(fn ($resource) => $resource->loadedRelationshipsMap)->all();
-        $pending = $roots;
-        // Match Laravel's object identity: separate pivot instances may share the same model ID.
-        $visited = new WeakMap;
-
-        for ($index = 0; $index < count($pending); $index++) {
-            [$resource, $type] = $pending[$index];
-            $model = $resource->resource;
-
-            // Keep Laravel's per-root behavior for primary-resource cycles and contextual views.
-            if (! $resource instanceof JsonApiResource || ! $model instanceof Model || isset($primary[$model])) {
-                return $fallback();
-            }
-
-            $context = [$resource::class, $resource->requestedRelationships, $resource->usesRequestQueryString];
-
-            if (isset($visited[$model][$type])) {
-                if ($visited[$model][$type] !== $context) {
-                    return $fallback();
-                }
-
-                continue;
-            }
-
-            $visited[$model] ??= [];
-            $visited[$model][$type] = $context;
-            $resource->includePreviouslyLoadedRelationships()->compileResourceRelationships($request);
-            array_push($pending, ...($resource->loadedRelationshipsMap ?? []));
-        }
-
-        // Clone the resource wrapper: Laravel appends descendants to its map during traversal.
-        $root = clone $this;
-        $root->loadedRelationshipsMap = $roots;
-
-        return $root->resolveIncludedResourceObjects($request);
-    }
-
     /** Create a new anonymous resource collection. */
     public static function collection($resource): AnonymousResourceCollection
     {
         $request = JsonApiRequest::createFrom(request());
+        $plan = new IncludePlan($request);
         $models = $resource instanceof Paginator ? $resource->getCollection() : $resource;
 
         if ($models instanceof EloquentCollection && $models->isNotEmpty()) {
@@ -97,10 +42,20 @@ trait WithEagerIncludes
             $models->withRelationshipAutoloading();
 
             $fields = static::sparseFieldsForOwnType($models->first(), $request);
-            static::loadEagerIncludes($models, static::getSparseIncludes($request), request()->input('filter', []), $fields);
+            static::loadEagerIncludes($models, static::getSparseIncludes($request), request()->input('filter', []), $fields, $plan);
         }
 
-        return parent::collection($resource);
+        $collection = parent::collection($resource);
+
+        if ($plan->paths() !== null) {
+            foreach ($collection->collection as $item) {
+                if ($item->usesRequestQueryString) {
+                    $item->requestedRelationships = $plan->paths();
+                }
+            }
+        }
+
+        return $collection instanceof ResourceCollection ? $collection->withIncludePlan($plan) : $collection;
     }
 
     /** Create an HTTP response that represents the object. */
@@ -231,7 +186,7 @@ trait WithEagerIncludes
      * The model's own eagerLoads() runs even when nothing was included: it decides, from the
      * includes and the fieldset it is handed, what its resource reads regardless of the request.
      */
-    protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = [], ?array $fields = null): void
+    protected static function loadEagerIncludes(EloquentCollection $models, array $includes, array $filter = [], ?array $fields = null, ?IncludePlan $plan = null): void
     {
         $template = $models->first();
 
@@ -243,7 +198,9 @@ trait WithEagerIncludes
 
         static::validateRelationTree($template, $tree);
         static::loadProvidedEagerLoads($models, $template, array_keys($includes), $fields);
-        static::loadRelationLevel($models, $template, $tree, new static($template));
+        $resource = new static($template);
+        $plan?->root($resource, $tree, $models, $resource->usesRequestQueryString);
+        static::loadRelationLevel($models, $template, $tree, $resource, $plan);
     }
 
     /** Apply the included filter scope to a batch of models. */
@@ -339,7 +296,7 @@ trait WithEagerIncludes
     }
 
     /** Recursively load a single level of the (already validated) relation tree onto the models. */
-    protected static function loadRelationLevel(EloquentCollection $models, Model $template, array $tree, ?JsonApiResource $resource = null): void
+    protected static function loadRelationLevel(EloquentCollection $models, Model $template, array $tree, ?JsonApiResource $resource = null, ?IncludePlan $plan = null): void
     {
         if ($models->isEmpty() || empty($tree)) {
             return;
@@ -362,24 +319,40 @@ trait WithEagerIncludes
         foreach ($tree as $relation => $children) {
             $models->loadMissing($relation);
             $relatedTemplate = $template->{$relation}()->getRelated();
-            $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter())
-                ->values()->withRelationshipAutoloading();
+            $relatedModels = static::relatedModels($models, $relation)->withRelationshipAutoloading();
+
             $relatedResource = rescue(
                 fn () => $relatedTemplate->toResource(($resolvers[$relation] ?? null)?->resourceClass()),
                 report: false,
             );
+            $relatedResources[$relation] = $relatedResource instanceof JsonApiResource ? $relatedResource : null;
+
+            if ($children === [] && ! $relatedTemplate instanceof ProvidesEagerLoads) {
+                if (($definitions[$relation] ?? null) instanceof Closure) {
+                    $plan?->requireSeparateTraversal();
+                }
+
+                $plan?->add($relatedResources[$relation], $children, $relatedModels, $relatedResources[$relation]?->usesRequestQueryString ?? false);
+
+                continue;
+            }
+
             $fields = $relatedResource instanceof JsonApiResource
                 ? static::fieldsForResource($relatedResource, $request)
                 : null;
 
             static::loadProvidedEagerLoads($relatedModels, $relatedTemplate, array_keys($children), $fields);
-            $relatedResources[$relation] = $relatedResource instanceof JsonApiResource ? $relatedResource : null;
         }
 
         foreach ($tree as $relation => $children) {
             $relatedTemplate = $template->{$relation}()->getRelated();
+
+            if ($children === [] && ! $relatedTemplate instanceof ProvidesEagerLoads) {
+                continue;
+            }
+
             $relatedResource = $relatedResources[$relation];
-            $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter());
+            $relatedModels = static::relatedModels($models, $relation);
 
             // Follow the resource's resolved models, which may differ from the raw relation.
             // Use Laravel's resolver so resource collections and single resources behave alike.
@@ -387,6 +360,7 @@ trait WithEagerIncludes
 
             if ($definition instanceof Closure) {
                 $relatedModels = new EloquentCollection;
+                $resolvedClass = null;
 
                 foreach ($models as $model) {
                     $definition = $resource::make($model)->toRelationships($request)[$relation];
@@ -400,10 +374,16 @@ trait WithEagerIncludes
                     }
 
                     if ($resourceClass = $resolver->resourceClass()) {
+                        if ($resolvedClass !== null && $resolvedClass !== $resourceClass) {
+                            $plan?->requireSeparateTraversal();
+                        }
+
+                        $resolvedClass = $resourceClass;
                         $relatedResource = new $resourceClass($relatedTemplate);
                     }
                 }
 
+                $relatedModels = $relatedModels->uniqueStrict(static fn (Model $model) => $model)->values();
                 static::loadProvidedEagerLoads(
                     $relatedModels, $relatedTemplate, array_keys($children),
                     $relatedResource ? static::fieldsForResource($relatedResource, $request) : null,
@@ -411,11 +391,20 @@ trait WithEagerIncludes
             }
 
             $relatedModels->withRelationshipAutoloading();
+            $plan?->add($relatedResource, $children, $relatedModels, $relatedResource?->usesRequestQueryString ?? false);
 
             if ($children !== []) {
-                static::loadRelationLevel($relatedModels, $relatedTemplate, $children, $relatedResource);
+                static::loadRelationLevel($relatedModels, $relatedTemplate, $children, $relatedResource, $plan);
             }
         }
+    }
+
+    /** Prepare shared instances once while retaining distinct models with different pivot data. */
+    protected static function relatedModels(EloquentCollection $models, string $relation): EloquentCollection
+    {
+        return EloquentCollection::make($models->pluck($relation)->flatten(1)->filter())
+            ->uniqueStrict(static fn (Model $model) => $model)
+            ->values();
     }
 
     /** The fieldset belongs to the related resource's type, not its owner's type. */

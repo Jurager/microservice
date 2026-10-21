@@ -11,12 +11,23 @@ use Illuminate\Support\Arr;
 
 class ResourceCollection extends AnonymousResourceCollection
 {
+    private ?IncludePlan $includePlan = null;
+
+    public function withIncludePlan(IncludePlan $plan): static
+    {
+        $this->includePlan = $plan;
+
+        return $this;
+    }
+
     public function with($request)
     {
-        $first = $this->collection->first();
+        if ($this->includePlan === null) {
+            return parent::with($request);
+        }
 
         return array_filter([
-            'included' => $first?->resolveCollectionIncludedResourceObjects(JsonApiRequest::createFrom($request), $this->collection)
+            'included' => $this->includePlan->resolve($this->collection, JsonApiRequest::createFrom($request))
                 ->uniqueStrict('_uniqueKey')
                 ->map(fn (array $resource) => Arr::except($resource, ['_uniqueKey']))
                 ->values()
