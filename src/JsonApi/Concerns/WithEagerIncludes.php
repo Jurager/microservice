@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Resources\JsonApi\JsonApiRequest;
+use Illuminate\Http\Resources\JsonApi\JsonApiResource;
+use Illuminate\Http\Resources\JsonApi\RelationResolver;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 
@@ -45,6 +47,42 @@ trait WithEagerIncludes
         }
 
         return parent::toResponse($request);
+    }
+
+    /** Keep internal eager-loads out of included resources; only explicit include expansions are public. */
+    protected function requestedResourceRelationships(JsonApiRequest $request, ?string $relationName = null): array
+    {
+        if (! $this->usesRequestQueryString) {
+            return parent::requestedResourceRelationships($request, $relationName);
+        }
+
+        // Laravel automatically enables includePreviouslyLoadedRelationships() on every included resource.
+        // Those models also carry relations loaded for accessors, inheritance and filtering, not for output.
+        if ($this->requestedRelationships !== null) {
+            $paths = $this->requestedRelationships;
+
+            if ($relationName === null) {
+                return array_values(array_unique(array_map(static fn (string $path) => explode('.', $path, 2)[0], $paths)));
+            }
+
+            $prefix = $relationName.'.';
+            $paths = array_map(
+                static fn (string $path) => substr($path, strlen($prefix)),
+                array_filter($paths, static fn (string $path) => str_starts_with($path, $prefix)),
+            );
+        } else {
+            $paths = parent::requestedResourceRelationships($request, $relationName);
+        }
+
+        if ($relationName !== null && $this->requestedRelationships === null && is_object($this->resource) && method_exists($this->resource, 'eagerRelations')) {
+            $prefix = $relationName.'.';
+
+            foreach ($this->resource::eagerRelations()[$relationName] ?? [] as $path) {
+                $paths[] = str_starts_with($path, $prefix) ? substr($path, strlen($prefix)) : $path;
+            }
+        }
+
+        return array_values(array_unique($paths));
     }
 
     /**
@@ -127,7 +165,7 @@ trait WithEagerIncludes
 
         static::validateRelationTree($template, $tree);
         static::loadProvidedEagerLoads($models, $template, array_keys($includes), $fields);
-        static::loadRelationLevel($models, $template, $tree);
+        static::loadRelationLevel($models, $template, $tree, new static($template));
     }
 
     /** Apply the included filter scope to a batch of models. */
@@ -214,26 +252,41 @@ trait WithEagerIncludes
     }
 
     /** Recursively load a single level of the (already validated) relation tree onto the models. */
-    protected static function loadRelationLevel(EloquentCollection $models, Model $template, array $tree): void
+    protected static function loadRelationLevel(EloquentCollection $models, Model $template, array $tree, ?JsonApiResource $resource = null): void
     {
         if ($models->isEmpty() || empty($tree)) {
             return;
         }
 
-        $loaded = $template->getRelations();
+        $request = JsonApiRequest::createFrom(request());
+        $resolvers = [];
+
+        foreach (($resource?->toRelationships($request) ?? []) as $name => $resolver) {
+            $resolver = is_int($name) ? new RelationResolver($resolver) : new RelationResolver($name, $resolver);
+            $resolvers[$resolver->relationName] = $resolver;
+        }
 
         foreach ($tree as $relation => $children) {
-            if (! array_key_exists($relation, $loaded)) {
-                $models->loadMissing($relation);
-            }
+            $models->loadMissing($relation);
 
             $relatedTemplate = $template->{$relation}()->getRelated();
-            $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter());
+            $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter())
+                ->values()
+                ->withRelationshipAutoloading();
 
-            static::loadProvidedEagerLoads($relatedModels, $relatedTemplate, array_keys($children));
+            $relatedResource = rescue(
+                fn () => $relatedTemplate->toResource(($resolvers[$relation] ?? null)?->resourceClass()),
+                report: false,
+            );
+            $fields = $relatedResource instanceof JsonApiResource
+                && $request->hasSparseFieldset($type = $relatedResource->resolveResourceType($request))
+                    ? $request->sparseFields($type)
+                    : null;
+
+            static::loadProvidedEagerLoads($relatedModels, $relatedTemplate, array_keys($children), $fields);
 
             if (! empty($children)) {
-                static::loadRelationLevel($relatedModels, $relatedTemplate, $children);
+                static::loadRelationLevel($relatedModels, $relatedTemplate, $children, $relatedResource instanceof JsonApiResource ? $relatedResource : null);
             }
         }
     }
