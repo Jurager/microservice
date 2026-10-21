@@ -19,10 +19,73 @@ use Illuminate\Support\Collection;
 use JsonSerializable;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
+use Jurager\Microservice\JsonApi\ResourceCollection;
+use WeakMap;
 
 /** Batch-load Eloquent relations before JSON:API serialization. */
 trait WithEagerIncludes
 {
+    protected static function newCollection($resource): AnonymousResourceCollection
+    {
+        return new ResourceCollection($resource, static::class);
+    }
+
+    /**
+     * Resolve a compatible collection's shared graph in one native Laravel traversal.
+     *
+     * @internal
+     */
+    public function resolveCollectionIncludedResourceObjects(JsonApiRequest $request, Collection $resources): Collection
+    {
+        $fallback = fn () => $resources->flatMap(fn ($resource) => $resource->resolveIncludedResourceObjects($request));
+        $primary = new WeakMap;
+
+        foreach ($resources as $resource) {
+            if (! $resource->resource instanceof Model) {
+                return $fallback();
+            }
+
+            $primary[$resource->resource] = true;
+            $resource->compileResourceRelationships($request);
+        }
+
+        $roots = $resources->flatMap(fn ($resource) => $resource->loadedRelationshipsMap)->all();
+        $pending = $roots;
+        // Match Laravel's object identity: separate pivot instances may share the same model ID.
+        $visited = new WeakMap;
+
+        for ($index = 0; $index < count($pending); $index++) {
+            [$resource, $type] = $pending[$index];
+            $model = $resource->resource;
+
+            // Keep Laravel's per-root behavior for primary-resource cycles and contextual views.
+            if (! $resource instanceof JsonApiResource || ! $model instanceof Model || isset($primary[$model])) {
+                return $fallback();
+            }
+
+            $context = [$resource::class, $resource->requestedRelationships, $resource->usesRequestQueryString];
+
+            if (isset($visited[$model][$type])) {
+                if ($visited[$model][$type] !== $context) {
+                    return $fallback();
+                }
+
+                continue;
+            }
+
+            $visited[$model] ??= [];
+            $visited[$model][$type] = $context;
+            $resource->includePreviouslyLoadedRelationships()->compileResourceRelationships($request);
+            array_push($pending, ...($resource->loadedRelationshipsMap ?? []));
+        }
+
+        // Clone the resource wrapper: Laravel appends descendants to its map during traversal.
+        $root = clone $this;
+        $root->loadedRelationshipsMap = $roots;
+
+        return $root->resolveIncludedResourceObjects($request);
+    }
+
     /** Create a new anonymous resource collection. */
     public static function collection($resource): AnonymousResourceCollection
     {
@@ -132,7 +195,7 @@ trait WithEagerIncludes
      * selecting rows of `attribute_values`).
      *
      * @param  list<string>  $fields
-     * @return array<string, list<string>>  Relation => the names among $fields that address its rows.
+     * @return array<string, list<string>> Relation => the names among $fields that address its rows.
      */
     protected static function fieldRelationsOf(mixed $model, array $fields): array
     {
