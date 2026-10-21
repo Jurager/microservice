@@ -116,6 +116,37 @@ class WithFieldRelationsTest extends TestCase
         $this->assertSame(['author'], $posts->first()->values->pluck('code')->all());
     }
 
+    public function test_addressed_deferred_attribute_is_not_evaluated(): void
+    {
+        AddressedPostResource::$authorReads = 0;
+
+        $this->single('include=values&fields[addressedPost]=author,title');
+
+        $this->assertSame(0, AddressedPostResource::$authorReads);
+    }
+
+    public function test_requested_deferred_attribute_is_evaluated_once(): void
+    {
+        AddressedPostResource::$authorReads = 0;
+
+        $document = $this->single('fields[addressedPost]=author');
+
+        $this->assertSame(['author' => 'ann'], $document['data']['attributes']);
+        $this->assertSame(1, AddressedPostResource::$authorReads);
+    }
+
+    public function test_excluded_numeric_attribute_does_not_read_the_model_accessor(): void
+    {
+        AddressedPost::$summaryReads = 0;
+        $request = Request::create('/posts?fields[addressedPost]=title');
+        app()->instance('request', $request);
+
+        $body = NumericPostResource::make(AddressedPost::query()->first())->toResponse($request)->getData(true);
+
+        $this->assertSame(['title' => 'Hello'], $body['data']['attributes']);
+        $this->assertSame(0, AddressedPost::$summaryReads);
+    }
+
     public function test_without_a_fieldset_nothing_changes(): void
     {
         $document = $this->single('include=values');
@@ -136,6 +167,15 @@ class AddressedValue extends Model
 
 class AddressedPost extends Model implements ProvidesEagerLoads
 {
+    public static int $summaryReads = 0;
+
+    public function getSummaryAttribute(): string
+    {
+        self::$summaryReads++;
+
+        return 'Summary';
+    }
+
     public $timestamps = false;
 
     protected $table = 'addressed_posts';
@@ -183,6 +223,8 @@ class AddressedValueResource extends JsonApiResource
 
 class AddressedPostResource extends JsonApiResource
 {
+    public static int $authorReads = 0;
+
     use WithEagerIncludes;
 
     public function toType(Request $request): string
@@ -192,7 +234,11 @@ class AddressedPostResource extends JsonApiResource
 
     public function toAttributes(Request $request): array
     {
-        return ['title' => $this->title, 'author' => 'ann'];
+        return ['title' => $this->title, 'author' => function () {
+            self::$authorReads++;
+
+            return 'ann';
+        }];
     }
 
     public function toRelationships(Request $request): array
@@ -213,5 +259,13 @@ class LazyPostResource extends JsonApiResource
     public function toAttributes(Request $request): array
     {
         return ['values' => $this->values->count()];
+    }
+}
+
+class NumericPostResource extends AddressedPostResource
+{
+    public function toAttributes(Request $request): array
+    {
+        return ['title', 'summary'];
     }
 }

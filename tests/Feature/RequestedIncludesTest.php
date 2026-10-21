@@ -144,6 +144,40 @@ class RequestedIncludesTest extends TestCase
         $this->assertArrayNotHasKey('relationships', $body['included'][1]);
     }
 
+    public function test_resolved_relationships_prepare_inherited_rows_before_serialization(): void
+    {
+        foreach (IncludeValue::query()->get() as $value) {
+            $definition = IncludeDefinition::query()->create(['code' => $value->code]);
+            $value->update(['definition_id' => $definition->id]);
+        }
+        // Distinct parents make per-row lazy loads visible instead of sharing one object.
+        foreach (range(1, 3) as $i) {
+            $parent = IncludeEntity::query()->create(['name' => 'Parent '.$i]);
+            $definition = IncludeDefinition::query()->create(['code' => 'name']);
+            IncludeValue::query()->create(['entity_id' => $parent->id, 'code' => 'name', 'definition_id' => $definition->id]);
+            IncludeEntity::query()->create(['name' => 'Child '.$i, 'parent_id' => $parent->id]);
+        }
+        // Preparing the sibling parent applies a field constraint and replaces parent.values.
+        foreach (['values.definition', 'values.definition,parent', 'parent,values.definition'] as $include) {
+            $request = Request::create('/entities', 'GET', [
+                'include' => $include, 'fields' => ['includeEntity' => 'name'],
+            ]);
+            app()->instance('request', $request);
+            $models = IncludeEntity::query()->whereNotNull('parent_id')->with('parent.values')->get();
+            $resource = InheritedEntityResource::collection($models);
+
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+            $body = $resource->toResponse($request)->getData(true);
+            $queries = DB::getQueryLog();
+            DB::disableQueryLog();
+
+            $definitions = array_filter($body['included'], fn ($item) => $item['type'] === 'includeDefinition');
+            $this->assertCount(str_contains($include, 'parent') ? 4 : 5, $definitions, $include);
+            $this->assertSame([], $queries, $include.' must batch-load the rows returned by the resource resolver.');
+        }
+    }
+
     public function test_partially_preloaded_relationships_are_completed_for_the_whole_batch(): void
     {
         IncludeEntity::query()->create(['name' => 'Second child', 'parent_id' => 1]);
@@ -307,5 +341,18 @@ class IncludeValueResource extends JsonApiResource
     public function toAttributes(Request $request): array
     {
         return ['code' => $this->code];
+    }
+}
+
+class InheritedEntityResource extends IncludeEntityResource
+{
+    public function toRelationships(Request $request): array
+    {
+        return [
+            'parent' => IncludeEntityResource::class,
+            'values' => fn () => new \Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection(
+                $this->values->merge($this->parent?->values ?? []), IncludeValueResource::class,
+            ),
+        ];
     }
 }

@@ -6,6 +6,7 @@ namespace Jurager\Microservice\JsonApi\Concerns;
 
 use Closure;
 use Illuminate\Contracts\Pagination\Paginator;
+use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,8 @@ use Illuminate\Http\Resources\JsonApi\JsonApiRequest;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 use Illuminate\Http\Resources\JsonApi\RelationResolver;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
+use JsonSerializable;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 
@@ -89,23 +92,37 @@ trait WithEagerIncludes
      */
     protected function resolveResourceAttributes(JsonApiRequest $request, string $resourceType): array
     {
-        $attributes = parent::resolveResourceAttributes($request, $resourceType);
+        $usesFieldset = $this->usesRequestQueryString && $request->hasSparseFieldset($resourceType);
 
-        if (! $this->usesRequestQueryString || ! $request->hasSparseFieldset($resourceType)) {
-            return $attributes;
+        if (! $usesFieldset) {
+            return parent::resolveResourceAttributes($request, $resourceType);
         }
 
-        // A name is served through its relation only when that relation was asked for; otherwise it stays an attribute.
+        $fields = $request->sparseFields($resourceType);
         $requested = $this->requestedResourceRelationships($request);
         $addressed = [];
 
-        foreach (static::fieldRelationsOf($this->resource, $request->sparseFields($resourceType)) as $relation => $names) {
+        foreach (static::fieldRelationsOf($this->resource, $fields) as $relation => $names) {
             if (in_array($relation, $requested, true)) {
                 array_push($addressed, ...$names);
             }
         }
 
-        return array_diff_key($attributes, array_flip($addressed));
+        $attributes = $this->toAttributes($request);
+
+        if ($attributes instanceof Arrayable) {
+            $attributes = $attributes->toArray();
+        } elseif ($attributes instanceof JsonSerializable) {
+            $attributes = $attributes->jsonSerialize();
+        }
+
+        $attributes = (new Collection($attributes))
+            ->mapWithKeys(fn ($value, $key) => is_int($key) ? [$value => fn () => $this->resource->{$value}] : [$key => $value])
+            ->only(array_diff($fields, $addressed))
+            ->map(fn ($value) => value($value, $request))
+            ->all();
+
+        return $this->filter($attributes);
     }
 
     /**
@@ -268,34 +285,82 @@ trait WithEagerIncludes
         $request = JsonApiRequest::createFrom(request());
         $resolvers = [];
 
-        foreach (($resource?->toRelationships($request) ?? []) as $name => $resolver) {
+        $definitions = $resource?->toRelationships($request) ?? [];
+
+        foreach ($definitions as $name => $resolver) {
             $resolver = is_int($name) ? new RelationResolver($resolver) : new RelationResolver($name, $resolver);
             $resolvers[$resolver->relationName] = $resolver;
         }
 
+        $relatedResources = [];
+
+        // Prepare siblings before traversing their children. A model's constrained loads can
+        // replace relations also used by a sibling resolver (for example, inherited values).
         foreach ($tree as $relation => $children) {
             $models->loadMissing($relation);
-
             $relatedTemplate = $template->{$relation}()->getRelated();
             $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter())
-                ->values()
-                ->withRelationshipAutoloading();
-
+                ->values()->withRelationshipAutoloading();
             $relatedResource = rescue(
                 fn () => $relatedTemplate->toResource(($resolvers[$relation] ?? null)?->resourceClass()),
                 report: false,
             );
             $fields = $relatedResource instanceof JsonApiResource
-                && $request->hasSparseFieldset($type = $relatedResource->resolveResourceType($request))
-                    ? $request->sparseFields($type)
-                    : null;
+                ? static::fieldsForResource($relatedResource, $request)
+                : null;
 
             static::loadProvidedEagerLoads($relatedModels, $relatedTemplate, array_keys($children), $fields);
+            $relatedResources[$relation] = $relatedResource instanceof JsonApiResource ? $relatedResource : null;
+        }
 
-            if (! empty($children)) {
-                static::loadRelationLevel($relatedModels, $relatedTemplate, $children, $relatedResource instanceof JsonApiResource ? $relatedResource : null);
+        foreach ($tree as $relation => $children) {
+            $relatedTemplate = $template->{$relation}()->getRelated();
+            $relatedResource = $relatedResources[$relation];
+            $relatedModels = EloquentCollection::make($models->pluck($relation)->flatten(1)->filter());
+
+            // Follow the resource's resolved models, which may differ from the raw relation.
+            // Use Laravel's resolver so resource collections and single resources behave alike.
+            $definition = $definitions[$relation] ?? null;
+
+            if ($definition instanceof Closure) {
+                $relatedModels = new EloquentCollection;
+
+                foreach ($models as $model) {
+                    $definition = $resource::make($model)->toRelationships($request)[$relation];
+                    $resolver = new RelationResolver($relation, $definition);
+                    $resolved = $resolver->handle($model);
+
+                    if ($resolved instanceof EloquentCollection) {
+                        $relatedModels->push(...$resolved);
+                    } elseif ($resolved instanceof Model) {
+                        $relatedModels->push($resolved);
+                    }
+
+                    if ($resourceClass = $resolver->resourceClass()) {
+                        $relatedResource = new $resourceClass($relatedTemplate);
+                    }
+                }
+
+                static::loadProvidedEagerLoads(
+                    $relatedModels, $relatedTemplate, array_keys($children),
+                    $relatedResource ? static::fieldsForResource($relatedResource, $request) : null,
+                );
+            }
+
+            $relatedModels->withRelationshipAutoloading();
+
+            if ($children !== []) {
+                static::loadRelationLevel($relatedModels, $relatedTemplate, $children, $relatedResource);
             }
         }
+    }
+
+    /** The fieldset belongs to the related resource's type, not its owner's type. */
+    protected static function fieldsForResource(JsonApiResource $resource, JsonApiRequest $request): ?array
+    {
+        $type = $resource->resolveResourceType($request);
+
+        return $request->hasSparseFieldset($type) ? $request->sparseFields($type) : null;
     }
 
     /** Group an array of dotted paths into a multi-dimensional tree array. */
