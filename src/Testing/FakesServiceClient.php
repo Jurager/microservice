@@ -16,7 +16,7 @@ trait FakesServiceClient
      *
      * @param  list<\Psr\Http\Message\ResponseInterface|\Throwable>  $responses
      */
-    protected function fakeService(string $service, array $responses): void
+    public function fakeService(string $service, array $responses): void
     {
         config(["microservice.peers.$service" => "http://$service.test"]);
 
