@@ -44,7 +44,7 @@ class TrustPeerMiddlewareTest extends TestCase
 
     public function test_rejects_missing_signature_headers(): void
     {
-        $this->postJson('/test/endpoint')
+        $this->postJson('/test/endpoint', [], ['X-Service-Name' => 'test-service'])
             ->assertStatus(401)
             ->assertJson(['errors' => [['detail' => 'Missing signature headers.']]]);
     }

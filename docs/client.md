@@ -373,3 +373,50 @@ try {
 ```
 
 The package also auto-registers a JSON:API exception renderer for your own application. `ValidationException`, `ModelNotFoundException`, and the standard HTTP exceptions are all rendered as `application/vnd.api+json` without any configuration on your part, so a service that both calls other services and answers its own JSON:API requests gets consistent error shapes on both sides.
+
+### Checking A Status Without Throwing
+
+Requests throw `ServiceRequestException` on any non-2xx response by default — right for a request whose failure really is exceptional, wrong for a single lookup whose caller means to branch on the status itself, such as "does this id exist?". Call `withoutThrowing` to get the response back as-is instead:
+
+```php
+$response = $client->service('pim')->get("/v1/currencies/{$id}")->withoutThrowing()->send();
+
+if ($response->status() === 404) {
+    throw ValidationException::withMessages([
+        'currency_id' => ["Currency [$id] not found."],
+    ]);
+}
+```
+
+## Testing
+
+`ServiceClient` talks to Guzzle directly, not `Illuminate\Http\Client`, so Laravel's `Http::fake()` never intercepts it. Use the `FakesServiceClient` trait instead — it registers the service as a peer and swaps the container-resolved client's transport for a `MockHandler`-backed one, with no reflection on your test's part:
+
+```php
+use Jurager\Microservice\Testing\FakesServiceClient;
+
+class CreatesSiteTest extends TestCase
+{
+    use FakesServiceClient;
+
+    public function test_rejects_an_unknown_currency(): void
+    {
+        $this->fakeService('pim', [new Response(404)]);
+
+        $this->postJson('/v1/sites/store', [...])
+            ->assertStatus(422);
+    }
+}
+```
+
+Responses are consumed in the order calls are dispatched, so a check that fires one request per value (`missing`, `parallel`) needs one queued response per value, in the order the values are sent. Under the hood, `fakeService` is just:
+
+```php
+config(["microservice.peers.$service" => "http://$service.test"]);
+
+app(ServiceClient::class)->swapHttpClient(
+    new Client(['handler' => HandlerStack::create(new MockHandler($responses))])
+);
+```
+
+— call `swapHttpClient` directly if you need a transport the trait doesn't build for you, such as one that records request history via Guzzle's `Middleware::history`.

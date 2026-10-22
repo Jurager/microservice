@@ -29,7 +29,7 @@ For asynchronous work, the message bus publishes signed envelopes to a topic exc
 ## Documentation
 
 - [Installation](installation.md) — setup, environment configuration, and the full config reference
-- [Client](client.md) — signed HTTP requests, retries, circuit breaker, tracing, JSON:API responses
+- [Client](client.md) — signed HTTP requests, retries, circuit breaker, tracing, JSON:API responses, testing
 - [Security](security.md) — the trust model, middleware, and idempotency
 - [Gateway](gateway.md) — service discovery, route registration, request forwarding, health & metrics
 - [Message Bus](message-bus.md) — publishing and consuming events over RabbitMQ

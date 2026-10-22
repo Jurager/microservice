@@ -56,7 +56,6 @@ class ServiceClient
 
     private function createDefaultClient(): Client
     {
-        // CurlMultiHandler supports both sync (request) and async (requestAsync) out of the box.
         $handler = HandlerStack::create(new CurlMultiHandler());
 
         $maxRetries = (int) config('microservice.retries.max', 0);
@@ -110,6 +109,11 @@ class ServiceClient
     public function service(string $name): PendingServiceRequest
     {
         return new PendingServiceRequest($this, $name);
+    }
+
+    public function swapHttpClient(Client $httpClient): void
+    {
+        $this->httpClient = $httpClient;
     }
 
     /**
@@ -166,10 +170,6 @@ class ServiceClient
 
     /**
      * Send multiple requests concurrently and return responses keyed by the same keys.
-     *
-     * All requests are dispatched simultaneously. The method blocks until all complete.
-     * Failed requests throw ServiceUnavailableException; non-2xx responses are returned
-     * as-is so the caller can inspect status codes.
      *
      * @param  array<string|int, PendingServiceRequest>  $requests
      * @return array<string|int, ServiceResponse>
@@ -409,7 +409,6 @@ class ServiceClient
             ...$customHeaders,
             'X-Service-Name' => $this->serviceName,
             'X-Timestamp' => $timestamp,
-            // Multipart body is excluded from the signature because its boundary changes per request.
             'X-Signature' => $this->signer->sign($method, $path, $timestamp, $multipart ? '' : ($body ?? '')),
         ];
 
@@ -424,7 +423,6 @@ class ServiceClient
         }
 
         if ($this->tracingEnabled) {
-            // Trace headers are prepended so service headers take precedence on name collision.
             $headers = [...$this->buildTraceHeaders(), ...$headers];
         }
 
@@ -433,8 +431,6 @@ class ServiceClient
 
     /**
      * Throws if the circuit breaker is open and the half-open probe window has not elapsed.
-     *
-     * States: closed (normal) → open (failing) → half-open (probing) → closed.
      *
      * @throws ServiceUnavailableException
      */

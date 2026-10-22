@@ -382,4 +382,45 @@ class PendingServiceRequestTest extends TestCase
             $this->assertNull($e->errors);
         }
     }
+
+    public function test_without_throwing_returns_a_failed_response_instead_of_throwing(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('status')->once()->andReturn(404);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        $response = (new PendingServiceRequest($client, 'pim'))->get('/v1/currencies/1')->withoutThrowing()->send();
+
+        $this->assertSame($mockResponse, $response);
+        $this->assertSame(404, $response->status());
+    }
+
+    public function test_without_throwing_still_returns_a_successful_response_normally(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        $response = (new PendingServiceRequest($client, 'pim'))->get('/v1/currencies/1')->withoutThrowing()->send();
+
+        $this->assertSame($mockResponse, $response);
+    }
+
+    public function test_throwing_is_still_the_default_without_without_throwing(): void
+    {
+        $mockResponse = Mockery::mock(ServiceResponse::class);
+        $mockResponse->shouldReceive('failed')->once()->andReturn(true);
+        $mockResponse->shouldReceive('status')->once()->andReturn(404);
+        $mockResponse->shouldReceive('json')->with('errors')->once()->andReturn(null);
+
+        $client = Mockery::mock(ServiceClient::class);
+        $client->shouldReceive('send')->once()->andReturn($mockResponse);
+
+        $this->expectException(ServiceRequestException::class);
+
+        (new PendingServiceRequest($client, 'pim'))->get('/v1/currencies/1')->send();
+    }
 }

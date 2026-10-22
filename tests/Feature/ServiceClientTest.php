@@ -30,14 +30,8 @@ class ServiceClientTest extends TestCase
         $stack = HandlerStack::create($mock);
         $stack->push(Middleware::history($this->history));
 
-        $httpClient = new Client(['handler' => $stack]);
-
-        $client = Mockery::mock(ServiceClient::class, [$this->app->make(Signer::class), $cache ?? Mockery::mock(Cache::class)])
-            ->makePartial()
-            ->shouldAllowMockingProtectedMethods();
-
-        $reflection = new \ReflectionProperty($client, 'httpClient');
-        $reflection->setValue($client, $httpClient);
+        $client = new ServiceClient($this->app->make(Signer::class), $cache ?? Mockery::mock(Cache::class));
+        $client->swapHttpClient(new Client(['handler' => $stack]));
 
         return $client;
     }
@@ -57,6 +51,24 @@ class ServiceClientTest extends TestCase
             ->andReturn($manifest);
 
         return $cache;
+    }
+
+    public function test_swap_http_client_replaces_the_transport_on_a_container_resolved_client(): void
+    {
+        $this->app['config']->set('microservice.peers', ['oms' => 'http://oms.test']);
+
+        $history = [];
+        $mock = new MockHandler([new Response(200, [], '{"data":"swapped"}')]);
+        $stack = HandlerStack::create($mock);
+        $stack->push(Middleware::history($history));
+
+        $client = $this->app->make(ServiceClient::class);
+        $client->swapHttpClient(new Client(['handler' => $stack]));
+
+        $response = $client->service('oms')->get('/api/orders')->send();
+
+        $this->assertSame('swapped', $response->json('data'));
+        $this->assertSame('http://oms.test/api/orders', (string) $history[0]['request']->getUri());
     }
 
     public function test_successful_request_returns_service_response(): void

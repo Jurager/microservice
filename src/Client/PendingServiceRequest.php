@@ -58,6 +58,11 @@ class PendingServiceRequest
     protected bool $exposeError = true;
 
     /**
+     * Whether a non-2xx response throws ServiceRequestException.
+     */
+    protected bool $throwOnFailure = true;
+
+    /**
      * Whether to bypass the circuit breaker.
      */
     protected bool $bypassCircuitBreaker = false;
@@ -234,6 +239,16 @@ class PendingServiceRequest
     }
 
     /**
+     * Return a failed response as-is.
+     */
+    public function withoutThrowing(): static
+    {
+        $this->throwOnFailure = false;
+
+        return $this;
+    }
+
+    /**
      * Skip sending this request when condition is true.
      */
     public function skipIf(bool $condition): static
@@ -349,13 +364,13 @@ class PendingServiceRequest
      * Execute the request.
      *
      * @throws ServiceUnavailableException
-     * @throws ServiceRequestException
+     * @throws ServiceRequestException unless withoutThrowing() was called
      */
     public function send(): ServiceResponse
     {
         $response = $this->client->send($this);
 
-        if ($response->failed()) {
+        if ($this->throwOnFailure && $response->failed()) {
             $errors = $this->exposeError ? ($response->json('errors') ?: null) : null;
 
             throw new ServiceRequestException($response->status(), errors: $errors);
