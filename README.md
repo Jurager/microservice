@@ -4,6 +4,7 @@
 [![Total Downloads](https://poser.pugx.org/jurager/microservice/downloads)](https://packagist.org/packages/jurager/microservice)
 [![PHP Version Require](https://poser.pugx.org/jurager/microservice/require/php)](https://packagist.org/packages/jurager/microservice)
 [![License](https://poser.pugx.org/jurager/microservice/license)](https://packagist.org/packages/jurager/microservice)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/jurager01)
 
 A Laravel package for secure communication between microservices.
 
