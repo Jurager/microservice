@@ -7,9 +7,11 @@ namespace Jurager\Microservice;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
@@ -177,16 +179,20 @@ class MicroserviceServiceProvider extends ServiceProvider
         }
     }
 
-    /** Configure exception rendering for JSON API. */
+    /** Configure exception rendering. */
     private function configureExceptions(): void
     {
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
             $handler->renderable(function (Throwable $e, Request $request): ?JsonResponse {
-                if ($request->wantsJson() || $request->is('api/*')) {
-                    return ResponseError::fromException($e);
+
+                if ($e instanceof HttpResponseException) {
+                    return null;
                 }
 
-                return null;
+                $route = $request->route();
+                $isApiRoute = $request->is('api/*') || ($route instanceof Route && in_array('api', $route->gatherMiddleware(), true));
+
+                return $isApiRoute || $request->expectsJson() ? ResponseError::fromException($e) : null;
             });
         });
     }

@@ -53,12 +53,35 @@ class ResponseErrorTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
-    public function test_generic_exception_returns_500(): void
+    public function test_generic_exception_returns_500_without_its_message(): void
     {
+        config(['app.debug' => false]);
+
+        $response = ResponseError::fromException(new \RuntimeException('SQLSTATE[08006] connection to server at "db.internal" failed'));
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertErrorDetail($response, 'An unexpected error occurred.');
+        $this->assertStringNotContainsString('db.internal', $response->getContent());
+    }
+
+    public function test_generic_exception_message_is_shown_in_debug_mode(): void
+    {
+        config(['app.debug' => true]);
+
         $response = ResponseError::fromException(new \RuntimeException('Unexpected.'));
 
         $this->assertSame(500, $response->getStatusCode());
         $this->assertErrorDetail($response, 'Unexpected.');
+    }
+
+    public function test_messages_of_expected_exceptions_are_kept_without_debug_mode(): void
+    {
+        config(['app.debug' => false]);
+
+        $this->assertErrorDetail(ResponseError::fromException(new HttpException(409, 'Order is already paid.')), 'Order is already paid.');
+        $this->assertErrorDetail(ResponseError::fromException(new AuthenticationException('Invalid signature.')), 'Invalid signature.');
+        $this->assertErrorDetail(ResponseError::fromException(new AuthorizationException('Not your order.')), 'Not your order.');
+        $this->assertErrorDetail(ResponseError::fromException(new ServiceRequestException(503)), 'Service request failed with status 503.');
     }
 
     public function test_service_request_exception_with_errors_forwards_them(): void
@@ -134,7 +157,7 @@ class ResponseErrorTest extends TestCase
             $status
         ));
 
-        $response = ResponseError::fromException(new \RuntimeException('Custom format.'));
+        $response = ResponseError::fromException(new HttpException(400, 'Custom format.'));
 
         $payload = json_decode($response->getContent(), true);
         $this->assertArrayHasKey('message', $payload);

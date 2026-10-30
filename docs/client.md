@@ -374,6 +374,10 @@ try {
 
 The package also auto-registers a JSON:API exception renderer for your own application. `ValidationException`, `ModelNotFoundException`, and the standard HTTP exceptions are all rendered as `application/vnd.api+json` without any configuration on your part, so a service that both calls other services and answers its own JSON:API requests gets consistent error shapes on both sides.
 
+The renderer answers every route of the `api` middleware group, whatever prefix the application gives it and whatever the client puts in `Accept`, so a validation error reaches a client that sent no `Accept` header as a `422` document rather than a redirect. Other routes get it when the request expects JSON, by the same `expectsJson()` check the Laravel handler uses. A ready response, such as the one passed to `abort()`, is returned as is.
+
+The `detail` of an error carries the exception message only when the exception maps to a status on purpose: HTTP exceptions, authentication and authorization failures, missing models and validation errors. The message of any other exception may hold SQL, hosts or file paths, so outside `APP_DEBUG` it is replaced with a generic text, the same way the Laravel exception handler does it.
+
 ### Checking A Status Without Throwing
 
 Requests throw `ServiceRequestException` on any non-2xx response by default — right for a request whose failure really is exceptional, wrong for a single lookup whose caller means to branch on the status itself, such as "does this id exist?". Call `withoutThrowing` to get the response back as-is instead:

@@ -59,11 +59,26 @@ final class ResponseError
             errors: [[
                 'status' => (string) $status,
                 'title' => self::title($status),
-                'detail' => $e->getMessage() ?: self::detail($status),
+                'detail' => self::message($e, $status),
             ]],
             status: $status,
             headers: $headers,
         );
+    }
+
+    /** The message of an exception that maps to a status on purpose is written for the client. */
+    private static function message(Throwable $e, int $status): string
+    {
+        $expected = $e instanceof HttpExceptionInterface
+            || $e instanceof AuthenticationException
+            || $e instanceof AuthorizationException
+            || $e instanceof ModelNotFoundException;
+
+        if (! $expected && ! config('app.debug')) {
+            return self::detail($status);
+        }
+
+        return $e->getMessage() ?: self::detail($status);
     }
 
     /** 422 with an RFC 6901 JSON Pointer per field, e.g. `/email` or `/attributes/0/id`. */
