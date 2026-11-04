@@ -18,6 +18,7 @@ use Illuminate\Http\Client\Request as SentRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\InteractsWithTime;
+use Illuminate\Support\Str;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tracing\RequestTiming;
@@ -53,8 +54,7 @@ class ServiceClient
         #[Config('microservice.name', 'app')] protected readonly string $name = 'app',
         #[Config('microservice.connect_timeout', 5)] protected readonly int $connectTimeout = 5,
         #[Config('microservice.tracing.enabled', true)] protected readonly bool $tracing = true,
-    ) {
-    }
+    ) {}
 
     /**
      * Start building a request to the given service.
@@ -223,10 +223,15 @@ class ServiceClient
         $body = $request->getMultipart() !== null ? '' : ($request->getBody() ?? '');
         $requestId = $psr->getHeaderLine('X-Request-Id');
 
+        if ($requestId === '') {
+            $requestId = (string) Str::uuid();
+        }
+
         $psr = $psr
+            ->withHeader('X-Request-Id', $requestId)
             ->withHeader('X-Service-Name', $this->name)
             ->withHeader('X-Timestamp', $timestamp)
-            ->withHeader('X-Signature', $this->signer->sign($request->getMethod(), $request->target(), $timestamp, $body, $requestId !== '' ? $requestId : null));
+            ->withHeader('X-Signature', $this->signer->sign($request->getMethod(), $request->target(), $timestamp, $body, $requestId));
 
         $certificate = $this->signer->certificate();
 

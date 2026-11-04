@@ -10,6 +10,7 @@ use GuzzleHttp\Psr7\Request as PsrRequest;
 use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
@@ -139,6 +140,29 @@ class ServiceClientTest extends TestCase
         $this->client([Http::response(), Http::response()])->service('oms')->post('/api/orders', ['a' => 1])->send();
 
         $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $this->sent()->header('X-Request-Id')[0]);
+    }
+
+    public function test_safe_request_signatures_survive_a_proxy_adding_request_ids(): void
+    {
+        $client = $this->client(array_fill(0, 3, Http::response()));
+        $signer = $this->app->make(Signer::class);
+
+        foreach (['GET', 'HEAD', 'OPTIONS'] as $index => $method) {
+            $client->service('oms')->withMethod($method, '/microservice/manifest')->send();
+
+            $sent = $this->sent($index);
+            $received = \Illuminate\Http\Request::create($sent->url(), $method, content: $sent->body());
+            $requestId = $sent->header('X-Request-Id')[0] ?? (string) Str::uuid();
+            $received->headers->set('X-Request-Id', $requestId);
+
+            $this->assertTrue($signer->verify(
+                $received,
+                $sent->header('X-Signature')[0],
+                $sent->header('X-Timestamp')[0],
+                $sent->header('X-Service-Cert')[0],
+                'test-service',
+            ), "$method must sign a request ID before a proxy can add one.");
+        }
     }
 
     public function test_4xx_response_throws_with_the_upstream_status(): void
