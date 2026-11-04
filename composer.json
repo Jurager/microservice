@@ -1,0 +1,60 @@
+{
+    "name": "jurager/microservice",
+    "description": "Microservice communication SDK for Laravel",
+    "keywords": [
+        "laravel",
+        "microservice",
+        "sdk",
+        "service",
+        "api-gateway"
+    ],
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Yuri Gerassimov",
+            "email": "jurager01@gmail.com"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-curl": "*",
+        "ext-openssl": "*",
+        "guzzlehttp/guzzle": "^7.0",
+        "illuminate/cache": "^13.37",
+        "illuminate/console": "^13.37",
+        "illuminate/database": "^13.37",
+        "illuminate/http": "^13.37",
+        "illuminate/queue": "^13.37",
+        "illuminate/routing": "^13.37",
+        "illuminate/support": "^13.37",
+        "illuminate/validation": "^13.37",
+        "laravel/prompts": "^0.3",
+        "php-amqplib/php-amqplib": "^3.7"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^11.0",
+        "phpunit/phpunit": "^11.0|^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Jurager\\Microservice\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Jurager\\Microservice\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Jurager\\Microservice\\MicroserviceServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

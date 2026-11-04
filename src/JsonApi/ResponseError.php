@@ -1,0 +1,151 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Jurager\Microservice\JsonApi;
+
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Validation\ValidationException;
+use Jurager\Microservice\Exceptions\ServiceRequestException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Throwable;
+
+/**
+ * Converts exceptions to structured JSON error responses.
+ */
+final class ResponseError
+{
+    /** @var callable(array, int, array): JsonResponse|null */
+    private static $renderer;
+
+    private function __construct()
+    {
+    }
+
+    /**
+     * Override the default JSON:API renderer.
+     *
+     * @param  callable(array $errors, int $status, array $headers): JsonResponse  $renderer
+     */
+    public static function renderUsing(callable $renderer): void
+    {
+        self::$renderer = $renderer;
+    }
+
+    public static function fromException(Throwable $e): JsonResponse
+    {
+        if ($e instanceof ValidationException) {
+            return self::validation($e);
+        }
+
+        $status = match (true) {
+            $e instanceof HttpExceptionInterface => $e->getStatusCode(),
+            $e instanceof AuthenticationException => 401,
+            $e instanceof AuthorizationException => 403,
+            $e instanceof ModelNotFoundException => 404,
+            default => 500,
+        };
+
+        $headers = $e instanceof HttpExceptionInterface ? $e->getHeaders() : [];
+
+        if ($e instanceof ServiceRequestException && $e->rendersUpstreamErrors()) {
+            return self::render(errors: $e->errors, status: $status, headers: $headers);
+        }
+
+        return self::render(
+            errors: [[
+                'status' => (string) $status,
+                'title' => self::title($status),
+                'detail' => self::message($e, $status),
+            ]],
+            status: $status,
+            headers: $headers,
+        );
+    }
+
+    /**
+     * The message of an exception that maps to a status on purpose is written for the client.
+     */
+    private static function message(Throwable $e, int $status): string
+    {
+        $expected = $e instanceof HttpExceptionInterface
+            || $e instanceof AuthenticationException
+            || $e instanceof AuthorizationException
+            || $e instanceof ModelNotFoundException;
+
+        if (! $expected && ! config('app.debug')) {
+            return self::detail($status);
+        }
+
+        return $e->getMessage() ?: self::detail($status);
+    }
+
+    /**
+     * 422 with an RFC 6901 JSON Pointer per field, e.g. `/email` or `/attributes/0/id`.
+     */
+    private static function validation(ValidationException $e): JsonResponse
+    {
+        $errors = [];
+
+        foreach ($e->errors() as $field => $messages) {
+
+            $pointer = '/'.str_replace('.', '/', (string) $field);
+
+            foreach ($messages as $message) {
+                $errors[] = [
+                    'status' => '422',
+                    'title' => 'Validation Error',
+                    'detail' => $message,
+                    'source' => ['pointer' => $pointer],
+                ];
+            }
+        }
+
+        if (empty($errors)) {
+            $errors = [['status' => '422', 'title' => 'Validation Error', 'detail' => $e->getMessage()]];
+        }
+
+        return self::render(errors: $errors, status: 422);
+    }
+
+    private static function render(array $errors, int $status, array $headers = []): JsonResponse
+    {
+        if (self::$renderer !== null) {
+            return (self::$renderer)($errors, $status, $headers);
+        }
+
+        return new JsonResponse(
+            data: ['errors' => $errors],
+            status: $status,
+            headers: array_merge(['Content-Type' => 'application/vnd.api+json'], $headers),
+        );
+    }
+
+    private static function title(int $status): string
+    {
+        return match ($status) {
+            401 => 'Unauthenticated',
+            403 => 'Forbidden',
+            404 => 'Not Found',
+            405 => 'Method Not Allowed',
+            422 => 'Unprocessable Entity',
+            429 => 'Too Many Requests',
+            500 => 'Server Error',
+            502 => 'Bad Gateway',
+            default => 'HTTP Error',
+        };
+    }
+
+    private static function detail(int $status): string
+    {
+        return match ($status) {
+            401 => 'Unauthenticated.',
+            403 => 'This action is unauthorized.',
+            404 => 'Resource not found.',
+            default => 'An unexpected error occurred.',
+        };
+    }
+}

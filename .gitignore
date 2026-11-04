@@ -1,0 +1,10 @@
+.idea
+.phpunit.result.cache
+.php-cs-fixer.cache
+composer.lock
+vendor
+coverage
+.php_cs.cache
+schema.json
+.DS_Store
+.phpunit.cache
