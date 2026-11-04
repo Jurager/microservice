@@ -41,6 +41,8 @@ use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tracing\RequestTiming;
 use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 class MicroserviceServiceProvider extends ServiceProvider
@@ -224,15 +226,19 @@ class MicroserviceServiceProvider extends ServiceProvider
     }
 
     /**
-     * Render exceptions of API requests as JSON:API error documents, unless turned off.
+     * Configure exception reporting and rendering.
      */
     private function configureExceptions(): void
     {
-        if (! config('microservice.render_exceptions', true)) {
-            return;
-        }
-
         $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
+            $handler->stopIgnoring(HttpException::class);
+            $handler->dontReportWhen(static fn (Throwable $exception): bool => $exception instanceof HttpExceptionInterface
+                && $exception->getStatusCode() < 500);
+
+            if (! config('microservice.render_exceptions', true)) {
+                return;
+            }
+
             $handler->renderable(function (Throwable $e, Request $request): ?JsonResponse {
 
                 if ($e instanceof HttpResponseException) {

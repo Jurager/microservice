@@ -12,6 +12,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Jurager\Microservice\Client\ServiceClient;
+use Jurager\Microservice\Exceptions\SelfRequestException;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Signing\Signer;
@@ -71,6 +72,38 @@ class ServiceClientTest extends TestCase
         $this->assertTrue($response->successful());
         $this->assertSame(200, $response->status());
         $this->assertSame('ok', $response->json('data'));
+    }
+
+    public function test_a_request_to_the_current_service_is_rejected_before_sending(): void
+    {
+        $client = $this->client([Http::response()]);
+
+        try {
+            $client->service('test-service')->get('/api/attributes')->withoutCircuitBreaker()->send();
+            $this->fail('Expected SelfRequestException.');
+        } catch (SelfRequestException $error) {
+            $this->assertSame('test-service', $error->service);
+            $this->assertStringContainsString('Call a local service or repository', $error->getMessage());
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_a_parallel_batch_with_a_self_request_sends_nothing(): void
+    {
+        $client = $this->client([Http::response(), Http::response()]);
+
+        try {
+            $client->parallel([
+                'remote' => $client->service('pim')->get('/api/attributes'),
+                'self' => $client->service('test-service')->get('/api/attributes'),
+            ]);
+            $this->fail('Expected SelfRequestException.');
+        } catch (SelfRequestException $error) {
+            $this->assertSame('test-service', $error->service);
+        }
+
+        Http::assertNothingSent();
     }
 
     public function test_requests_are_visible_to_laravel_fakes_and_tagged_with_the_service(): void

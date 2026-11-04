@@ -47,4 +47,14 @@ class ServiceRequestException extends HttpException
     {
         return $this->errors !== null && $this->getStatusCode() === $this->status;
     }
+
+    /** @return array{upstream_service: string|null, upstream_status: int, http_status: int} */
+    public function context(): array
+    {
+        return [
+            'upstream_service' => $this->service,
+            'upstream_status' => $this->status,
+            'http_status' => $this->getStatusCode(),
+        ];
+    }
 }

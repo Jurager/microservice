@@ -64,6 +64,15 @@ class LogContextMiddlewareTest extends TestCase
         $this->assertSame('a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8', $context['request_id']);
     }
 
+    public function test_logs_the_http_method_and_route_without_the_query_string(): void
+    {
+        $context = $this->getJson('/test/endpoint?token=private')->assertOk()->json();
+
+        $this->assertSame('GET', $context['http_method']);
+        $this->assertSame('test/endpoint', $context['http_route']);
+        $this->assertStringNotContainsString('private', json_encode($context));
+    }
+
     public function test_generates_request_id_when_missing(): void
     {
         $context = $this->captureLoggedContext();
@@ -149,7 +158,5 @@ class ContextProbe implements ShouldQueue
 {
     use Dispatchable;
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

@@ -14,11 +14,65 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Jurager\Microservice\Http\Middleware\JsonApiPagination;
 use Jurager\Microservice\JsonApi\Concerns\WithEagerIncludes;
+use Jurager\Microservice\JsonApi\ResourceCollection;
 use Jurager\Microservice\Tests\TestCase;
 
 class CompoundResourceCollectionTest extends TestCase
 {
+    public function test_document_matches_the_response_body_with_includes_fields_and_pagination(): void
+    {
+        foreach ([false, true] as $paginate) {
+            foreach ([false, true] as $jsonApiPagination) {
+                $request = Request::create('/owners', 'GET', [
+                    'include' => 'values.definition.translations',
+                    'fields' => ['compoundOwner' => 'id'],
+                ]);
+                $request->attributes->set(JsonApiPagination::ATTRIBUTE, $jsonApiPagination);
+                $models = $this->models();
+                $resource = new ResourceCollection(
+                    $paginate ? new LengthAwarePaginator($models, 45, 15, 1, ['path' => '/owners']) : $models,
+                    CompoundOwnerResource::class,
+                );
+                $resource->preserveQuery()->additional(['meta' => ['custom' => 'kept']]);
+
+                $document = $resource->document($request);
+
+                $this->assertSame($resource->toResponse($request)->getData(true), $document);
+                $this->assertCount(15, $document['data']);
+                $this->assertCount(34, $document['included']);
+                $this->assertSame('kept', $document['meta']['custom']);
+            }
+        }
+    }
+
+    public function test_document_does_not_read_the_outer_requests_includes_or_page(): void
+    {
+        app()->instance('request', Request::create('/outer?include=unknown&page[number]=999'));
+        $request = Request::create('/owners?include=values.definition.translations');
+        $resource = new ResourceCollection($this->models(), CompoundOwnerResource::class);
+
+        $document = $resource->document($request);
+
+        $this->assertCount(15, $document['data']);
+        $this->assertCount(34, $document['included']);
+        $this->assertSame('unknown', request()->query('include'));
+        $this->assertSame('999', request()->input('page.number'));
+    }
+
+    public function test_document_and_response_share_one_serialization_of_each_resource(): void
+    {
+        $request = Request::create('/owners?include=values.definition.translations');
+        $resource = new ResourceCollection($this->models(), CompoundOwnerResource::class);
+
+        $resource->document($request);
+        $resource->toResponse($request);
+
+        $this->assertSame(2, CompoundDefinitionResource::$resolutions);
+        $this->assertSame(2, CompoundTranslationResource::$resolutions);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();

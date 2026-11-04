@@ -20,4 +20,13 @@ class ServiceUnavailableException extends HttpException
             $previous,
         );
     }
+
+    /** @return array{upstream_service: string, http_status: int} */
+    public function context(): array
+    {
+        return [
+            'upstream_service' => $this->service,
+            'http_status' => $this->getStatusCode(),
+        ];
+    }
 }

@@ -19,6 +19,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
 use Illuminate\Support\InteractsWithTime;
 use Illuminate\Support\Str;
+use Jurager\Microservice\Exceptions\SelfRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tracing\RequestTiming;
@@ -66,9 +67,12 @@ class ServiceClient
 
     /**
      * @throws ServiceUnavailableException
+     * @throws SelfRequestException
      */
     public function send(PendingServiceRequest $request): ServiceResponse
     {
+        $this->assertRemote($request);
+
         if ($memoized = $this->memo()->get($request)) {
             return $memoized;
         }
@@ -99,6 +103,7 @@ class ServiceClient
      * @return array<string|int, ServiceResponse>
      *
      * @throws ServiceUnavailableException
+     * @throws SelfRequestException
      */
     public function parallel(array $requests, int $concurrency = 0): array
     {
@@ -106,6 +111,8 @@ class ServiceClient
         $pending = [];
 
         foreach ($requests as $key => $request) {
+            $this->assertRemote($request);
+
             if ($memoized = $this->memo()->get($request)) {
                 $responses[$key] = $memoized;
 
@@ -159,6 +166,13 @@ class ServiceClient
     protected function memo(): ResponseMemo
     {
         return $this->container->make(ResponseMemo::class);
+    }
+
+    private function assertRemote(PendingServiceRequest $request): void
+    {
+        if ($request->getService() === $this->name) {
+            throw new SelfRequestException($this->name);
+        }
     }
 
     /**
