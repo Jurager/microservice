@@ -7,9 +7,9 @@ namespace Jurager\Microservice;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
-use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Foundation\Console\AboutCommand;
+use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,6 +55,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/microservice.php', 'microservice');
         $this->normalizeServicesConfig();
         $this->normalizePeersConfig();
+        $this->configureExceptions();
 
         $this->registerCacheStore();
 
@@ -118,7 +119,6 @@ class MicroserviceServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->configureExceptions();
         JsonApiPagination::registerLinks();
         $this->registerSchedule();
 
@@ -230,7 +230,7 @@ class MicroserviceServiceProvider extends ServiceProvider
      */
     private function configureExceptions(): void
     {
-        $this->callAfterResolving(ExceptionHandler::class, function (ExceptionHandler $handler): void {
+        $this->callAfterResolving(Handler::class, function (Handler $handler): void {
             $handler->stopIgnoring(HttpException::class);
             $handler->dontReportWhen(static fn (Throwable $exception): bool => $exception instanceof HttpExceptionInterface
                 && $exception->getStatusCode() < 500);
