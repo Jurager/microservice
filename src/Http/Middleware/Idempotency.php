@@ -15,6 +15,7 @@ use Jurager\Microservice\Events\IdempotentRequestDetected;
 use Jurager\Microservice\Exceptions\DuplicateRequestException;
 use Jurager\Microservice\Exceptions\InvalidCacheStateException;
 use Jurager\Microservice\Exceptions\InvalidRequestIdException;
+use Jurager\Microservice\Tracing\RequestId;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -93,7 +94,7 @@ class Idempotency
      */
     protected function key(Request $request, string $requestId): string
     {
-        return 'microservice:idempotency:'.sha1($request->method().' /'.ltrim($request->path(), '/').' '.$requestId);
+        return 'microservice:idempotency:'.sha1($request->method().' /'.ltrim($request->path(), '/').' '.RequestId::original($requestId));
     }
 
     protected function lock(string $key): Lock

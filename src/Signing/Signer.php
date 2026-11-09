@@ -7,6 +7,7 @@ namespace Jurager\Microservice\Signing;
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Http\Request;
 use Illuminate\Support\InteractsWithTime;
+use Jurager\Microservice\Tracing\RequestId;
 use OpenSSLAsymmetricKey;
 use RuntimeException;
 
@@ -188,7 +189,10 @@ class Signer
         $query = (string) $request->server->get('QUERY_STRING', '');
         $requestId = (string) $request->header('X-Request-Id', '');
 
-        return $this->verifyRaw(self::payload($request->method(), $path, $query, $timestamp, $body, $requestId), $signature, $certificate, $service);
+        return array_any(
+            array_unique([$requestId, RequestId::original($requestId)]),
+            fn (string $id): bool => $this->verifyRaw(self::payload($request->method(), $path, $query, $timestamp, $body, $id), $signature, $certificate, $service),
+        );
     }
 
     /**

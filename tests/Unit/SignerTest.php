@@ -290,4 +290,33 @@ class SignerTest extends TestCase
         $request->headers->remove('X-Request-Id');
         $this->assertFalse($this->signer->verify($request, $signature, $timestamp, $this->certificate, 'test-service'));
     }
+
+    public function test_a_request_id_marked_for_tracing_by_envoy_still_verifies(): void
+    {
+        $timestamp = (string) time();
+        $requestId = '550e8400-e29b-41d4-a716-446655440000';
+        $signature = $this->signer->sign('POST', '/api/orders', $timestamp, '{"a":1}', $requestId);
+
+        $request = Request::create('/api/orders', 'POST', content: '{"a":1}');
+
+        foreach (['9', 'a', 'b'] as $mark) {
+            $request->headers->set('X-Request-Id', substr_replace($requestId, $mark, 14, 1));
+            $this->assertTrue($this->signer->verify($request, $signature, $timestamp, $this->certificate, 'test-service'));
+        }
+
+        $request->headers->set('X-Request-Id', substr_replace($requestId, '5', 14, 1));
+        $this->assertFalse($this->signer->verify($request, $signature, $timestamp, $this->certificate, 'test-service'));
+    }
+
+    public function test_a_request_id_signed_with_a_trace_mark_verifies_as_sent(): void
+    {
+        $timestamp = (string) time();
+        $requestId = '550e8400-e29b-91d4-a716-446655440000';
+        $signature = $this->signer->sign('POST', '/api/orders', $timestamp, '{"a":1}', $requestId);
+
+        $request = Request::create('/api/orders', 'POST', content: '{"a":1}');
+        $request->headers->set('X-Request-Id', $requestId);
+
+        $this->assertTrue($this->signer->verify($request, $signature, $timestamp, $this->certificate, 'test-service'));
+    }
 }

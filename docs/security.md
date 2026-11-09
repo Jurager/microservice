@@ -42,6 +42,8 @@ Missing credentials, expired timestamps, and invalid signatures return `401`.
 
 The signature covers the method, path, query, timestamp, request ID, and body. Multipart bodies are excluded.
 
+Envoy proxies, such as Istio sidecars, mark traced requests by changing one character of the request ID. Such an ID still verifies, and idempotency treats it as the original.
+
 Use `TrustPeer::peer($request)` to read the verified service name.
 
 Set `microservice.timestamp_tolerance` to allow clock skew; the default is 60 seconds.

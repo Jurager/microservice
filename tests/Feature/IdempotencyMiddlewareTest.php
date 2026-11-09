@@ -122,6 +122,18 @@ class IdempotencyMiddlewareTest extends TestCase
         Event::assertDispatched(IdempotentRequestDetected::class, fn (IdempotentRequestDetected $e) => $e->requestId === $this->id(2) && $e->cachedStatusCode === 201);
     }
 
+    public function test_an_id_marked_for_tracing_by_envoy_is_the_same_request(): void
+    {
+        $this->postJson('/test/idempotent', [], ['X-Request-Id' => $this->id(9)])->assertStatus(201);
+
+        $this->postJson('/test/idempotent', [], ['X-Request-Id' => substr_replace($this->id(9), '9', 14, 1)])
+            ->assertStatus(201)
+            ->assertJson(['run' => 1])
+            ->assertHeader('X-Idempotency-Cache-Hit', 'true');
+
+        $this->assertSame(1, self::$runs['created']);
+    }
+
     public function test_an_id_reused_on_another_endpoint_is_processed(): void
     {
         $this->postJson('/test/idempotent', [], ['X-Request-Id' => $this->id(3)])->assertStatus(201);
