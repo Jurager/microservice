@@ -55,7 +55,9 @@ class JsonApiPagination
                 return $default;
             }
 
-            $information = ['links' => array_map($normalize, $default['links'] ?? [])];
+            $query = $request->query();
+
+            $information = ['links' => array_map(static fn (?string $url): ?string => $normalize($url, $query), $default['links'] ?? [])];
 
             if (isset($paginated['total'])) {
                 $information['meta'] = ['total' => (int) $paginated['total']];
@@ -80,9 +82,9 @@ class JsonApiPagination
     }
 
     /**
-     * Rewrite ?page=N into the JSON:API ?page[number]=N format.
+     * Rewrite ?page=N into the JSON:API ?page[number]=N format, keeping the rest of the request query.
      */
-    protected static function normalizePaginationUrl(?string $url): ?string
+    protected static function normalizePaginationUrl(?string $url, array $requestQuery = []): ?string
     {
         if ($url === null) {
             return null;
@@ -95,6 +97,8 @@ class JsonApiPagination
         if (isset($params['page']) && is_scalar($params['page'])) {
             $params['page'] = ['number' => (string) $params['page']];
         }
+
+        $params = array_replace_recursive($requestQuery, $params);
 
         if ($params === []) {
             return $base;

@@ -98,6 +98,8 @@ use Jurager\Microservice\Http\Middleware\JsonApiPagination;
 Route::middleware(JsonApiPagination::class)->get('/v1/products', [ProductController::class, 'index']);
 ```
 
+Pagination links keep the rest of the request query — `filter`, `sort`, `page[size]` and your own parameters — so every page continues the same result.
+
 Gateway links use the original client URL only when `TrustPeer` has verified the request.
 
 ## Error documents

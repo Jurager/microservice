@@ -68,6 +68,13 @@ class JsonApiPaginationTest extends TestCase
             ->assertJsonPath('meta', ['total' => 30]);
     }
 
+    public function test_links_keep_the_rest_of_the_request_query(): void
+    {
+        $this->getJson('/api/products?filter[status]=active&sort=-id&page[number]=2&page[size]=10&currency_id=2')
+            ->assertJsonPath('links.prev', 'http://localhost/api/products?filter[status]=active&sort=-id&page[number]=1&page[size]=10&currency_id=2')
+            ->assertJsonPath('links.next', 'http://localhost/api/products?filter[status]=active&sort=-id&page[number]=3&page[size]=10&currency_id=2');
+    }
+
     public function test_nothing_of_a_json_api_request_outlives_it(): void
     {
         $this->getJson('/api/items?page[number]=3', ['X-Gateway-Base-Url' => 'https://gateway.test']);
