@@ -10,6 +10,7 @@ use Jurager\Microservice\Bus\HandlerDiscovery;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 
 /**
@@ -38,6 +39,8 @@ class ListenCommandRescanTest extends TestCase
         });
 
         $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('getConnection')->andReturn(Mockery::mock(AbstractConnection::class, ['channel' => $channel]));
+        $channel->shouldReceive('close');
         $channel->shouldReceive('basic_qos')->once();
         $channel->shouldReceive('is_consuming')->andReturn(false);
 
@@ -92,6 +95,8 @@ class ListenCommandRescanTest extends TestCase
         });
 
         $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('getConnection')->andReturn(Mockery::mock(AbstractConnection::class, ['channel' => $channel]));
+        $channel->shouldReceive('close');
         $channel->shouldReceive('basic_qos')->once();
         $channel->shouldReceive('is_consuming')->andReturn(false);
 

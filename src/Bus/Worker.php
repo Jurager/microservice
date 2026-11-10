@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Facade;
 use Jurager\Microservice\Bus\Contracts\MessageHandler;
 use Jurager\Microservice\Bus\Contracts\WorkerOutput;
 use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Exception\AMQPBasicCancelException;
 use PhpAmqpLib\Exception\AMQPConnectionClosedException;
 use PhpAmqpLib\Exception\AMQPDataReadException;
 use PhpAmqpLib\Exception\AMQPIOException;
@@ -80,7 +81,7 @@ class Worker
                 $handlers = $this->consume($classes, $handlers);
 
                 break;
-            } catch (AMQPConnectionClosedException|AMQPDataReadException|AMQPSocketException|AMQPIOException|AMQPIOWaitException $e) {
+            } catch (AMQPBasicCancelException|AMQPConnectionClosedException|AMQPDataReadException|AMQPSocketException|AMQPIOException|AMQPIOWaitException $e) {
                 $this->closeConnection();
 
                 if ($this->shouldStop) {
@@ -181,7 +182,7 @@ class Worker
 
     private function subscribe(AMQPChannel $channel, string $type, string $class): void
     {
-        $this->topology->declareQueue($channel, $type);
+        $this->reportDeclaration($type, $this->topology->declareQueue($channel, $type));
 
         $channel->basic_consume(
             $this->topology->queue($type),
@@ -191,6 +192,21 @@ class Worker
                 $this->checkLimits();
             },
         );
+    }
+
+    private function reportDeclaration(string $type, QueueDeclaration $declaration): void
+    {
+        $queue = $this->topology->queue($type);
+
+        if ($declaration === QueueDeclaration::Recreated) {
+            $this->logger->warning('Bus worker: recreated a queue declared with other arguments', ['queue' => $queue]);
+            $this->output->warn("Recreated queue $queue: it was declared with other arguments.");
+        }
+
+        if ($declaration === QueueDeclaration::Outdated) {
+            $this->logger->warning('Bus worker: consuming a queue declared with other arguments', ['queue' => $queue]);
+            $this->output->warn("Queue $queue was declared with other arguments and still holds messages; consuming it as it is until a start finds it empty.");
+        }
     }
 
     /**

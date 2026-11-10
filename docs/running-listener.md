@@ -78,7 +78,14 @@ rabbitmqadmin get queue=api.catalog.product.updated.dlq count=10
 
 Set `MESSAGE_BUS_DLQ_ENABLED=false` to discard rejected messages instead. `MESSAGE_BUS_DLQ_EXCHANGE` changes the exchange used for dead letters.
 
-Changing dead-letter settings for existing queues may require recreating the affected queues. RabbitMQ does not allow redeclaring a queue with different dead-letter arguments.
+### Queues with outdated arguments
+
+RabbitMQ does not allow redeclaring a queue with other arguments, for example after changing dead-letter settings or upgrading from a version that routed dead letters by event type. The listener handles this on start:
+
+- An empty queue is deleted and declared again. Its dead-letter queue keeps its messages and loses the old binding by event type.
+- A queue that still holds messages is consumed as it is, with a warning in the log. It is recreated on a later start that finds it empty.
+
+Deleting a queue cancels its other consumers, such as a listener of the previous release during a rolling deploy. Events published in the moment between deleting and declaring the queue are not routed, and publishing them fails.
 
 ## Graceful shutdown
 

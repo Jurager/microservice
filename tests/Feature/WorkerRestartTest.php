@@ -14,6 +14,7 @@ use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Connection\AbstractConnection;
 use PhpAmqpLib\Exception\AMQPTimeoutException;
 use PhpAmqpLib\Message\AMQPMessage;
 
@@ -37,6 +38,8 @@ class WorkerRestartTest extends TestCase
         });
 
         $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('getConnection')->andReturn(Mockery::mock(AbstractConnection::class, ['channel' => $channel]));
+        $channel->shouldReceive('close');
         $channel->shouldReceive('basic_qos', 'queue_declare', 'queue_bind', 'basic_consume');
         $channel->shouldReceive('is_consuming')->andReturn(true);
 
@@ -82,6 +85,8 @@ class WorkerRestartTest extends TestCase
 
         $consume = null;
         $channel = Mockery::mock(AMQPChannel::class);
+        $channel->shouldReceive('getConnection')->andReturn(Mockery::mock(AbstractConnection::class, ['channel' => $channel]));
+        $channel->shouldReceive('close');
         $channel->shouldReceive('basic_qos', 'queue_declare', 'queue_bind');
         $channel->shouldReceive('basic_consume')->andReturnUsing(function (...$arguments) use (&$consume): void {
             $consume = $arguments['callback'] ?? $arguments[6];

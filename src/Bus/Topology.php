@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Bus;
 
+use Closure;
 use Illuminate\Container\Attributes\Config;
 use PhpAmqpLib\Channel\AMQPChannel;
+use PhpAmqpLib\Connection\AbstractConnection;
+use PhpAmqpLib\Exception\AMQPProtocolChannelException;
 use PhpAmqpLib\Wire\AMQPTable;
+use Throwable;
 
 /**
  * Declare service queues and their dead-letter bindings.
  */
 final readonly class Topology
 {
+    private const int PRECONDITION_FAILED = 406;
+
     /**
      * The dead-letter exchange, or null while dead-lettering is off.
      */
@@ -62,23 +68,103 @@ final readonly class Topology
     }
 
     /**
-     * Declare and bind the queue of an event type, and its dead-letter queue.
+     * Declare and bind the queue of an event type and its dead-letter queue, recreating an empty outdated queue.
      */
-    public function declareQueue(AMQPChannel $channel, string $type): void
+    public function declareQueue(AMQPChannel $channel, string $type): QueueDeclaration
     {
-        $arguments = [];
+        $connection = $channel->getConnection();
 
-        if ($this->deadLetterExchange !== null) {
-            $channel->queue_declare($this->deadLetterQueue($type), durable: true, auto_delete: false);
-            $channel->queue_bind($this->deadLetterQueue($type), $this->deadLetterExchange, $this->queue($type));
+        $declared = $this->onChannel($connection, function (AMQPChannel $channel) use ($type): bool {
+            if ($this->deadLetterExchange !== null) {
+                $channel->queue_declare($this->deadLetterQueue($type), durable: true, auto_delete: false);
+                $channel->queue_bind($this->deadLetterQueue($type), $this->deadLetterExchange, $this->queue($type));
+            }
 
-            $arguments = new AMQPTable([
-                'x-dead-letter-exchange' => $this->deadLetterExchange,
-                'x-dead-letter-routing-key' => $this->queue($type),
-            ]);
+            return $this->declareMainQueue($channel, $type);
+        });
+
+        if ($declared) {
+            return QueueDeclaration::Declared;
         }
 
-        $channel->queue_declare($this->queue($type), durable: true, auto_delete: false, arguments: $arguments);
+        $recreated = $this->onChannel($connection, function (AMQPChannel $channel) use ($type): bool {
+            try {
+                $channel->queue_delete($this->queue($type), if_empty: true);
+            } catch (AMQPProtocolChannelException $e) {
+                return self::refused($e);
+            }
+
+            return $this->declareMainQueue($channel, $type);
+        });
+
+        if (! $recreated) {
+            return QueueDeclaration::Outdated;
+        }
+
+        if ($this->deadLetterExchange !== null) {
+            try {
+                $this->onChannel($connection, fn (AMQPChannel $channel) => $channel->queue_unbind($this->deadLetterQueue($type), $this->deadLetterExchange, $type));
+            } catch (AMQPProtocolChannelException) {
+            }
+        }
+
+        return QueueDeclaration::Recreated;
+    }
+
+    /**
+     * Declare and bind the queue of an event type, or return false when it exists with other arguments.
+     */
+    private function declareMainQueue(AMQPChannel $channel, string $type): bool
+    {
+        $arguments = $this->deadLetterExchange === null ? [] : new AMQPTable([
+            'x-dead-letter-exchange' => $this->deadLetterExchange,
+            'x-dead-letter-routing-key' => $this->queue($type),
+        ]);
+
+        try {
+            $channel->queue_declare($this->queue($type), durable: true, auto_delete: false, arguments: $arguments);
+        } catch (AMQPProtocolChannelException $e) {
+            return self::refused($e);
+        }
+
         $channel->queue_bind($this->queue($type), $this->exchange, $type);
+
+        return true;
+    }
+
+    /**
+     * Run the callback on a new channel of the connection, closing it afterwards.
+     *
+     * @template T
+     *
+     * @param  Closure(AMQPChannel): T  $callback
+     * @return T
+     */
+    private function onChannel(AbstractConnection $connection, Closure $callback): mixed
+    {
+        $channel = $connection->channel();
+
+        try {
+            return $callback($channel);
+        } finally {
+            try {
+                $channel->close();
+            } catch (Throwable) {
+            }
+        }
+    }
+
+    /**
+     * Return false for a PRECONDITION_FAILED refusal, rethrowing anything else.
+     *
+     * @throws AMQPProtocolChannelException
+     */
+    private static function refused(AMQPProtocolChannelException $e): bool
+    {
+        if ($e->getCode() !== self::PRECONDITION_FAILED) {
+            throw $e;
+        }
+
+        return false;
     }
 }
