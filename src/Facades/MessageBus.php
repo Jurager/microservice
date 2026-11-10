@@ -10,7 +10,7 @@ use Jurager\Microservice\Bus\MessageBus as Bus;
 /**
  * Publish signed events to other services.
  *
- * @method static void publish(string $type, array $payload)
+ * @method static void publish(string $type, array $payload, ?\DateTimeInterface $occurredAt = null)
  * @method static bool verify(array $envelope)
  * @method static bool enabled()
  *

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Bus;
 
+use DateTimeInterface;
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Database\ConnectionResolverInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Str;
 use JsonException;
@@ -43,9 +45,11 @@ readonly class MessageBus
     /**
      * Publish an event after the current transaction commits, when configured.
      *
+     * @param  DateTimeInterface|null  $occurredAt  When the fact happened; defaults to now.
+     *
      * @throws Throwable
      */
-    public function publish(string $type, array $payload): void
+    public function publish(string $type, array $payload, ?DateTimeInterface $occurredAt = null): void
     {
         if (! $this->enabled()) {
             $this->logger->debug('MessageBus: publishing disabled', ['type' => $type]);
@@ -54,7 +58,7 @@ readonly class MessageBus
         }
 
         // Signed once, so a retry sends the same event rather than a new one.
-        $envelope = $this->signedEnvelope($type, $payload);
+        $envelope = $this->signedEnvelope($type, $payload, $occurredAt);
 
         if ($this->afterCommit) {
             $this->db->connection()->afterCommit(fn () => $this->deliver($type, $envelope));
@@ -150,13 +154,13 @@ readonly class MessageBus
      *
      * @throws JsonException
      */
-    private function signedEnvelope(string $type, array $payload): array
+    private function signedEnvelope(string $type, array $payload, ?DateTimeInterface $occurredAt): array
     {
         $envelope = [
             'id' => (string) Str::uuid(),
             'type' => $type,
             'service' => $this->service,
-            'occurred_at' => now()->toIso8601String(),
+            'occurred_at' => ($occurredAt !== null ? Carbon::instance($occurredAt) : now())->toIso8601String(),
             'request_id' => Context::get('request_id'),
             'payload' => $payload,
         ];

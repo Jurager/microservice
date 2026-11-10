@@ -90,6 +90,7 @@ class ListenerTest extends TestCase
             'id' => '0b5c9f6e-7a2b-4c1d-9e3f-2a1b0c9d8e7f',
             'type' => 'test.sync',
             'service' => 'oms',
+            'occurred_at' => '2026-11-09T14:30:05+03:00',
             'request_id' => 'a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8',
             'payload' => [],
         ]);
@@ -99,7 +100,18 @@ class ListenerTest extends TestCase
             'message_type' => 'test.sync',
             'message_publisher' => 'oms',
             'request_id' => 'a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8',
+            'message_occurred_at' => '2026-11-09T14:30:05+03:00',
         ], Context::all());
+    }
+
+    public function test_the_handler_reads_the_time_of_the_fact_from_the_context(): void
+    {
+        OccurredAtHandler::$received = null;
+
+        $envelope = $this->signedEnvelope('test.occurred', [], '2026-11-09T14:30:05+03:00');
+
+        $this->assertTrue(app(Listener::class)->handle(OccurredAtHandler::class, $envelope));
+        $this->assertSame('2026-11-09T14:30:05+03:00', OccurredAtHandler::$received);
     }
 
     public function test_rejects_non_messagehandler_class(): void
@@ -135,13 +147,13 @@ class ListenerTest extends TestCase
         $this->assertInstanceOf(Signer::class, InjectedHandler::$received);
     }
 
-    private function signedEnvelope(string $type, array $payload): array
+    private function signedEnvelope(string $type, array $payload, ?string $occurredAt = null): array
     {
         $envelope = [
             'id' => (string) Str::uuid(),
             'type' => $type,
             'service' => 'test-service',
-            'occurred_at' => now()->toIso8601String(),
+            'occurred_at' => $occurredAt ?? now()->toIso8601String(),
             'request_id' => null,
             'payload' => $payload,
         ];
@@ -249,5 +261,25 @@ class InjectedHandler implements MessageHandler
     public function handle(Signer $signer): void
     {
         self::$received = $signer;
+    }
+}
+
+class OccurredAtHandler implements MessageHandler
+{
+    public static ?string $received = null;
+
+    public static function type(): string
+    {
+        return 'test.occurred';
+    }
+
+    public static function from(array $payload, string $type = ''): static
+    {
+        return new static;
+    }
+
+    public function handle(): void
+    {
+        self::$received = Context::get('message_occurred_at');
     }
 }

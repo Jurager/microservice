@@ -42,6 +42,22 @@ class ForgetProductCache implements MessageHandler, ShouldQueue
 
 `type()` may return several types as an array; the handler then receives each of them, with the type passed to `from()`.
 
+## Message context
+
+The listener puts the message's `message_id`, `message_type`, `message_publisher`, `request_id`, and `message_occurred_at` into Laravel's `Context`. They reach queued handlers too. Use `message_occurred_at` when a handler depends on when the event happened rather than when it arrived:
+
+```php
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Context;
+
+public function handle(): void
+{
+    $occurredAt = Carbon::parse(Context::get('message_occurred_at'));
+
+    // ...
+}
+```
+
 ## Queued handlers
 
 A handler implementing `ShouldQueue` runs through Laravel's queue, with the usual retries, backoff, and `failed_jobs`. Run a queue worker alongside the event listener:

@@ -70,9 +70,12 @@ final readonly class Topology
 
         if ($this->deadLetterExchange !== null) {
             $channel->queue_declare($this->deadLetterQueue($type), durable: true, auto_delete: false);
-            $channel->queue_bind($this->deadLetterQueue($type), $this->deadLetterExchange, $type);
+            $channel->queue_bind($this->deadLetterQueue($type), $this->deadLetterExchange, $this->queue($type));
 
-            $arguments = new AMQPTable(['x-dead-letter-exchange' => $this->deadLetterExchange]);
+            $arguments = new AMQPTable([
+                'x-dead-letter-exchange' => $this->deadLetterExchange,
+                'x-dead-letter-routing-key' => $this->queue($type),
+            ]);
         }
 
         $channel->queue_declare($this->queue($type), durable: true, auto_delete: false, arguments: $arguments);

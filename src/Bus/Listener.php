@@ -52,6 +52,7 @@ readonly class Listener
             'message_type' => $envelope['type'] ?? null,
             'message_publisher' => $envelope['service'] ?? null,
             'request_id' => $envelope['request_id'] ?? null,
+            'message_occurred_at' => $envelope['occurred_at'] ?? null,
         ], static fn (mixed $value): bool => is_string($value) && $value !== ''));
 
         try {

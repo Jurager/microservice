@@ -62,6 +62,14 @@ api.catalog.product.updated.dlq
 
 Invalid JSON, invalid signatures, and synchronous handler failures are sent there. Queued handler failures use Laravel's queue system instead.
 
+Each queue dead-letters to the `events.dlx` exchange with its own name as the routing key, and its dead-letter queue is bound by that name:
+
+```text
+api.catalog.product.updated  →  events.dlx (key api.catalog.product.updated)  →  api.catalog.product.updated.dlq
+```
+
+A message rejected by one service therefore lands only in that service's dead-letter queue, even when other services subscribe to the same event type.
+
 Inspect a queue with the RabbitMQ Management UI or `rabbitmqadmin`:
 
 ```bash

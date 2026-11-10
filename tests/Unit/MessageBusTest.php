@@ -158,7 +158,7 @@ class MessageBusTest extends TestCase
     }
 
     /** Publish one event and return the envelope that reached the broker. */
-    private function published(string $type = 'sfm.site.updated', array $payload = ['site_id' => 1], ?callable $around = null): ?array
+    private function published(string $type = 'sfm.site.updated', array $payload = ['site_id' => 1], ?callable $around = null, ?\DateTimeInterface $occurredAt = null): ?array
     {
         $captured = null;
         $channel = Mockery::mock(AMQPChannel::class);
@@ -173,7 +173,7 @@ class MessageBusTest extends TestCase
         $this->app->instance(Connection::class, $connection);
         $this->app->forgetInstance(MessageBus::class);
 
-        $publish = fn () => app(MessageBus::class)->publish($type, $payload);
+        $publish = fn () => app(MessageBus::class)->publish($type, $payload, $occurredAt);
         $around !== null ? $around($publish) : $publish();
 
         return $captured;
@@ -211,6 +211,25 @@ class MessageBusTest extends TestCase
         Context::add('request_id', 'a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8');
 
         $this->assertSame('a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8', $this->published()['request_id']);
+    }
+
+    public function test_the_envelope_carries_the_given_time_of_the_fact(): void
+    {
+        $envelope = $this->published(occurredAt: new \DateTimeImmutable('2026-11-09 14:30:05', new \DateTimeZone('Europe/Moscow')));
+
+        $this->assertSame('2026-11-09T14:30:05+03:00', $envelope['occurred_at']);
+
+        $bus = app(MessageBus::class);
+        unset($envelope['_message_id']);
+        $this->assertTrue($bus->verify($envelope));
+        $this->assertFalse($bus->verify([...$envelope, 'occurred_at' => '2026-11-10T00:00:00+03:00']), 'Another time breaks the signature.');
+    }
+
+    public function test_without_a_given_time_the_envelope_carries_now(): void
+    {
+        $this->travelTo('2026-11-10 09:00:00');
+
+        $this->assertSame(now()->toIso8601String(), $this->published()['occurred_at']);
     }
 
     public function test_inside_a_transaction_the_event_is_published_once_it_commits(): void
