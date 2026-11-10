@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Jurager\Microservice\Commands\SyncCommand;
 use Jurager\Microservice\Manifest\ManifestRepository;
+use Jurager\Microservice\MicroserviceServiceProvider;
 use Jurager\Microservice\Tests\TestCase;
 use Symfony\Component\Console\Input\ArrayInput;
 
@@ -70,6 +71,19 @@ class SyncCommandTest extends TestCase
 
         $this->assertSame('http://pim.new', $repository->get('pim')['base_url']);
         $this->assertSame(15, $repository->get('pim')['timeout']);
+    }
+
+    public function test_optimizing_a_gateway_syncs_the_manifests_and_rebuilds_its_cached_routes(): void
+    {
+        $this->app->register(MicroserviceServiceProvider::class, force: true);
+        $this->cacheRoutes();
+
+        Http::fake(['*' => Http::response($this->manifest())]);
+
+        $this->artisan('optimize', ['--except' => 'config,events,routes,views'])->assertSuccessful();
+
+        $this->assertSame($this->manifest()['routes'], $this->app->make(ManifestRepository::class)->get('pim')['routes'] ?? null);
+        $this->assertSame(1, $this->routeCacheRuns);
     }
 
     public function test_an_instance_refreshes_its_routes_when_another_one_stored_the_change(): void

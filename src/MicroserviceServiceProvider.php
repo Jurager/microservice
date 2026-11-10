@@ -121,6 +121,7 @@ class MicroserviceServiceProvider extends ServiceProvider
     {
         JsonApiPagination::registerLinks();
         $this->registerSchedule();
+        $this->registerOptimize();
 
         $this->registerAbout();
 
@@ -267,6 +268,16 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule) use ($interval): void {
             $schedule->command(SyncCommand::class)->cron("*/{$interval} * * * *");
         });
+    }
+
+    /**
+     * Sync manifests when the application is optimized, so the routes it caches come from fresh manifests.
+     */
+    protected function registerOptimize(): void
+    {
+        if ($this->knownServices() !== []) {
+            $this->optimizes(optimize: 'microservice:sync', key: 'manifests');
+        }
     }
 
     /**

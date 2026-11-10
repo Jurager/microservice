@@ -46,6 +46,8 @@ php artisan microservice:sync catalog orders  # sync specific services
 
 Set `SERVICE_MANIFEST_SYNC_INTERVAL` in minutes, or `0` to disable scheduling.
 
+`php artisan optimize` syncs manifests as well, so an instance that optimizes on startup caches its routes from fresh manifests.
+
 Each gateway instance refreshes its route cache or reloads Octane when routes change. Run the Laravel scheduler on each instance.
 
 ## Registering routes
