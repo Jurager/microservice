@@ -121,6 +121,7 @@ final class ResponseError
             data: ['errors' => $errors],
             status: $status,
             headers: array_merge(['Content-Type' => 'application/vnd.api+json'], $headers),
+            options: JSON_INVALID_UTF8_SUBSTITUTE,
         );
     }
 

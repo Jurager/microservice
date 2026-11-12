@@ -74,6 +74,16 @@ class ResponseErrorTest extends TestCase
         $this->assertErrorDetail($response, 'Unexpected.');
     }
 
+    public function test_malformed_utf8_in_the_message_is_substituted_instead_of_breaking_the_response(): void
+    {
+        config(['app.debug' => true]);
+
+        $response = ResponseError::fromException(new \RuntimeException("invalid byte sequence for encoding \"UTF8\": 0xd1 (SQL: ILIKE '%\xD1%')"));
+
+        $this->assertSame(500, $response->getStatusCode());
+        $this->assertErrorDetail($response, "invalid byte sequence for encoding \"UTF8\": 0xd1 (SQL: ILIKE '%\u{FFFD}%')");
+    }
+
     public function test_messages_of_expected_exceptions_are_kept_without_debug_mode(): void
     {
         config(['app.debug' => false]);
