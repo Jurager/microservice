@@ -158,5 +158,7 @@ class ContextProbe implements ShouldQueue
 {
     use Dispatchable;
 
-    public function handle(): void {}
+    public function handle(): void
+    {
+    }
 }

@@ -9,6 +9,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
+use Jurager\Microservice\Exceptions\JsonApiException;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Tests\TestCase;
@@ -124,6 +125,59 @@ class ResponseErrorTest extends TestCase
     public function test_an_unauthorized_peer_is_rendered_as_bad_gateway(): void
     {
         $this->assertSame(502, ResponseError::fromException(new ServiceRequestException(401))->getStatusCode());
+    }
+
+    public function test_json_api_exception_renders_its_meta(): void
+    {
+        $response = ResponseError::fromException(new JsonApiException(409, 'Review already exists.', meta: ['review_id' => 42]));
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame('application/vnd.api+json', $response->headers->get('Content-Type'));
+        $this->assertSame([[
+            'status' => '409',
+            'title' => 'Conflict',
+            'detail' => 'Review already exists.',
+            'meta' => ['review_id' => 42],
+        ]], json_decode($response->getContent(), true)['errors']);
+    }
+
+    public function test_json_api_exception_without_meta_renders_no_meta(): void
+    {
+        $response = ResponseError::fromException(new JsonApiException(409, 'Conflict.'));
+
+        $this->assertArrayNotHasKey('meta', json_decode($response->getContent(), true)['errors'][0]);
+    }
+
+    public function test_json_api_exception_keeps_its_headers(): void
+    {
+        $response = ResponseError::fromException(new JsonApiException(429, 'Slow down.', headers: ['Retry-After' => '60']));
+
+        $this->assertSame('60', $response->headers->get('Retry-After'));
+    }
+
+    public function test_upstream_error_meta_is_forwarded(): void
+    {
+        $errors = [['status' => '409', 'title' => 'Conflict', 'detail' => 'Exists.', 'meta' => ['review_id' => 42]]];
+
+        $response = ResponseError::fromException(new ServiceRequestException(409, errors: $errors, service: 'mms'));
+
+        $this->assertSame(409, $response->getStatusCode());
+        $this->assertSame($errors, json_decode($response->getContent(), true)['errors']);
+    }
+
+    public function test_render_using_receives_the_error_meta(): void
+    {
+        $captured = null;
+
+        ResponseError::renderUsing(function (array $errors, int $status) use (&$captured): JsonResponse {
+            $captured = $errors;
+
+            return new JsonResponse(['errors' => $errors], $status);
+        });
+
+        ResponseError::fromException(new JsonApiException(409, 'Exists.', meta: ['review_id' => 42]));
+
+        $this->assertSame(['review_id' => 42], $captured[0]['meta']);
     }
 
     public function test_validation_exception_returns_422_with_per_field_errors(): void

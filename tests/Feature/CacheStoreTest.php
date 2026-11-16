@@ -32,7 +32,7 @@ class CacheStoreTest extends TestCase
 
     public function test_service_exists_reports_the_package_translation(): void
     {
-        $validator = Validator::make(['source' => 'ghost'], ['source' => [new ServiceExists]]);
+        $validator = Validator::make(['source' => 'ghost'], ['source' => [new ServiceExists()]]);
 
         $this->assertSame('The source service was not found.', $validator->errors()->first('source'));
     }

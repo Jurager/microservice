@@ -53,7 +53,7 @@ class IncludeLoader
     public function __construct(Request $request)
     {
         $this->request = $request instanceof JsonApiRequest ? $request : JsonApiRequest::createFrom($request);
-        $this->prepared = new WeakMap;
+        $this->prepared = new WeakMap();
 
         $filter = $request->input('filter');
         $this->filter = is_array($filter) ? $filter : [];

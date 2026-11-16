@@ -38,7 +38,7 @@ class ConnectionFactory
         $heartbeat ??= (int) ($settings['heartbeat'] ?? 60);
         $timeout = $readWriteTimeout ?? (float) ($settings['read_write_timeout'] ?? $heartbeat * 2 + 10);
 
-        $config = new AMQPConnectionConfig;
+        $config = new AMQPConnectionConfig();
         $config->setHost((string) ($settings['host'] ?? '127.0.0.1'));
         $config->setPort((int) ($settings['port'] ?? 5672));
         $config->setUser((string) ($settings['user'] ?? 'guest'));

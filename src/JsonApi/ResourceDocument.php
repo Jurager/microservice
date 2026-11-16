@@ -19,7 +19,9 @@ class ResourceDocument extends PaginatedResourceResponse
 
         if ($this->resource->resource instanceof AbstractPaginator || $this->resource->resource instanceof AbstractCursorPaginator) {
             return $this->wrap($data, array_merge_recursive(
-                $this->paginationInformation($request), $with, $this->resource->additional,
+                $this->paginationInformation($request),
+                $with,
+                $this->resource->additional,
             ));
         }
 

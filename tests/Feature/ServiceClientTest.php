@@ -15,6 +15,7 @@ use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Exceptions\SelfRequestException;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tests\TestCase;
 use Jurager\Microservice\Tracing\RequestTiming;
@@ -209,6 +210,18 @@ class ServiceClientTest extends TestCase
             $this->assertSame([['detail' => 'Name is required']], $e->errors);
             $this->assertTrue($e->rendersUpstreamErrors());
             $this->assertSame('Service [oms] request failed with status 422.', $e->getMessage());
+        }
+    }
+
+    public function test_upstream_error_meta_reaches_the_client(): void
+    {
+        $errors = [['status' => '409', 'title' => 'Conflict', 'detail' => 'Exists.', 'meta' => ['review_id' => 42]]];
+
+        try {
+            $this->client([Http::response(['errors' => $errors], 409)])->service('mms')->post('/api/reviews')->send();
+            $this->fail('Expected ServiceRequestException.');
+        } catch (ServiceRequestException $e) {
+            $this->assertSame($errors, json_decode(ResponseError::fromException($e)->getContent(), true)['errors']);
         }
     }
 

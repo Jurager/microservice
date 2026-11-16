@@ -36,6 +36,6 @@ class ConnectionFactoryTest extends TestCase
 
     public function test_a_probe_may_shorten_the_io_timeout(): void
     {
-        $this->assertSame(10.0, (new ConnectionFactory)->connectionConfig(readWriteTimeout: 10)->getReadTimeout());
+        $this->assertSame(10.0, (new ConnectionFactory())->connectionConfig(readWriteTimeout: 10)->getReadTimeout());
     }
 }

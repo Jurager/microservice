@@ -55,8 +55,8 @@ class Worker
         private readonly Container $container,
         private readonly Cache $cache,
     ) {
-        $this->options = new WorkerOptions;
-        $this->output = new NullWorkerOutput;
+        $this->options = new WorkerOptions();
+        $this->output = new NullWorkerOutput();
     }
 
     /**
@@ -69,7 +69,7 @@ class Worker
     public function run(array $classes, WorkerOptions $options, ?WorkerOutput $output = null): void
     {
         $this->options = $options;
-        $this->output = $output ?? new NullWorkerOutput;
+        $this->output = $output ?? new NullWorkerOutput();
         $this->shouldStop = false;
         $this->restartedAt = $this->lastRestart();
 

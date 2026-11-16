@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Http\Request;
 use Illuminate\Testing\TestResponse;
 use Jurager\Microservice\Http\Middleware\TrustPeer;
 use Jurager\Microservice\Signing\Certificate;
@@ -18,7 +19,7 @@ class TrustPeerMiddlewareTest extends TestCase
         $router->post('/test/endpoint', fn () => response()->json(['ok' => true]))
             ->middleware(TrustPeer::class);
 
-        $router->post('/test/peer', fn (\Illuminate\Http\Request $request) => response()->json(['peer' => TrustPeer::peer($request)]))
+        $router->post('/test/peer', fn (Request $request) => response()->json(['peer' => TrustPeer::peer($request)]))
             ->middleware(TrustPeer::class);
     }
 

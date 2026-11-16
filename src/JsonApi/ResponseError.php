@@ -9,6 +9,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
+use Jurager\Microservice\Exceptions\JsonApiException;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
@@ -55,15 +56,17 @@ final class ResponseError
             return self::render(errors: $e->errors, status: $status, headers: $headers);
         }
 
-        return self::render(
-            errors: [[
-                'status' => (string) $status,
-                'title' => self::title($status),
-                'detail' => self::message($e, $status),
-            ]],
-            status: $status,
-            headers: $headers,
-        );
+        $error = [
+            'status' => (string) $status,
+            'title' => self::title($status),
+            'detail' => self::message($e, $status),
+        ];
+
+        if ($e instanceof JsonApiException && $e->meta !== []) {
+            $error['meta'] = $e->meta;
+        }
+
+        return self::render(errors: [$error], status: $status, headers: $headers);
     }
 
     /**
@@ -132,6 +135,7 @@ final class ResponseError
             403 => 'Forbidden',
             404 => 'Not Found',
             405 => 'Method Not Allowed',
+            409 => 'Conflict',
             422 => 'Unprocessable Entity',
             429 => 'Too Many Requests',
             500 => 'Server Error',

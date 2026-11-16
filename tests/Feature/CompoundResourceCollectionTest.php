@@ -87,7 +87,7 @@ class CompoundResourceCollectionTest extends TestCase
 
     private function models(): Collection
     {
-        $definitions = new Collection;
+        $definitions = new Collection();
         foreach ([1, 2] as $id) {
             $locale = new CompoundLocale(['id' => 1]);
             $locale->setRelation('pivot', new Pivot(['id' => 100 + $id, 'label' => 'Label '.$id]));
@@ -292,7 +292,7 @@ class CompoundResourceCollectionTest extends TestCase
 
     public function test_empty_collections_do_not_add_included_resources(): void
     {
-        $this->assertSame(['data' => []], $this->response(new Collection));
+        $this->assertSame(['data' => []], $this->response(new Collection()));
     }
 
     public function test_leaf_callbacks_can_resolve_a_primary_resource(): void

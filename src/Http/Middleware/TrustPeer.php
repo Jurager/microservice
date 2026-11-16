@@ -78,5 +78,4 @@ class TrustPeer
             throw new InvalidSignatureException();
         }
     }
-
 }

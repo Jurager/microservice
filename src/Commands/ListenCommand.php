@@ -73,8 +73,7 @@ class ListenCommand extends Command
      */
     private function output(): WorkerOutput
     {
-        return new class($this) implements WorkerOutput
-        {
+        return new class ($this) implements WorkerOutput {
             public function __construct(private readonly Command $command)
             {
             }

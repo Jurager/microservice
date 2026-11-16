@@ -106,6 +106,20 @@ Gateway links use the original client URL only when `TrustPeer` has verified the
 
 Exceptions of API requests — the `api` middleware group, or any request expecting JSON — are rendered as JSON:API error documents. Validation errors carry an RFC 6901 pointer per field; the message of an unexpected exception is replaced with a generic text outside `APP_DEBUG`.
 
+To give the client more than a message, throw `JsonApiException` with `meta`. It is rendered as the error's `meta` member:
+
+```php
+use Jurager\Microservice\Exceptions\JsonApiException;
+
+throw new JsonApiException(409, 'Review already exists.', meta: ['review_id' => $review->id]);
+```
+
+```json
+{"errors": [{"status": "409", "title": "Conflict", "detail": "Review already exists.", "meta": {"review_id": 42}}]}
+```
+
+Errors of another service that are passed through to the client keep their `meta` as well.
+
 To keep your application's own rendering, turn this off:
 
 ```env

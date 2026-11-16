@@ -22,7 +22,7 @@ class TopologyTest extends TestCase
 
     public function test_dead_letters_are_routed_by_the_queue_name(): void
     {
-        [$main, $sides] = $this->channels(new RecordingChannel);
+        [$main, $sides] = $this->channels(new RecordingChannel());
 
         $this->assertSame(QueueDeclaration::Declared, $this->topology()->declareQueue($main, 'oms.order.created'));
 
@@ -38,7 +38,7 @@ class TopologyTest extends TestCase
 
     public function test_without_dead_lettering_only_the_queue_is_declared(): void
     {
-        [$main, $sides] = $this->channels(new RecordingChannel);
+        [$main, $sides] = $this->channels(new RecordingChannel());
 
         (new Topology('ams', 'events', false))->declareQueue($main, 'oms.order.created');
 
@@ -52,8 +52,8 @@ class TopologyTest extends TestCase
     {
         [$main, $sides] = $this->channels(
             new RecordingChannel(['queue_declare ams.oms.order.created' => 406]),
-            new RecordingChannel,
-            new RecordingChannel,
+            new RecordingChannel(),
+            new RecordingChannel(),
         );
 
         $this->assertSame(QueueDeclaration::Recreated, $this->topology()->declareQueue($main, 'oms.order.created'));

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Jurager\Microservice\Events\IdempotentRequestDetected;
 use Jurager\Microservice\Http\Middleware\Idempotency;
@@ -87,7 +88,7 @@ class IdempotencyMiddlewareTest extends TestCase
     {
         $key = new ReflectionMethod(Idempotency::class, 'key');
 
-        return $key->invoke(app(Idempotency::class), \Illuminate\Http\Request::create($path, $method), $requestId);
+        return $key->invoke(app(Idempotency::class), Request::create($path, $method), $requestId);
     }
 
     public function test_safe_methods_are_never_deduplicated(): void

@@ -11,8 +11,7 @@ class HandlerDiscoveryTest extends TestCase
 {
     public function test_the_application_is_scanned_once_per_process(): void
     {
-        $discovery = new class extends HandlerDiscovery
-        {
+        $discovery = new class () extends HandlerDiscovery {
             public int $scans = 0;
 
             protected function scan(): array

@@ -30,8 +30,7 @@ class ListenCommandRescanTest extends TestCase
     {
         DynamicFakeHandler::$activeTypes = [];
 
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [DynamicFakeHandler::class];
@@ -86,8 +85,7 @@ class ListenCommandRescanTest extends TestCase
     {
         DynamicFakeHandler::$activeTypes = ['test.dynamic'];
 
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [DynamicFakeHandler::class];
@@ -146,8 +144,7 @@ class ListenCommandRescanTest extends TestCase
     {
         DynamicFakeHandler::$activeTypes = [];
 
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [DynamicFakeHandler::class];
@@ -176,8 +173,7 @@ class ListenCommandRescanTest extends TestCase
     {
         DynamicFakeHandler::$activeTypes = [];
 
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [DynamicFakeHandler::class];

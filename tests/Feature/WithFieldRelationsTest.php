@@ -222,9 +222,8 @@ class AddressedValueResource extends JsonApiResource
 
 class AddressedPostResource extends JsonApiResource
 {
-    public static int $authorReads = 0;
-
     use WithEagerIncludes;
+    public static int $authorReads = 0;
 
     public function toType(Request $request): string
     {

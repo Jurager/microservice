@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Contracts\Cache\Repository as Cache;
+use Jurager\Microservice\Health\Checks\CacheCheck;
+use Jurager\Microservice\Health\Contracts\DependencyCheck;
+use Jurager\Microservice\Health\DependencyStatus;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 
@@ -241,7 +244,7 @@ class HealthControllerTest extends TestCase
     public function test_reports_a_custom_dependency_check(): void
     {
         config(['microservice.health.checks' => [
-            \Jurager\Microservice\Health\Checks\CacheCheck::class,
+            CacheCheck::class,
             FailingDatabaseCheck::class,
         ]]);
 
@@ -260,7 +263,7 @@ class HealthControllerTest extends TestCase
     }
 }
 
-class FailingDatabaseCheck implements \Jurager\Microservice\Health\Contracts\DependencyCheck
+class FailingDatabaseCheck implements DependencyCheck
 {
     public function name(): string
     {
@@ -277,8 +280,8 @@ class FailingDatabaseCheck implements \Jurager\Microservice\Health\Contracts\Dep
         return true;
     }
 
-    public function check(): \Jurager\Microservice\Health\DependencyStatus
+    public function check(): DependencyStatus
     {
-        return \Jurager\Microservice\Health\DependencyStatus::down(new \RuntimeException('SQLSTATE[HY000] host db-1 refused'));
+        return DependencyStatus::down(new \RuntimeException('SQLSTATE[HY000] host db-1 refused'));
     }
 }

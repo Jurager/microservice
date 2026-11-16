@@ -29,8 +29,7 @@ class WorkerRestartTest extends TestCase
 
     public function test_the_worker_stops_on_queue_restart(): void
     {
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [RestartProbeHandler::class];
@@ -65,8 +64,7 @@ class WorkerRestartTest extends TestCase
 
     public function test_each_message_starts_with_fresh_query_duration_tracking(): void
     {
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [QueryingProbeHandler::class];
@@ -122,7 +120,7 @@ class QueryingProbeHandler implements MessageHandler
 
     public static function from(array $payload, string $type = ''): static
     {
-        return new static;
+        return new static();
     }
 
     public function handle(): void
@@ -142,7 +140,7 @@ class RestartProbeHandler implements MessageHandler
 
     public static function from(array $payload, string $type = ''): static
     {
-        return new static;
+        return new static();
     }
 
     public function handle(): void

@@ -16,7 +16,9 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class LogContext
 {
-    public function __construct(private readonly RequestTiming $timing) {}
+    public function __construct(private readonly RequestTiming $timing)
+    {
+    }
 
     public function handle(Request $request, Closure $next): Response
     {

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Jurager\Microservice\Bus\Connection;
 use Jurager\Microservice\Bus\MessageBus;
+use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
 use PhpAmqpLib\Channel\AMQPChannel;
@@ -132,7 +133,7 @@ class MessageBusTest extends TestCase
 
     public function test_verify_rejects_envelope_with_certificate_for_a_different_service(): void
     {
-        $signer = $this->app->make(\Jurager\Microservice\Signing\Signer::class);
+        $signer = $this->app->make(Signer::class);
 
         $envelope = [
             'type' => 'sfm.site.updated',
@@ -198,7 +199,7 @@ class MessageBusTest extends TestCase
 
     public function test_an_envelope_signed_without_its_id_is_refused(): void
     {
-        $signer = $this->app->make(\Jurager\Microservice\Signing\Signer::class);
+        $signer = $this->app->make(Signer::class);
         $envelope = ['type' => 'sfm.site.updated', 'service' => 'test-service', 'occurred_at' => now()->toIso8601String(), 'request_id' => null, 'payload' => ['site_id' => 1]];
         $envelope['signature'] = $signer->signRaw(json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $envelope['certificate'] = $signer->certificate();

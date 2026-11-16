@@ -31,7 +31,7 @@ class IncludesTest extends TestCase
 
     public function test_is_empty_with_no_resources(): void
     {
-        $this->assertTrue((new Includes)->isEmpty());
+        $this->assertTrue((new Includes())->isEmpty());
     }
 
     public function test_is_not_empty_when_resources_present(): void

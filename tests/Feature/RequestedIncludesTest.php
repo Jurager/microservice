@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -351,8 +352,9 @@ class InheritedEntityResource extends IncludeEntityResource
     {
         return [
             'parent' => IncludeEntityResource::class,
-            'values' => fn () => new \Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection(
-                $this->values->merge($this->parent?->values ?? []), IncludeValueResource::class,
+            'values' => fn () => new AnonymousResourceCollection(
+                $this->values->merge($this->parent?->values ?? []),
+                IncludeValueResource::class,
             ),
         ];
     }

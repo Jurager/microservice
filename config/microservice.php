@@ -1,5 +1,8 @@
 <?php
 
+use Jurager\Microservice\Health\Checks\BrokerCheck;
+use Jurager\Microservice\Health\Checks\CacheCheck;
+
 return [
 
     /*
@@ -171,8 +174,8 @@ return [
          * Only critical checks affect readiness.
          */
         'checks' => [
-            \Jurager\Microservice\Health\Checks\CacheCheck::class,
-            \Jurager\Microservice\Health\Checks\BrokerCheck::class,
+            CacheCheck::class,
+            BrokerCheck::class,
         ],
     ],
 

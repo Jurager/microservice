@@ -55,7 +55,8 @@ class ServiceClient
         #[Config('microservice.name', 'app')] protected readonly string $name = 'app',
         #[Config('microservice.connect_timeout', 5)] protected readonly int $connectTimeout = 5,
         #[Config('microservice.tracing.enabled', true)] protected readonly bool $tracing = true,
-    ) {}
+    ) {
+    }
 
     /**
      * Start building a request to the given service.

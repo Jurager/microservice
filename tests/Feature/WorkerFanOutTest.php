@@ -145,8 +145,7 @@ class WorkerFanOutTest extends TestCase
      */
     private function listen(array $handlers, AMQPChannel $channel, int $rescan = 0): PendingCommand
     {
-        $this->app->instance(HandlerDiscovery::class, new class ($handlers) extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class ($handlers) extends HandlerDiscovery {
             public function __construct(private readonly array $classes)
             {
             }

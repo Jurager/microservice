@@ -61,8 +61,7 @@ class ListenCommandOutdatedQueueTest extends TestCase
      */
     private function listen(array $sides): mixed
     {
-        $this->app->instance(HandlerDiscovery::class, new class extends HandlerDiscovery
-        {
+        $this->app->instance(HandlerDiscovery::class, new class () extends HandlerDiscovery {
             public function discover(): array
             {
                 return [OutdatedQueueProbeHandler::class];
@@ -112,7 +111,7 @@ class OutdatedQueueProbeHandler implements MessageHandler
 
     public static function from(array $payload, string $type = ''): static
     {
-        return new static;
+        return new static();
     }
 
     public function handle(): void

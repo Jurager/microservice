@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Tests\Feature;
 
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\Request;
 use Illuminate\Support\Facades\Http;
 use Jurager\Microservice\Client\CircuitBreaker;
@@ -34,7 +35,7 @@ class CircuitBreakerTest extends TestCase
         return $this->app->make(ServiceClient::class);
     }
 
-    private function refused(): \GuzzleHttp\Promise\PromiseInterface
+    private function refused(): PromiseInterface
     {
         return Create::rejectionFor(new ConnectException('refused', new Request('GET', 'http://oms.test')));
     }

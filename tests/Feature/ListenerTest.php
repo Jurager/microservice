@@ -255,7 +255,7 @@ class InjectedHandler implements MessageHandler
 
     public static function from(array $payload, string $type = ''): static
     {
-        return new static;
+        return new static();
     }
 
     public function handle(Signer $signer): void
@@ -275,7 +275,7 @@ class OccurredAtHandler implements MessageHandler
 
     public static function from(array $payload, string $type = ''): static
     {
-        return new static;
+        return new static();
     }
 
     public function handle(): void

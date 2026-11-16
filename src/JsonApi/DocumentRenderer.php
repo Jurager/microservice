@@ -41,7 +41,7 @@ class DocumentRenderer
     {
         $started = hrtime(true);
 
-        $this->token = $request->attributes->get(self::class) ?? new stdClass;
+        $this->token = $request->attributes->get(self::class) ?? new stdClass();
         $request->attributes->set(self::class, $this->token);
         $this->input = [$request->input(), $request->header('Accept-Language')];
         $timing = app(RequestTiming::class);

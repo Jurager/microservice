@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
-use Illuminate\Routing\Router;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Client\ServiceClient;
@@ -20,7 +20,7 @@ class MicroserviceServiceProviderTest extends TestCase
     public function test_the_application_middleware_is_left_to_the_application(): void
     {
         $this->assertNotContains(LogContext::class, $this->app['router']->getMiddlewareGroups()['api'] ?? []);
-        $this->assertNull((fn () => static::$alwaysTrustProxies ?? null)->call(new \Illuminate\Http\Middleware\TrustProxies));
+        $this->assertNull((fn () => static::$alwaysTrustProxies ?? null)->call(new TrustProxies()));
     }
 
     public function test_config_is_merged(): void
