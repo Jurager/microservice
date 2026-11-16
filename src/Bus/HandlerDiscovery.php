@@ -38,7 +38,7 @@ class HandlerDiscovery
     }
 
     /**
-     * The handlers of each event type, in the order given; the last one is the one consuming it.
+     * The handlers of each event type, in the order given; each of them receives its messages.
      *
      * @param  list<class-string<MessageHandler>>  $classes
      * @return array<string, non-empty-list<class-string<MessageHandler>>>

@@ -29,6 +29,19 @@ class EventsCommandTest extends TestCase
         $this->assertStringContainsString('queued', $output);
     }
 
+    public function test_lists_every_handler_of_a_shared_type(): void
+    {
+        $this->fakeDiscovery([SampleSyncHandler::class, SampleSharedSyncHandler::class]);
+
+        Artisan::call('microservice:events');
+        $output = Artisan::output();
+
+        $this->assertStringContainsString('SampleSyncHandler', $output);
+        $this->assertStringContainsString('SampleSharedSyncHandler', $output);
+        $this->assertStringNotContainsString('shadowed', $output);
+        $this->assertStringContainsString('Discovered 2 handlers covering 1 event type.', $output);
+    }
+
     public function test_warns_when_no_handlers_discovered(): void
     {
         $this->fakeDiscovery([]);
@@ -72,6 +85,10 @@ class SampleSyncHandler implements MessageHandler
     public function handle(): void
     {
     }
+}
+
+class SampleSharedSyncHandler extends SampleSyncHandler
+{
 }
 
 class SampleQueuedHandler implements MessageHandler, ShouldQueue

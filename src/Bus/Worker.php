@@ -117,30 +117,20 @@ class Worker
     }
 
     /**
-     * Which handler consumes each event type; a later handler replaces an earlier one.
+     * The handlers of each event type; every one of them receives its messages.
      *
      * @param  list<class-string<MessageHandler>>  $classes
-     * @return array<string, class-string<MessageHandler>>
+     * @return array<string, non-empty-list<class-string<MessageHandler>>>
      */
     public function subscriptions(array $classes): array
     {
-        $map = [];
-
-        foreach (HandlerDiscovery::byType($classes) as $type => $handlers) {
-            $map[$type] = end($handlers);
-
-            foreach (array_slice($handlers, 0, -1) as $shadowed) {
-                $this->output->warn("Duplicate handler for '$type': $shadowed replaced by {$map[$type]}.");
-            }
-        }
-
-        return $map;
+        return HandlerDiscovery::byType($classes);
     }
 
     /**
      * @param  list<class-string<MessageHandler>>  $classes
-     * @param  array<string, class-string<MessageHandler>>  $handlers
-     * @return array<string, class-string<MessageHandler>> The subscriptions as they stood when the loop ended.
+     * @param  array<string, non-empty-list<class-string<MessageHandler>>>  $handlers
+     * @return array<string, non-empty-list<class-string<MessageHandler>>> The subscriptions as they stood when the loop ended.
      */
     private function consume(array $classes, array $handlers): array
     {
@@ -150,8 +140,8 @@ class Worker
 
         $channel->basic_qos(prefetch_size: 0, prefetch_count: 1, a_global: false);
 
-        foreach ($handlers as $type => $class) {
-            $this->subscribe($channel, $type, $class);
+        foreach ($handlers as $type => $receivers) {
+            $this->subscribe($channel, $type, $receivers);
         }
 
         // The outage is over, so earlier attempts no longer count.
@@ -180,15 +170,16 @@ class Worker
         return $handlers;
     }
 
-    private function subscribe(AMQPChannel $channel, string $type, string $class): void
+    /** @param  non-empty-list<class-string<MessageHandler>>  $receivers */
+    private function subscribe(AMQPChannel $channel, string $type, array $receivers): void
     {
         $this->reportDeclaration($type, $this->topology->declareQueue($channel, $type));
 
         $channel->basic_consume(
             $this->topology->queue($type),
             consumer_tag: $this->topology->consumerTag($type),
-            callback: function (AMQPMessage $message) use ($class): void {
-                $this->handle($message, $class);
+            callback: function (AMQPMessage $message) use ($receivers): void {
+                $this->handle($message, $receivers);
                 $this->checkLimits();
             },
         );
@@ -213,8 +204,8 @@ class Worker
      * Refresh changed subscriptions, preserving queues for inactive event types.
      *
      * @param  list<class-string<MessageHandler>>  $classes
-     * @param  array<string, class-string<MessageHandler>>  $handlers
-     * @return array<string, class-string<MessageHandler>>
+     * @param  array<string, non-empty-list<class-string<MessageHandler>>>  $handlers
+     * @return array<string, non-empty-list<class-string<MessageHandler>>>
      */
     private function rescan(AMQPChannel $channel, array $classes, array $handlers): array
     {
@@ -225,15 +216,20 @@ class Worker
         $this->rescanAt = time();
 
         $fresh = $this->subscriptions($classes);
-        $removed = array_diff_assoc($handlers, $fresh);
-        $added = array_diff_assoc($fresh, $handlers);
+        $removed = array_diff_key($handlers, $fresh);
+        $added = array_diff_key($fresh, $handlers);
+        $changed = array_filter(
+            array_intersect_key($fresh, $handlers),
+            fn (array $receivers, string $type): bool => $receivers !== $handlers[$type],
+            ARRAY_FILTER_USE_BOTH,
+        );
 
-        foreach (array_keys($removed) as $type) {
+        foreach (array_keys($removed + $changed) as $type) {
             $channel->basic_cancel($this->topology->consumerTag($type));
         }
 
-        foreach ($added as $type => $class) {
-            $this->subscribe($channel, $type, $class);
+        foreach ($added + $changed as $type => $receivers) {
+            $this->subscribe($channel, $type, $receivers);
         }
 
         if ($removed !== []) {
@@ -244,10 +240,19 @@ class Worker
             $this->output->info('Now also listening for: '.implode(', ', array_keys($added)));
         }
 
-        return array_diff_key($handlers, $removed) + $added;
+        if ($changed !== []) {
+            $this->output->info('Handlers changed for: '.implode(', ', array_keys($changed)));
+        }
+
+        return $fresh;
     }
 
-    private function handle(AMQPMessage $message, string $class): void
+    /**
+     * Pass a message to every handler of its type, acknowledging it once all of them succeed.
+     *
+     * @param  non-empty-list<class-string<MessageHandler>>  $receivers
+     */
+    private function handle(AMQPMessage $message, array $receivers): void
     {
         $this->processed++;
 
@@ -263,6 +268,28 @@ class Worker
 
         $this->output->message('RECV', $type, 'from '.($envelope['service'] ?? 'unknown'));
 
+        $failed = false;
+
+        foreach ($receivers as $class) {
+            if (! $this->deliver($class, $type, $envelope)) {
+                $failed = true;
+            }
+        }
+
+        if ($failed) {
+            $message->nack();
+        } else {
+            $message->ack();
+        }
+    }
+
+    /**
+     * Run one handler on the message, in a scope of its own as a queued job would have.
+     *
+     * @param  class-string<MessageHandler>  $class
+     */
+    private function deliver(string $class, string $type, array $envelope): bool
+    {
         $started = hrtime(true);
 
         try {
@@ -275,14 +302,14 @@ class Worker
         $elapsed = intdiv(hrtime(true) - $started, 1_000_000);
 
         if ($handled) {
-            $message->ack();
             $this->output->message('DONE', $type, (is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync')." → $class ({$elapsed}ms)", 'info');
         } else {
-            $message->nack();
             $this->output->message('FAIL', $type, $this->topology->deadLettering() ? "$class → DLQ" : "$class — discarded (DLQ off)", 'error');
         }
 
         $this->resetScope();
+
+        return $handled;
     }
 
     /**
@@ -339,7 +366,7 @@ class Worker
         return $envelope;
     }
 
-    /** @param  array<string, class-string<MessageHandler>>  $handlers */
+    /** @param  array<string, non-empty-list<class-string<MessageHandler>>>  $handlers */
     private function announce(array $handlers): void
     {
         $deadLetters = $this->topology->deadLettering() ? " (DLQ → {$this->topology->deadLetterExchange})" : '';

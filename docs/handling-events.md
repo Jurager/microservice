@@ -42,6 +42,12 @@ class ForgetProductCache implements MessageHandler, ShouldQueue
 
 `type()` may return several types as an array; the handler then receives each of them, with the type passed to `from()`.
 
+## Several handlers for one event
+
+Every handler whose `type()` includes an event receives it, so each part of a service can react to the same event with a handler of its own. The service still has one queue for the type, and the listener passes each message to its handlers in turn.
+
+When one handler fails, the others still receive the message, and then it goes to the [dead-letter queue](running-listener.md#dead-letter-queues). Replaying it runs every handler again, so keep handlers safe to repeat. A queued handler is a job of its own and is retried on its own.
+
 ## Message context
 
 The listener puts the message's `message_id`, `message_type`, `message_publisher`, `request_id`, and `message_occurred_at` into Laravel's `Context`. They reach queued handlers too. Use `message_occurred_at` when a handler depends on when the event happened rather than when it arrived:

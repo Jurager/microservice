@@ -25,28 +25,18 @@ class EventsCommand extends Command
             return;
         }
 
-        // The last handler of a type is the one consuming it, as the worker does.
         $map = HandlerDiscovery::byType($handlers);
 
         ksort($map);
 
         $rows = [];
-        $conflicts = [];
 
         foreach ($map as $type => $classes) {
-            $active = end($classes);
-
             foreach ($classes as $class) {
-                $shadowed = $class !== $active;
-
-                if ($shadowed) {
-                    $conflicts[] = $type;
-                }
-
                 $rows[] = [
                     $type,
                     $topology->queue($type),
-                    $class.($shadowed ? ' <fg=yellow>(shadowed)</>' : ''),
+                    $class,
                     is_subclass_of($class, ShouldQueue::class) ? 'queued' : 'sync',
                 ];
             }
@@ -63,12 +53,5 @@ class EventsCommand extends Command
             count($map),
             count($map) === 1 ? '' : 's',
         ));
-
-        if ($conflicts !== []) {
-            $this->components->warn(sprintf(
-                'Multiple handlers registered for: %s. Only the last discovered handler will receive messages.',
-                implode(', ', array_unique($conflicts)),
-            ));
-        }
     }
 }
