@@ -11,6 +11,7 @@ use Illuminate\Http\Client\Factory as Http;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Client\ResponseSequence;
+use Illuminate\Support\Str;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Client\ServiceDiscovery;
 use PHPUnit\Framework\Assert;
@@ -18,12 +19,15 @@ use Psr\Http\Message\ResponseInterface;
 use Throwable;
 
 /**
- * Fake service requests using queued HTTP responses.
+ * Fake service requests using queued or routed HTTP responses.
  */
 final class FakeServices
 {
     /** @var array<string, ResponseSequence> */
     private array $sequences = [];
+
+    /** @var array<string, list<array<string, mixed>>> Route maps by service, newest first. */
+    private array $routes = [];
 
     public function __construct(
         private readonly Http $http,
@@ -32,21 +36,28 @@ final class FakeServices
     }
 
     /**
-     * Queue responses for a service in request order.
+     * Fake a service: a list is answered in request order, a map of "METHOD /path" routes answers every matching request.
+     * Faking also drops the responses memoized from the service.
      *
-     * @param  list<mixed>  $responses
+     * @param  list<mixed>|array<string, mixed>  $responses
      */
     public function fake(string $service, array $responses): self
     {
         if (! isset($this->sequences[$service])) {
             $this->discovery->usePeer($service, "http://$service.test");
             $this->sequences[$service] = $this->http->sequence();
-            $this->http->fake(["$service.test/*" => $this->sequences[$service]]);
+            $this->http->fake(["$service.test/*" => fn (Request $request) => $this->respond($service, $request)]);
         }
 
-        foreach ($responses as $response) {
-            $this->sequences[$service]->pushResponse(self::normalize($response));
+        if (array_is_list($responses)) {
+            foreach ($responses as $response) {
+                $this->sequences[$service]->pushResponse(self::normalize($response));
+            }
+        } else {
+            $this->routes[$service] = [$responses, ...($this->routes[$service] ?? [])];
         }
+
+        app(ServiceClient::class)->forgetMemo($service);
 
         return $this;
     }
@@ -94,6 +105,26 @@ final class FakeServices
     public function assertNothingSent(): void
     {
         $this->assertSentCount(0);
+    }
+
+    /**
+     * The first matching route of the newest map, otherwise the next queued response.
+     */
+    private function respond(string $service, Request $request): mixed
+    {
+        $path = '/'.ltrim((string) parse_url($request->url(), PHP_URL_PATH), '/');
+
+        foreach ($this->routes[$service] ?? [] as $routes) {
+            foreach ($routes as $route => $response) {
+                [$method, $pattern] = str_contains($route, ' ') ? explode(' ', $route, 2) : [null, $route];
+
+                if (($method === null || strcasecmp($method, $request->method()) === 0) && Str::is($pattern, $path)) {
+                    return self::normalize($response instanceof Closure ? $response($request) : $response);
+                }
+            }
+        }
+
+        return ($this->sequences[$service])($request);
     }
 
     private static function normalize(mixed $response): mixed

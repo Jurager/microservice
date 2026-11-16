@@ -23,9 +23,9 @@ use Jurager\Microservice\Testing\FakeServices;
 class Microservice extends Facade
 {
     /**
-     * Queue fake responses for the given services using Laravel's HTTP client.
+     * Fake responses for the given services using Laravel's HTTP client.
      *
-     * @param  array<string, list<mixed>>  $services  Responses by service name.
+     * @param  array<string, array<mixed>>  $services  Responses by service name: a list in request order or a map of routes.
      */
     public static function fake(array $services = []): FakeServices
     {

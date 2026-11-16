@@ -56,6 +56,53 @@ class FakesServiceClientTest extends TestCase
         $this->assertSame(2, Microservice::service('oms')->get('/b')->send()->json('n'));
     }
 
+    public function test_faking_a_service_again_drops_its_memoized_responses(): void
+    {
+        $this->fakeService('oms', [Http::response(['n' => 1])]);
+        $this->assertSame(1, Microservice::service('oms')->get('/orders/1')->send()->json('n'));
+
+        $this->fakeService('oms', [Http::response(['n' => 2])]);
+        $this->assertSame(2, Microservice::service('oms')->get('/orders/1')->send()->json('n'));
+    }
+
+    public function test_a_route_answers_every_matching_request_in_any_order(): void
+    {
+        $this->fakeService('pim', [
+            'GET /v1/products' => ['data' => 'products'],
+            '/v1/stocks/*' => ['data' => 'stock'],
+        ]);
+
+        $client = Microservice::service('pim');
+
+        $this->assertSame('stock', $client->post('/v1/stocks/7')->send()->json('data'));
+        $this->assertSame('products', $client->get('/v1/products')->withQueryParameters(['page' => 2])->send()->json('data'));
+        $this->assertSame('products', $client->get('/v1/products')->send()->json('data'));
+    }
+
+    public function test_a_route_closure_receives_the_request(): void
+    {
+        $this->fakeService('oms', ['GET /v1/orders/*' => fn (Request $request) => ['data' => basename($request->url())]]);
+
+        $this->assertSame('1024', Microservice::service('oms')->get('/v1/orders/1024')->send()->json('data'));
+    }
+
+    public function test_a_later_route_fake_takes_precedence(): void
+    {
+        $this->fakeService('oms', ['GET /v1/orders/*' => ['data' => 'first']]);
+        $this->fakeService('oms', ['GET /v1/orders/*' => 404]);
+
+        $this->assertSame(404, Microservice::service('oms')->get('/v1/orders/1')->withoutThrowing()->send()->status());
+    }
+
+    public function test_requests_without_a_matching_route_use_the_queue(): void
+    {
+        $this->fakeService('oms', [Http::response(['data' => 'queued'])]);
+        $this->fakeService('oms', ['GET /v1/orders/1' => ['data' => 'routed']]);
+
+        $this->assertSame('routed', Microservice::service('oms')->get('/v1/orders/1')->send()->json('data'));
+        $this->assertSame('queued', Microservice::service('oms')->get('/v1/orders/2')->send()->json('data'));
+    }
+
     public function test_fake_service_does_not_touch_other_peers(): void
     {
         $this->app['config']->set('microservice.peers', ['pim' => 'http://pim.test']);

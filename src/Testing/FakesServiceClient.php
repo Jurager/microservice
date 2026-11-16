@@ -9,9 +9,9 @@ use Jurager\Microservice\Facades\Microservice;
 trait FakesServiceClient
 {
     /**
-     * Queue fake responses for a service.
+     * Fake responses for a service: a list in request order or a map of routes.
      *
-     * @param  list<mixed>  $responses
+     * @param  list<mixed>|array<string, mixed>  $responses
      */
     public function fakeService(string $service, array $responses): FakeServices
     {

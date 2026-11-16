@@ -23,7 +23,23 @@ Microservice::assertSent(fn (Request $request, string $service) =>
 Microservice::assertSentCount(1);
 ```
 
-Each service uses its own queue of fake responses. Responses are consumed in order; faking the same service again appends to that queue.
+Each service uses its own queue of fake responses. Responses are consumed in order; faking the same service again appends to that queue and drops the responses memoized from it, so a new fake takes effect within the same test.
+
+## Faking by route
+
+When the order of calls does not matter, map routes instead of listing responses. A route answers every matching request; the method is optional, `*` matches any part of the path, and the query string is ignored. A closure receives the request:
+
+```php
+Microservice::fake([
+    'catalog' => [
+        'GET /v1/products' => ['data' => [['id' => '42', 'type' => 'product']]],
+        'POST /v1/products/*/reserve' => 204,
+        '/v1/stocks/*' => fn (Request $request) => ['data' => ['id' => basename($request->url()), 'type' => 'stock']],
+    ],
+]);
+```
+
+Within one map the first matching route wins, and a later fake of the service takes precedence over earlier ones. Requests that match no route take responses from the queue.
 
 ## Testing errors
 
