@@ -25,6 +25,18 @@ return ProductResource::collection(Product::query()->paginate());
 
 An include that names no relation of the model is rejected with `UnknownIncludeException` (`400`).
 
+A collection may hold resources of several types. Wrap each model in its own resource and collect them as they are:
+
+```php
+use Jurager\Microservice\JsonApi\ResourceCollection;
+
+$items = $paginator->through(fn (Model $item) => $item instanceof Service ? new ServiceResource($item) : new ProductResource($item));
+
+return new ResourceCollection($items, JsonApiResource::class);
+```
+
+In such a document an include applies to the types that have the relation, and is rejected only when none of them has it.
+
 ## Model contracts
 
 Models may implement these optional contracts from `Jurager\Microservice\JsonApi\Contracts`.

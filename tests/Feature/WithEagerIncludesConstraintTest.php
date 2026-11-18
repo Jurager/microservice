@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Schema;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Concerns\WithEagerIncludes;
 use Jurager\Microservice\JsonApi\Contracts\DefinesEagerRelations;
+use Jurager\Microservice\JsonApi\ResourceCollection;
 use Jurager\Microservice\Tests\TestCase;
 
 /** `eagerRelations()` overrides must still apply when the top segment of the path arrives already loaded. */
@@ -104,6 +106,46 @@ class WithEagerIncludesConstraintTest extends TestCase
 
         TestPostResource::collection(TestPost::query()->get());
     }
+
+    /** A document of posts and tags: only posts have values. */
+    private function postsAndTags(string $include): array
+    {
+        $request = Request::create('/items?include='.$include);
+        app()->instance('request', $request);
+
+        $resources = new Collection([
+            new TestPostResource(TestPost::query()->firstOrFail()),
+            new TestTagResource(TestTag::query()->firstOrFail()),
+        ]);
+
+        return (new ResourceCollection($resources, JsonApiResource::class))->toResponse($request)->getData(true);
+    }
+
+    public function test_an_include_applies_to_the_primary_resources_that_have_the_relation(): void
+    {
+        $body = $this->postsAndTags('values,label');
+
+        $this->assertCount(1, $body['data'][0]['relationships']['values']['data']);
+        $this->assertArrayNotHasKey('label', $body['data'][0]['relationships']);
+        $this->assertArrayNotHasKey('values', $body['data'][1]['relationships']);
+        $this->assertNotNull($body['data'][1]['relationships']['label']['data']);
+    }
+
+    public function test_nested_includes_follow_the_primary_resources_that_have_the_relation(): void
+    {
+        $body = $this->postsAndTags('values.tag');
+
+        $this->assertCount(1, $body['data'][0]['relationships']['values']['data']);
+        $this->assertArrayNotHasKey('relationships', $body['data'][1]);
+    }
+
+    public function test_an_include_no_primary_resource_has_throws(): void
+    {
+        $this->expectException(UnknownIncludeException::class);
+        $this->expectExceptionMessage('Unknown include: "bogus".');
+
+        $this->postsAndTags('values,bogus');
+    }
 }
 
 class TestTagLabel extends Model
@@ -165,6 +207,11 @@ class TestPostValue extends Model
 }
 
 class TestPostResource extends JsonApiResource
+{
+    use WithEagerIncludes;
+}
+
+class TestTagResource extends JsonApiResource
 {
     use WithEagerIncludes;
 }

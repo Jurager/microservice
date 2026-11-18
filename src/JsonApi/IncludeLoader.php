@@ -79,10 +79,12 @@ class IncludeLoader
      */
     public function load(iterable $resources): array
     {
+        $resources = [...$resources];
+        $includes = $this->primaryIncludes($resources);
         $roots = [];
 
         foreach ($resources as $resource) {
-            $roots[] = $this->node($resource, $this->includes, '');
+            $roots[] = $this->node($resource, $includes[get_debug_type($resource->resource)] ?? $this->includes, '');
         }
 
         for ($level = $roots; $level !== [];) {
@@ -100,6 +102,37 @@ class IncludeLoader
         }
 
         return $roots;
+    }
+
+    /**
+     * Includes of the primary resources by model class, when the document holds several.
+     *
+     * @param  array<JsonApiResource>  $resources
+     * @return array<class-string, array<string, mixed>>
+     */
+    private function primaryIncludes(array $resources): array
+    {
+        $related = [];
+
+        foreach ($resources as $resource) {
+            $model = $resource->resource;
+
+            if ($model instanceof Model) {
+                $related[$model::class] ??= array_filter(
+                    $this->includes,
+                    static fn (int|string $name): bool => $model->isRelation((string) $name),
+                    ARRAY_FILTER_USE_KEY,
+                );
+            }
+        }
+
+        if (count($related) < 2) {
+            return [];
+        }
+
+        $unknown = array_diff_key($this->includes, ...array_values($related));
+
+        return array_map(static fn (array $includes): array => $includes + $unknown, $related);
     }
 
     /** @return list<ResourceNode> */
