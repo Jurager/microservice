@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\JsonApi;
 
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
@@ -15,9 +16,19 @@ class ResourceCollection extends AnonymousResourceCollection
 {
     private ?DocumentRenderer $document = null;
 
+    /**
+     * @param  mixed  $resource
+     * @param  class-string<JsonApiResource>  $collects
+     * @param  list<class-string<Model>>  $models  Models the collection holds, when a page may lack some of them.
+     */
+    public function __construct($resource, $collects, private readonly array $models = [])
+    {
+        parent::__construct($resource, $collects);
+    }
+
     public function prepareDocument(Request $request): void
     {
-        $this->document = new DocumentRenderer($this->collection, $request);
+        $this->document = new DocumentRenderer($this->collection, $request, $this->models);
     }
 
     public function toAttributes(Request $request): array

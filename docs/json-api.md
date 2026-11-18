@@ -32,10 +32,10 @@ use Jurager\Microservice\JsonApi\ResourceCollection;
 
 $items = $paginator->through(fn (Model $item) => $item instanceof Service ? new ServiceResource($item) : new ProductResource($item));
 
-return new ResourceCollection($items, JsonApiResource::class);
+return new ResourceCollection($items, JsonApiResource::class, [Product::class, Service::class]);
 ```
 
-In such a document an include applies to the types that have the relation, and is rejected only when none of them has it.
+In such a document an include applies to the models that have the relation, and is rejected only when none of them has it. Name every model of the collection: a page may hold only some of them, and without the list an include of a missing one is rejected.
 
 ## Model contracts
 

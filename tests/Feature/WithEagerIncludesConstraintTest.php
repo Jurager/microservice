@@ -146,6 +146,35 @@ class WithEagerIncludesConstraintTest extends TestCase
 
         $this->postsAndTags('values,bogus');
     }
+
+    /** A page of posts and tags that holds tags alone. */
+    private function tagsOfPostsAndTags(string $include): array
+    {
+        $request = Request::create('/items?include='.$include);
+        app()->instance('request', $request);
+
+        $resources = new Collection([new TestTagResource(TestTag::query()->firstOrFail())]);
+
+        return (new ResourceCollection($resources, JsonApiResource::class, [TestPost::class, TestTag::class]))
+            ->toResponse($request)
+            ->getData(true);
+    }
+
+    public function test_an_include_of_a_model_the_page_lacks_is_not_rejected(): void
+    {
+        $body = $this->tagsOfPostsAndTags('values,label');
+
+        $this->assertArrayNotHasKey('values', $body['data'][0]['relationships']);
+        $this->assertNotNull($body['data'][0]['relationships']['label']['data']);
+    }
+
+    public function test_an_include_no_model_of_the_collection_has_throws(): void
+    {
+        $this->expectException(UnknownIncludeException::class);
+        $this->expectExceptionMessage('Unknown include: "bogus".');
+
+        $this->tagsOfPostsAndTags('values,bogus');
+    }
 }
 
 class TestTagLabel extends Model

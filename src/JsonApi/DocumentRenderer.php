@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Jurager\Microservice\JsonApi;
 
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 use Illuminate\Http\Resources\MergeValue;
@@ -36,8 +37,11 @@ class DocumentRenderer
 
     private ?RequestTiming $timing;
 
-    /** @param  iterable<JsonApiResource>  $resources */
-    public function __construct(iterable $resources, Request $request)
+    /**
+     * @param  iterable<JsonApiResource>  $resources
+     * @param  list<class-string<Model>>  $models
+     */
+    public function __construct(iterable $resources, Request $request, array $models = [])
     {
         $started = hrtime(true);
 
@@ -48,7 +52,7 @@ class DocumentRenderer
         $this->timing = $timing->enabled() ? $timing : null;
 
         $this->loader = new IncludeLoader($request);
-        $this->roots = $this->loader->load($resources);
+        $this->roots = $this->loader->load($resources, $models);
 
         $this->timing?->add('jsonapi_load', (hrtime(true) - $started) / 1e6);
     }

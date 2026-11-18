@@ -75,12 +75,13 @@ class IncludeLoader
 
     /**
      * @param  iterable<JsonApiResource>  $resources
+     * @param  list<class-string<Model>>  $models
      * @return list<ResourceNode>
      */
-    public function load(iterable $resources): array
+    public function load(iterable $resources, array $models = []): array
     {
         $resources = [...$resources];
-        $includes = $this->primaryIncludes($resources);
+        $includes = $this->primaryIncludes($resources, $models);
         $roots = [];
 
         foreach ($resources as $resource) {
@@ -105,25 +106,30 @@ class IncludeLoader
     }
 
     /**
-     * Includes of the primary resources by model class, when the document holds several.
+     * Includes of the primary resources by model class, when the document holds or may hold several.
      *
      * @param  array<JsonApiResource>  $resources
+     * @param  list<class-string<Model>>  $models
      * @return array<class-string, array<string, mixed>>
      */
-    private function primaryIncludes(array $resources): array
+    private function primaryIncludes(array $resources, array $models): array
     {
-        $related = [];
+        $models = array_map(static fn (string $model): Model => new $model(), $models);
 
         foreach ($resources as $resource) {
-            $model = $resource->resource;
-
-            if ($model instanceof Model) {
-                $related[$model::class] ??= array_filter(
-                    $this->includes,
-                    static fn (int|string $name): bool => $model->isRelation((string) $name),
-                    ARRAY_FILTER_USE_KEY,
-                );
+            if ($resource->resource instanceof Model) {
+                $models[] = $resource->resource;
             }
+        }
+
+        $related = [];
+
+        foreach ($models as $model) {
+            $related[$model::class] ??= array_filter(
+                $this->includes,
+                static fn (int|string $name): bool => $model->isRelation((string) $name),
+                ARRAY_FILTER_USE_KEY,
+            );
         }
 
         if (count($related) < 2) {
