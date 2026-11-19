@@ -398,8 +398,8 @@ return [
     'queue' => [
 
         /*
-         * A file whose modification time queue:work refreshes on every loop and
-         * whenever a job starts, for a liveness probe. Leave empty to disable.
+         * File that queue:work touches before each poll and when a job starts.
+         * Point a liveness probe at it. Leave empty to disable.
          */
         'heartbeat' => env('QUEUE_WORKER_HEARTBEAT'),
     ],

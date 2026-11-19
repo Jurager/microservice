@@ -9,9 +9,11 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\Looping;
 
 /**
- * Refreshes a heartbeat file from queue:work, so a liveness probe can tell a stuck
- * worker from a busy one. It covers what --timeout cannot: Laravel's timeout is a
- * SIGALRM handler, which never runs while the job is blocked inside a C call.
+ * Touches a file from queue:work so a liveness probe can spot a stuck worker.
+ *
+ * Laravel's --timeout is a signal handler, and PHP runs it only between PHP
+ * operations. A job stuck inside a C call, such as a query waiting on a lock,
+ * is never stopped by it.
  */
 final class WorkerHeartbeat
 {
@@ -20,20 +22,18 @@ final class WorkerHeartbeat
     public function __construct(private readonly string $path) {}
 
     /**
-     * Listen to the worker loop. Looping fires before every pop, idle or not,
-     * and JobProcessing restarts the clock when a job begins.
+     * Touch the file before each poll of the queue and when a job starts.
      */
     public function subscribe(Dispatcher $events): void
     {
-        // The worker reads Looping through until(): a listener returning false
-        // would pause it, so this one must never return a value.
+        // Looping is dispatched with until(): returning false would pause the worker.
         $events->listen([Looping::class, JobProcessing::class], function (): void {
             $this->beat();
         });
     }
 
     /**
-     * Update the heartbeat file at most once per second.
+     * Touch the file, at most once per second.
      */
     public function beat(): void
     {

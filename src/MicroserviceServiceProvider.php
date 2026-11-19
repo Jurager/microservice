@@ -283,7 +283,7 @@ class MicroserviceServiceProvider extends ServiceProvider
     }
 
     /**
-     * Refresh the configured heartbeat file from queue:work loops.
+     * Touch the heartbeat file from queue:work, if one is configured.
      */
     protected function registerWorkerHeartbeat(): void
     {
