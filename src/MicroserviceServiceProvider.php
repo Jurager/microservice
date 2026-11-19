@@ -38,6 +38,7 @@ use Jurager\Microservice\Http\Middleware\Idempotency;
 use Jurager\Microservice\Http\Middleware\JsonApiPagination;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Manifest\ManifestRepository;
+use Jurager\Microservice\Queue\WorkerHeartbeat;
 use Jurager\Microservice\Signing\Signer;
 use Jurager\Microservice\Tracing\RequestTiming;
 use RuntimeException;
@@ -122,6 +123,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         JsonApiPagination::registerLinks();
         $this->registerSchedule();
         $this->registerOptimize();
+        $this->registerWorkerHeartbeat();
 
         $this->registerAbout();
 
@@ -278,6 +280,20 @@ class MicroserviceServiceProvider extends ServiceProvider
         if ($this->knownServices() !== []) {
             $this->optimizes(optimize: 'microservice:sync', key: 'manifests');
         }
+    }
+
+    /**
+     * Refresh the configured heartbeat file from queue:work loops.
+     */
+    protected function registerWorkerHeartbeat(): void
+    {
+        $path = (string) config('microservice.queue.heartbeat');
+
+        if ($path === '' || ! $this->app->runningInConsole()) {
+            return;
+        }
+
+        (new WorkerHeartbeat($path))->subscribe($this->app['events']);
     }
 
     /**

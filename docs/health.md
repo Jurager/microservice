@@ -89,5 +89,29 @@ microservice_service_up{service="catalog"} 0
 microservice_dead_letter_messages{queue="api.catalog.product.updated.dlq"} 0
 ```
 
+## Queue workers
+
+Laravel's `--timeout` cannot stop a job blocked inside a C call, such as an HTTP request without a timeout. Set `QUEUE_WORKER_HEARTBEAT` on the worker so `queue:work` refreshes a file your process monitor can check:
+
+```bash
+QUEUE_WORKER_HEARTBEAT=/tmp/worker.heartbeat php artisan queue:work --timeout=120
+```
+
+The file is updated on every loop of the worker and when a job starts, at most once per second. It is not updated while a job runs, so allow more time than `--timeout`:
+
+```yaml
+livenessProbe:
+  exec:
+    command:
+      - /bin/sh
+      - -c
+      - test $(( $(date +%s) - $(stat -c %Y /tmp/worker.heartbeat) )) -lt 300
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  failureThreshold: 3
+```
+
+A paused worker, or one in maintenance mode without `--force`, stops updating the file.
+
 > [!NOTE]
 > Health endpoints are public by default. Protect reports and metrics at the route level if they should only be visible inside your infrastructure.

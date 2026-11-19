@@ -395,4 +395,13 @@ return [
         'discover' => env('MESSAGE_BUS_DISCOVER', true),
     ],
 
+    'queue' => [
+
+        /*
+         * A file whose modification time queue:work refreshes on every loop and
+         * whenever a job starts, for a liveness probe. Leave empty to disable.
+         */
+        'heartbeat' => env('QUEUE_WORKER_HEARTBEAT'),
+    ],
+
 ];
