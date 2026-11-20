@@ -191,7 +191,7 @@ return [
          * The processing lock duration, in seconds. Choose a value long enough
          * to cover the expected request duration.
          */
-        'lock_timeout' => 10,
+        'lock_timeout' => env('SERVICE_IDEMPOTENCY_LOCK_TIMEOUT', 10),
 
         /*
          * The largest response body to cache, in bytes. Larger responses and

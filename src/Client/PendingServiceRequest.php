@@ -11,6 +11,7 @@ use Jurager\Microservice\Exceptions\ServiceUnavailableException;
 use Jurager\Microservice\JsonApi\CollectionDocument;
 use Jurager\Microservice\JsonApi\Item;
 use Jurager\Microservice\JsonApi\ItemDocument;
+use Jurager\Microservice\Tracing\RequestId;
 use LogicException;
 
 /**
@@ -252,11 +253,15 @@ class PendingServiceRequest
     }
 
     /**
-     * The peer deduplicates this write by its X-Request-Id, so a failed attempt may be repeated.
+     * The peer deduplicates this write by its X-Request-Id, so a failed attempt may be repeated, a key gives every send of the operation the same ID.
      */
-    public function idempotent(): static
+    public function idempotent(?string $key = null): static
     {
         $this->idempotent = true;
+
+        if ($key !== null) {
+            $this->headers['X-Request-Id'] = RequestId::for($key);
+        }
 
         return $this;
     }

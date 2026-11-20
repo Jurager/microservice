@@ -99,6 +99,15 @@ Use `chunk()` for batches of values or `missing()` to check existence. See [bulk
 
 [Enable retries](resilience.md#retries) for temporary connection and server failures. Mark a write `idempotent()` only when the receiving service deduplicates it.
 
+A write gets a random `X-Request-Id`, so only its own retries are deduplicated. Pass a key to give an operation the same ID whenever it is sent — the receiving service then answers a later repeat, such as a checkout submitted again after a timeout, with the first response:
+
+```php
+Microservice::service('orders')
+    ->post('/v1/orders', $order)
+    ->idempotent("checkout:{$cartId}")
+    ->send();
+```
+
 ## Circuit breaker
 
 [Enable a circuit breaker](resilience.md#circuit-breaker) to stop calls to a failing service. Use `withoutCircuitBreaker()` to bypass it for one request.

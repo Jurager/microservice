@@ -9,6 +9,7 @@ use Jurager\Microservice\Client\PendingServiceRequest;
 use Jurager\Microservice\Client\ServiceClient;
 use Jurager\Microservice\Client\ServiceResponse;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
+use Jurager\Microservice\Tracing\RequestId;
 use LogicException;
 use Mockery;
 use PHPUnit\Framework\TestCase;
@@ -142,6 +143,26 @@ class PendingServiceRequestTest extends TestCase
         $this->assertTrue($this->request->get('/a')->isRepeatable());
         $this->assertFalse($this->request->post('/a')->isRepeatable());
         $this->assertTrue($this->request->post('/a')->idempotent()->isRepeatable());
+    }
+
+    public function test_an_idempotency_key_gives_a_write_the_same_request_id_on_every_send(): void
+    {
+        $id = static fn (string $key): string => (new PendingServiceRequest(Mockery::mock(ServiceClient::class), 'oms'))
+            ->post('/api/orders')
+            ->idempotent($key)
+            ->getHeaders()['X-Request-Id'];
+
+        $this->assertSame($id('checkout:1'), $id('checkout:1'));
+        $this->assertNotSame($id('checkout:1'), $id('checkout:2'));
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/', $id('checkout:1'));
+    }
+
+    public function test_an_idempotency_key_is_kept_whenever_the_method_is_set(): void
+    {
+        $this->request->idempotent('checkout:1')->post('/api/orders');
+
+        $this->assertSame(RequestId::for('checkout:1'), $this->request->getHeaders()['X-Request-Id']);
+        $this->assertTrue($this->request->isRepeatable());
     }
 
     public function test_get_is_memoized_and_post_is_not(): void

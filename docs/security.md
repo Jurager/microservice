@@ -70,7 +70,7 @@ A repeated ID with the same method and path returns the cached response with `X-
 
 ### Concurrent requests
 
-Concurrent duplicates return the completed response or `409 Conflict`. Set `idempotency.lock_timeout` in seconds to cover the expected processing time.
+Concurrent duplicates return the completed response or `409 Conflict`. Set `SERVICE_IDEMPOTENCY_LOCK_TIMEOUT` (default `10`) to cover the expected processing time, in seconds.
 
 ### Streamed responses
 
