@@ -18,7 +18,6 @@ use Illuminate\Support\Collection as BaseCollection;
 use Jurager\Microservice\Exceptions\UnknownIncludeException;
 use Jurager\Microservice\JsonApi\Contracts\DefinesEagerRelations;
 use Jurager\Microservice\JsonApi\Contracts\FiltersIncludedRelations;
-use Jurager\Microservice\JsonApi\Contracts\PreparesModels;
 use Jurager\Microservice\JsonApi\Contracts\ProvidesEagerLoads;
 use WeakMap;
 
@@ -51,14 +50,10 @@ class IncludeLoader
     /** @var WeakMap<Model, array<string, true>> */
     private WeakMap $prepared;
 
-    /** @var WeakMap<Model, array<class-string<JsonApiResource>, true>> */
-    private WeakMap $preparedBy;
-
     public function __construct(Request $request)
     {
         $this->request = $request instanceof JsonApiRequest ? $request : JsonApiRequest::createFrom($request);
         $this->prepared = new WeakMap();
-        $this->preparedBy = new WeakMap();
 
         $filter = $request->input('filter');
         $this->filter = is_array($filter) ? $filter : [];
@@ -312,28 +307,6 @@ class IncludeLoader
     }
 
     private function prepare(Collection $models, JsonApiResource $resource, array $included, bool $filtered = false): void
-    {
-        $this->eagerLoad($models, $resource, $included, $filtered);
-
-        if (! $resource instanceof PreparesModels) {
-            return;
-        }
-
-        // Kept apart from the eager loads, whose signature holds no resource class.
-        $models = $models->filter(fn (Model $model): bool => ! isset($this->preparedBy[$model][$resource::class]))->values();
-
-        if ($models->isEmpty()) {
-            return;
-        }
-
-        foreach ($models as $model) {
-            $this->preparedBy[$model] = [...$this->preparedBy[$model] ?? [], $resource::class => true];
-        }
-
-        $resource::prepareModels($models, $this->request);
-    }
-
-    private function eagerLoad(Collection $models, JsonApiResource $resource, array $included, bool $filtered): void
     {
         $template = $models->first();
         $fields = $this->fields($resource);

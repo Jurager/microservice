@@ -99,26 +99,6 @@ class Product extends Model implements FiltersIncludedRelations
 }
 ```
 
-## Resource contracts
-
-Resources may implement this optional contract from the same namespace.
-
-### PreparesModels
-
-Load what a resource reads from the request and no relation holds. The method receives the models of one level of the document — the primary resources, then each level of includes — and each model once, even when no includes are requested:
-
-```php
-// On a resource implementing PreparesModels:
-public static function prepareModels(Collection $models, Request $request): void
-{
-    if ($request->filled('region_id')) {
-        $models->loadSum(['stocks as stock' => fn ($query) => $query->where('region_id', $request->integer('region_id'))], 'quantity');
-    }
-}
-```
-
-It runs after the eager loads of the level. A relationship declared by a closure may be resolved only while the document is rendered; its models are prepared by the resource of their model (`#[UseResource]`).
-
 ## Pagination
 
 Use `JsonApiPagination` for `page[number]` parameters, matching pagination links, and `meta.total`:
