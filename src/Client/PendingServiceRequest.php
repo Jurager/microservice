@@ -165,15 +165,35 @@ class PendingServiceRequest
     {
         foreach (self::withoutNulls($query) as $key => $value) {
             $existing = $this->query[$key] ?? null;
+            unset($this->query[$key]);
 
             $this->query[$key] = match (true) {
                 is_string($value) && is_string($existing) => implode(',', array_unique(array_filter([...explode(',', $existing), ...explode(',', $value)]))),
-                is_array($value) && is_array($existing) => array_replace_recursive($existing, $value),
+                is_array($value) && is_array($existing) => self::mergeArrays($existing, $value),
                 default => $value,
             };
         }
 
         return $this;
+    }
+
+    /**
+     * Merge arrays recursively with the merged keys last; a list on either side is replaced.
+     */
+    private static function mergeArrays(array $existing, array $merged): array
+    {
+        if (array_is_list($existing) || array_is_list($merged)) {
+            return $merged;
+        }
+
+        foreach ($merged as $key => $value) {
+            $current = $existing[$key] ?? null;
+            unset($existing[$key]);
+
+            $existing[$key] = is_array($value) && is_array($current) ? self::mergeArrays($current, $value) : $value;
+        }
+
+        return $existing;
     }
 
     /**

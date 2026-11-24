@@ -99,6 +99,27 @@ class PendingServiceRequestTest extends TestCase
         $this->assertSame(['sort' => 'name,price', 'filter' => ['a' => 1, 'b' => 2]], $this->request->getQuery());
     }
 
+    public function test_merged_query_parameters_go_last_so_they_win_over_equivalent_keys(): void
+    {
+        $this->request
+            ->withQueryParameters(['filter' => ['customer.user_id' => ['eq' => 1], 'customer' => ['user_id' => ['eq' => 99]], 'status' => 'new']])
+            ->mergeQueryParameters(['filter' => ['customer.user_id' => ['eq' => 7]]]);
+
+        $this->assertSame(
+            ['filter' => ['customer' => ['user_id' => ['eq' => 99]], 'status' => 'new', 'customer.user_id' => ['eq' => 7]]],
+            $this->request->getQuery(),
+        );
+    }
+
+    public function test_merge_query_parameters_replaces_lists_instead_of_merging_them_by_index(): void
+    {
+        $this->request
+            ->withQueryParameters(['filter' => ['and' => [['id' => ['in' => '123']]], 'ids' => [5, 6, 7]]])
+            ->mergeQueryParameters(['filter' => ['and' => [['category_id' => ['tree' => '10']]], 'ids' => [1]]]);
+
+        $this->assertSame(['filter' => ['and' => [['category_id' => ['tree' => '10']]], 'ids' => [1]]], $this->request->getQuery());
+    }
+
     public function test_map_query_changes_the_query_that_is_sent(): void
     {
         $this->request->get('/v1/products')
