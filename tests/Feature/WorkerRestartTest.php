@@ -72,13 +72,13 @@ class WorkerRestartTest extends TestCase
         });
 
         $signer = $this->app->make(Signer::class);
-        $envelope = ['id' => (string) Str::uuid(), 'type' => 'test.query', 'service' => 'test-service', 'occurred_at' => now()->toIso8601String(), 'request_id' => null, 'payload' => []];
+        $envelope = ['id' => (string) Str::uuid(), 'type' => 'test-service.query', 'service' => 'test-service', 'occurred_at' => now()->toIso8601String(), 'request_id' => null, 'payload' => []];
         $envelope['signature'] = $signer->signRaw(json_encode($envelope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
         $envelope['certificate'] = $signer->certificate();
 
         $message = Mockery::mock(AMQPMessage::class);
         $message->shouldReceive('getBody')->andReturn(json_encode($envelope));
-        $message->shouldReceive('getRoutingKey')->andReturn('test.query');
+        $message->shouldReceive('getRoutingKey')->andReturn('test-service.query');
         $message->shouldReceive('ack')->once();
 
         $consume = null;
@@ -115,7 +115,7 @@ class QueryingProbeHandler implements MessageHandler
 
     public static function type(): string
     {
-        return 'test.query';
+        return 'test-service.query';
     }
 
     public static function from(array $payload, string $type = ''): static
@@ -135,7 +135,7 @@ class RestartProbeHandler implements MessageHandler
 {
     public static function type(): string
     {
-        return 'test.restart';
+        return 'test-service.restart';
     }
 
     public static function from(array $payload, string $type = ''): static

@@ -208,6 +208,13 @@ class SignerTest extends TestCase
         $this->assertSame('', $signer->signRaw('anything'));
     }
 
+    public function test_signing_cannot_be_switched_off_in_production(): void
+    {
+        $this->app['env'] = 'production';
+
+        $this->assertTrue((new Signer(privateKey: '', enabled: false))->enabled());
+    }
+
     public function test_assert_configured_passes_when_consistent(): void
     {
         $this->signer->assertConfigured();

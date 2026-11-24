@@ -76,14 +76,14 @@ class MessageBusTest extends TestCase
         $logger->shouldReceive('error')
             ->once()
             ->with('MessageBus: failed to publish', Mockery::on(
-                fn (array $ctx): bool => $ctx['type'] === 'sfm.site.deleted' && $ctx['error'] === 'AMQP down'
+                fn (array $ctx): bool => $ctx['type'] === 'test-service.site.deleted' && $ctx['error'] === 'AMQP down'
             ));
         $this->app->instance(LoggerInterface::class, $logger);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('AMQP down');
 
-        app(MessageBus::class)->publish('sfm.site.deleted', []);
+        app(MessageBus::class)->publish('test-service.site.deleted', []);
     }
 
     public function test_verify_accepts_envelope_signed_by_publish(): void
@@ -98,7 +98,7 @@ class MessageBusTest extends TestCase
         $this->bindChannel($channel);
 
         $bus = app(MessageBus::class);
-        $bus->publish('sfm.site.updated', ['site_id' => 42]);
+        $bus->publish('test-service.site.updated', ['site_id' => 42]);
 
         $this->assertIsArray($captured);
         $this->assertTrue($bus->verify($captured));
@@ -116,7 +116,7 @@ class MessageBusTest extends TestCase
         $this->bindChannel($channel);
 
         $bus = app(MessageBus::class);
-        $bus->publish('sfm.site.updated', ['site_id' => 1]);
+        $bus->publish('test-service.site.updated', ['site_id' => 1]);
 
         $captured['payload']['site_id'] = 999;
 
@@ -126,7 +126,7 @@ class MessageBusTest extends TestCase
     public function test_verify_rejects_envelope_without_signature(): void
     {
         $this->assertFalse(app(MessageBus::class)->verify([
-            'type' => 'sfm.site.updated',
+            'type' => 'test-service.site.updated',
             'payload' => ['site_id' => 1],
         ]));
     }
@@ -136,7 +136,7 @@ class MessageBusTest extends TestCase
         $signer = $this->app->make(Signer::class);
 
         $envelope = [
-            'type' => 'sfm.site.updated',
+            'type' => 'test-service.site.updated',
             'service' => 'never-trusted',
             'occurred_at' => now()->toIso8601String(),
             'request_id' => null,
@@ -159,7 +159,7 @@ class MessageBusTest extends TestCase
     }
 
     /** Publish one event and return the envelope that reached the broker. */
-    private function published(string $type = 'sfm.site.updated', array $payload = ['site_id' => 1], ?callable $around = null, ?\DateTimeInterface $occurredAt = null): ?array
+    private function published(string $type = 'test-service.site.updated', array $payload = ['site_id' => 1], ?callable $around = null, ?\DateTimeInterface $occurredAt = null): ?array
     {
         $captured = null;
         $channel = Mockery::mock(AMQPChannel::class);
@@ -178,6 +178,13 @@ class MessageBusTest extends TestCase
         $around !== null ? $around($publish) : $publish();
 
         return $captured;
+    }
+
+    public function test_verify_rejects_an_event_named_after_another_service(): void
+    {
+        $envelope = $this->published('sfm.site.updated');
+
+        $this->assertFalse(app(MessageBus::class)->verify($envelope));
     }
 
     public function test_every_envelope_carries_a_signed_id_of_its_own(): void
@@ -200,7 +207,7 @@ class MessageBusTest extends TestCase
     public function test_an_envelope_signed_without_its_id_is_refused(): void
     {
         $signer = $this->app->make(Signer::class);
-        $envelope = ['type' => 'sfm.site.updated', 'service' => 'test-service', 'occurred_at' => now()->toIso8601String(), 'request_id' => null, 'payload' => ['site_id' => 1]];
+        $envelope = ['type' => 'test-service.site.updated', 'service' => 'test-service', 'occurred_at' => now()->toIso8601String(), 'request_id' => null, 'payload' => ['site_id' => 1]];
         $envelope['signature'] = $signer->signRaw(json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         $envelope['certificate'] = $signer->certificate();
 

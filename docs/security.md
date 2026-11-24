@@ -13,7 +13,7 @@ Every service needs its own key and certificate, and the same `SERVICE_CA_PUBLIC
 > A valid signature identifies the sender. Your application still controls what that service is allowed to do.
 
 > [!WARNING]
-> Only disable signing for local development. When `SERVICE_SIGNING_ENABLED=false`, requests and events are accepted without verification.
+> Only disable signing for local development. When `SERVICE_SIGNING_ENABLED=false`, requests and events are accepted without verification. The flag is ignored in `production`, where signing is always on.
 
 ## Middleware
 
@@ -38,7 +38,7 @@ X-Service-Name which service claims to have sent it
 X-Service-Cert the sender's certificate, proving its public key
 ```
 
-Missing credentials, expired timestamps, and invalid signatures return `401`.
+Missing credentials, expired timestamps, invalid signatures, and a signature already accepted within the tolerance window return `401`. Every attempt, retries included, is signed anew, so only a replayed request is refused. Seen signatures are kept in the [shared cache](installation.md).
 
 The signature covers the method, path, query, timestamp, request ID, and body. Multipart bodies are excluded.
 

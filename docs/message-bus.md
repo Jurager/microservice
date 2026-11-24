@@ -30,7 +30,7 @@ For TLS, set `RABBITMQ_SECURE=true` and configure certificates if required by yo
 
 ## Publishing events
 
-Choose a type such as `{service}.{entity}.{event}` and pass an array payload:
+Name the type `{service}.{entity}.{event}`, starting with the publishing service's `SERVICE_NAME`, and pass an array payload. Receivers refuse an event whose type starts with another service's name, so a service cannot publish events on behalf of others:
 
 ```php
 MessageBus::publish('orders.order.shipped', ['order_id' => $order->id]);

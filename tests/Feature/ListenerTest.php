@@ -26,7 +26,7 @@ class ListenerTest extends TestCase
     {
         FakeSyncHandler::$invocations = [];
 
-        $envelope = $this->signedEnvelope('test.sync', ['x' => 1]);
+        $envelope = $this->signedEnvelope('test-service.sync', ['x' => 1]);
         $result = app(Listener::class)->handle(FakeSyncHandler::class, $envelope);
 
         $this->assertTrue($result);
@@ -39,7 +39,7 @@ class ListenerTest extends TestCase
         Bus::fake([FakeQueuedHandler::class]);
         FakeQueuedHandler::$invocations = [];
 
-        $envelope = $this->signedEnvelope('test.queued', ['site_id' => 7]);
+        $envelope = $this->signedEnvelope('test-service.queued', ['site_id' => 7]);
         $result = app(Listener::class)->handle(FakeQueuedHandler::class, $envelope);
 
         $this->assertTrue($result);
@@ -56,7 +56,7 @@ class ListenerTest extends TestCase
             ->with('Listener: rejected envelope with invalid or missing signature', Mockery::any());
 
         $envelope = [
-            'type' => 'test.sync',
+            'type' => 'test-service.sync',
             'service' => 'attacker',
             'occurred_at' => now()->toIso8601String(),
             'request_id' => null,
@@ -75,7 +75,7 @@ class ListenerTest extends TestCase
         config()->set('microservice.signing.enabled', false);
         FakeSyncHandler::$invocations = [];
 
-        $envelope = ['type' => 'test.sync', 'payload' => ['x' => 42]];
+        $envelope = ['type' => 'test-service.sync', 'payload' => ['x' => 42]];
         $result = app(Listener::class)->handle(FakeSyncHandler::class, $envelope);
 
         $this->assertTrue($result);
@@ -88,7 +88,7 @@ class ListenerTest extends TestCase
 
         app(Listener::class)->handle(FakeSyncHandler::class, [
             'id' => '0b5c9f6e-7a2b-4c1d-9e3f-2a1b0c9d8e7f',
-            'type' => 'test.sync',
+            'type' => 'test-service.sync',
             'service' => 'oms',
             'occurred_at' => '2026-11-09T14:30:05+03:00',
             'request_id' => 'a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8',
@@ -97,7 +97,7 @@ class ListenerTest extends TestCase
 
         $this->assertSame([
             'message_id' => '0b5c9f6e-7a2b-4c1d-9e3f-2a1b0c9d8e7f',
-            'message_type' => 'test.sync',
+            'message_type' => 'test-service.sync',
             'message_publisher' => 'oms',
             'request_id' => 'a1a2a3a4-b1b2-c1c2-d1d2-d3d4d5d6d7d8',
             'message_occurred_at' => '2026-11-09T14:30:05+03:00',
@@ -108,7 +108,7 @@ class ListenerTest extends TestCase
     {
         OccurredAtHandler::$received = null;
 
-        $envelope = $this->signedEnvelope('test.occurred', [], '2026-11-09T14:30:05+03:00');
+        $envelope = $this->signedEnvelope('test-service.occurred', [], '2026-11-09T14:30:05+03:00');
 
         $this->assertTrue(app(Listener::class)->handle(OccurredAtHandler::class, $envelope));
         $this->assertSame('2026-11-09T14:30:05+03:00', OccurredAtHandler::$received);
@@ -131,7 +131,7 @@ class ListenerTest extends TestCase
                 fn (array $ctx): bool => $ctx['class'] === ThrowingHandler::class && $ctx['error'] === 'boom'
             ));
 
-        $envelope = $this->signedEnvelope('test.throws', []);
+        $envelope = $this->signedEnvelope('test-service.throws', []);
         $result = app(Listener::class)->handle(ThrowingHandler::class, $envelope);
 
         $this->assertFalse($result);
@@ -141,7 +141,7 @@ class ListenerTest extends TestCase
     {
         InjectedHandler::$received = null;
 
-        $result = app(Listener::class)->handle(InjectedHandler::class, $this->signedEnvelope('test.injected', []));
+        $result = app(Listener::class)->handle(InjectedHandler::class, $this->signedEnvelope('test-service.injected', []));
 
         $this->assertTrue($result);
         $this->assertInstanceOf(Signer::class, InjectedHandler::$received);
@@ -180,7 +180,7 @@ class FakeSyncHandler implements MessageHandler
 
     public static function type(): string
     {
-        return 'test.sync';
+        return 'test-service.sync';
     }
 
     public static function from(array $payload, string $type = ''): static
@@ -208,7 +208,7 @@ class FakeQueuedHandler implements MessageHandler, ShouldQueue
 
     public static function type(): string
     {
-        return 'test.queued';
+        return 'test-service.queued';
     }
 
     public static function from(array $payload, string $type = ''): static
@@ -230,7 +230,7 @@ class ThrowingHandler implements MessageHandler
 
     public static function type(): string
     {
-        return 'test.throws';
+        return 'test-service.throws';
     }
 
     public static function from(array $payload, string $type = ''): static
@@ -250,7 +250,7 @@ class InjectedHandler implements MessageHandler
 
     public static function type(): string
     {
-        return 'test.injected';
+        return 'test-service.injected';
     }
 
     public static function from(array $payload, string $type = ''): static
@@ -270,7 +270,7 @@ class OccurredAtHandler implements MessageHandler
 
     public static function type(): string
     {
-        return 'test.occurred';
+        return 'test-service.occurred';
     }
 
     public static function from(array $payload, string $type = ''): static

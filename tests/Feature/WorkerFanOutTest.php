@@ -47,7 +47,7 @@ class WorkerFanOutTest extends TestCase
 
     public function test_every_handler_of_a_type_receives_the_message_from_one_queue(): void
     {
-        $message = $this->message('test.shared', ['id' => 7]);
+        $message = $this->message('test-service.shared', ['id' => 7]);
         $message->shouldReceive('ack')->once();
         $message->shouldNotReceive('nack');
 
@@ -70,7 +70,7 @@ class WorkerFanOutTest extends TestCase
 
     public function test_a_failing_handler_does_not_keep_the_message_from_the_others(): void
     {
-        $message = $this->message('test.shared', ['id' => 7]);
+        $message = $this->message('test-service.shared', ['id' => 7]);
         $message->shouldReceive('nack')->once();
         $message->shouldNotReceive('ack');
 
@@ -90,14 +90,14 @@ class WorkerFanOutTest extends TestCase
 
     public function test_a_handler_joining_a_consumed_type_receives_it_without_restarting(): void
     {
-        $message = $this->message('test.shared', ['id' => 7]);
+        $message = $this->message('test-service.shared', ['id' => 7]);
         $message->shouldReceive('ack')->once();
 
         $channel = $this->channel(consumers: 2);
-        $channel->shouldReceive('basic_cancel')->once()->with('test-service-test.shared');
+        $channel->shouldReceive('basic_cancel')->once()->with('test-service-test-service.shared');
         $channel->shouldReceive('wait')->twice()->andReturnUsing(
             function (): void {
-                JoiningFanOutHandler::$activeTypes = ['test.shared'];
+                JoiningFanOutHandler::$activeTypes = ['test-service.shared'];
                 usleep(1_100_000);
 
                 throw new AMQPTimeoutException();
@@ -109,8 +109,8 @@ class WorkerFanOutTest extends TestCase
         );
 
         $this->listen([FirstFanOutHandler::class, JoiningFanOutHandler::class], $channel, rescan: 1)
-            ->expectsOutputToContain('Listening for events: test.shared')
-            ->expectsOutputToContain('Handlers changed for: test.shared')
+            ->expectsOutputToContain('Listening for events: test-service.shared')
+            ->expectsOutputToContain('Handlers changed for: test-service.shared')
             ->assertSuccessful();
 
         $this->assertSame([
@@ -130,7 +130,7 @@ class WorkerFanOutTest extends TestCase
         $channel->shouldReceive('is_consuming')->andReturn(true);
         $channel->shouldReceive('basic_consume')
             ->times($consumers)
-            ->withArgs(fn (string $queue): bool => $queue === 'test-service.test.shared')
+            ->withArgs(fn (string $queue): bool => $queue === 'test-service.test-service.shared')
             ->andReturnUsing(function (...$arguments): void {
                 $this->consumer = $arguments['callback'] ?? $arguments[6];
             });
@@ -202,7 +202,7 @@ abstract class FanOutProbe implements MessageHandler
 
     public static function type(): string|array
     {
-        return 'test.shared';
+        return 'test-service.shared';
     }
 
     public static function from(array $payload, string $type = ''): static

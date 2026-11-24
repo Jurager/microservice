@@ -88,6 +88,11 @@ readonly class MessageBus
             return false;
         }
 
+        // A service publishes only its own events, named "{service}.{entity}.{event}".
+        if (! str_starts_with((string) ($envelope['type'] ?? ''), $service.'.')) {
+            return false;
+        }
+
         try {
             return $this->signer->verifyRaw(self::canonicalize($envelope), $signature, $certificate, $service);
         } catch (Throwable) {

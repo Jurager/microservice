@@ -163,4 +163,19 @@ class TrustPeerMiddlewareTest extends TestCase
         ])
             ->assertStatus(401);
     }
+
+    public function test_rejects_a_replayed_request(): void
+    {
+        $signer = $this->app->make(Signer::class);
+        $timestamp = (string) time();
+        $headers = [
+            'X-Timestamp' => $timestamp,
+            'X-Signature' => $signer->sign('POST', '/test/endpoint', $timestamp, '[]'),
+            'X-Service-Name' => 'test-service',
+            'X-Service-Cert' => $signer->certificate(),
+        ];
+
+        $this->postJson('/test/endpoint', [], $headers)->assertOk();
+        $this->postJson('/test/endpoint', [], $headers)->assertStatus(401);
+    }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Http\Middleware;
 
 use Closure;
+use Illuminate\Container\Attributes\Config;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
 use Jurager\Microservice\Exceptions\InvalidSignatureException;
 use Jurager\Microservice\Exceptions\MissingCertificateException;
@@ -20,8 +22,14 @@ class TrustPeer
      */
     public const string ATTRIBUTE = 'microservice.peer';
 
-    public function __construct(protected readonly Signer $signer)
-    {
+    /**
+     * @param  int  $tolerance  Most seconds a signature may be old; a seen signature is remembered for twice as long.
+     */
+    public function __construct(
+        protected readonly Signer $signer,
+        protected readonly CacheRepository $cache,
+        #[Config('microservice.timestamp_tolerance', 60)] protected readonly int $tolerance = 60,
+    ) {
     }
 
     public function handle(Request $request, Closure $next): Response
@@ -75,6 +83,11 @@ class TrustPeer
             $certificate,
             $service,
         )) {
+            throw new InvalidSignatureException();
+        }
+
+        // Every attempt is signed anew, so a signature seen before is a replayed request.
+        if (! $this->cache->add('microservice:signature:'.hash('sha256', $signature), true, $this->tolerance * 2)) {
             throw new InvalidSignatureException();
         }
     }

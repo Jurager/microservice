@@ -42,7 +42,7 @@ SERVICE_CA_PUBLIC_KEY=base64-ca-public-key
 
 Follow [setting up signing credentials](certificates.md) to generate these values. The CA public key is the same on every service.
 
-Signing is enabled by default. Only use `SERVICE_SIGNING_ENABLED=false` for local development; it accepts incoming requests and events without verification.
+Signing is enabled by default. Only use `SERVICE_SIGNING_ENABLED=false` for local development; it accepts incoming requests and events without verification. In `production` the flag is ignored and signing stays on.
 
 ### Middleware
 

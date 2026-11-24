@@ -36,6 +36,7 @@ use Jurager\Microservice\Health\Checks\CacheCheck;
 use Jurager\Microservice\Health\HealthChecker;
 use Jurager\Microservice\Http\Middleware\Idempotency;
 use Jurager\Microservice\Http\Middleware\JsonApiPagination;
+use Jurager\Microservice\Http\Middleware\TrustPeer;
 use Jurager\Microservice\JsonApi\ResponseError;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Queue\WorkerHeartbeat;
@@ -88,6 +89,7 @@ class MicroserviceServiceProvider extends ServiceProvider
             HealthChecker::class,
             Idempotency::class,
             ManifestRepository::class,
+            TrustPeer::class,
         ])->needs(CacheRepository::class)->give(static function (Application $app): CacheRepository {
             $name = config('microservice.cache.store');
             $store = is_string($name) && $name !== '' ? $app['cache']->store($name) : $app->make(CacheRepository::class);

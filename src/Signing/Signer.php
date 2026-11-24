@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Signing;
 
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\App;
 use Illuminate\Support\InteractsWithTime;
 use Jurager\Microservice\Tracing\RequestId;
 use OpenSSLAsymmetricKey;
@@ -61,7 +62,8 @@ class Signer
      */
     public function enabled(): bool
     {
-        return $this->enabled;
+        // Production always signs: the switch is for local development only.
+        return $this->enabled || App::isProduction();
     }
 
     /**
@@ -200,7 +202,7 @@ class Signer
      */
     public function signRaw(string $payload): string
     {
-        if (! $this->enabled) {
+        if (! $this->enabled()) {
             return '';
         }
 
