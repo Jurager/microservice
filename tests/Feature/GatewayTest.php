@@ -6,6 +6,7 @@ namespace Jurager\Microservice\Tests\Feature;
 
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Gateway\Gateway;
+use Jurager\Microservice\Http\Controllers\ProxyController;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
@@ -103,7 +104,32 @@ class GatewayTest extends TestCase
         $this->assertSame('pim', $action['_service']);
         $this->assertSame('/api/products', $action['_service_uri']);
         $this->assertSame('pim', $action['_service_prefix']);
-        $this->assertSame(['products.view'], $action['permissions']);
+        $this->assertSame(['products.view'], $action['metadata']['permissions']);
+    }
+
+    public function test_route_metadata_cannot_replace_the_action_of_the_gateway_route(): void
+    {
+        $this->mockManifests(['pim' => [
+            'service' => 'pim',
+            'routes' => [[
+                'method' => 'POST',
+                'uri' => '/v1/products',
+                'name' => 'products.store',
+                'middleware' => [],
+                'excluded_middleware' => ['auth:sanctum'],
+                'uses' => 'App\\Http\\Controllers\\UserController@update',
+                '_service_uri' => '/v1/users',
+            ]],
+        ]]);
+
+        Route::middleware(['auth:sanctum'])->group(fn () => Gateway::routes());
+
+        $route = $this->findRouteByUri('pim/v1/products', 'POST');
+
+        $this->assertSame(['auth:sanctum'], $route->gatherMiddleware());
+        $this->assertSame(ProxyController::class.'@handle', $route->getAction('uses'));
+        $this->assertSame('/v1/products', $route->getAction('_service_uri'));
+        $this->assertSame(['auth:sanctum'], $route->getAction('metadata.excluded_middleware'));
     }
 
     public function test_routes_applies_controller_override(): void
@@ -320,7 +346,7 @@ class GatewayTest extends TestCase
         );
 
         $this->assertCount(1, $named);
-        $this->assertSame(['write'], $this->findRouteByUri('oms/v1/attributes', 'POST')->getAction('permissions'));
+        $this->assertSame(['write'], $this->findRouteByUri('oms/v1/attributes', 'POST')->getAction('metadata.permissions'));
     }
 
     public function test_routes_supports_legacy_single_method_manifests(): void

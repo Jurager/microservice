@@ -107,7 +107,7 @@ Applying middleware to one method splits the route. Only the remaining methods r
 
 ## Route metadata
 
-Route defaults are included in manifests and exposed as gateway route actions:
+Route defaults are included in manifests and exposed on gateway routes under the `metadata` action, apart from the route's own action, so a manifest can't replace its middleware or controller:
 
 ```php
 // In the downstream service's routes file:
@@ -117,7 +117,7 @@ Route::post('/v1/orders', OrderController::class)
 
 ```php
 // On the gateway, inside a controller or middleware:
-$request->route()->getAction('permissions'); // ['orders.write']
+$request->route()->getAction('metadata.permissions'); // ['orders.write']
 $request->route()->getAction('_service');    // 'orders'
 ```
 
