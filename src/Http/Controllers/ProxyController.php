@@ -178,6 +178,9 @@ class ProxyController extends Controller
 
         // Encoded, so a parameter can never add a segment, a query or a fragment to the path.
         foreach ($request->route()->parameters() as $key => $value) {
+            // A dot segment stays as it is, and a proxy normalizing the path would climb to another route.
+            abort_if(in_array((string) $value, ['.', '..'], true), 404);
+
             $path = str_replace(['{'.$key.'}', '{'.$key.'?}'], rawurlencode((string) $value), $path);
         }
 

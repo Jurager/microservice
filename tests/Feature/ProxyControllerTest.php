@@ -134,6 +134,14 @@ class ProxyControllerTest extends TestCase
         $this->assertSame('http://pim.test/api/products/1%3Fadmin%3D1%23x', $this->forwarded()->url());
     }
 
+    public function test_a_dot_segment_parameter_is_not_proxied(): void
+    {
+        $this->getJson('/api/products/%2E%2E')->assertNotFound();
+        $this->getJson('/api/products/.')->assertNotFound();
+
+        Http::assertNothingSent();
+    }
+
     public function test_forwards_query_parameters(): void
     {
         $this->getJson('/api/orders?page=2&limit=10')->assertOk();
