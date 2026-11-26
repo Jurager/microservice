@@ -10,7 +10,6 @@ use Jurager\Microservice\Manifest\ManifestBuilder;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
-use Psr\Log\LoggerInterface;
 
 class ManifestBuilderTest extends TestCase
 {
@@ -29,7 +28,7 @@ class ManifestBuilderTest extends TestCase
     /** A repository over the mocked cache, with the manifest TTL configured at the time of the call. */
     private function repository(): ManifestRepository
     {
-        return new ManifestRepository($this->cache, Mockery::mock(LoggerInterface::class), (int) config('microservice.manifest.ttl'));
+        return new ManifestRepository($this->cache, (int) config('microservice.manifest.ttl'));
     }
 
     public function test_build_returns_manifest_with_service_and_routes(): void
@@ -103,6 +102,8 @@ class ManifestBuilderTest extends TestCase
                     && isset($value['synced_at']);
             });
 
+        $this->cache->shouldReceive('get')->with('microservice:manifests', [])->andReturn([]);
+
         $this->cache->shouldReceive('lock')
             ->once()
             ->with('microservice:manifests_lock', 10)
@@ -112,12 +113,15 @@ class ManifestBuilderTest extends TestCase
             ->once()
             ->withArgs(function ($seconds, $callback) {
                 // Mock the callback execution
-                $this->cache->shouldReceive('get')->with('microservice:manifests', [])->andReturn([]);
                 $this->cache->shouldReceive('put')->with('microservice:manifests', ['pim']);
                 $callback();
 
                 return true;
             });
+
+        $this->cache->shouldReceive('forever')
+            ->once()
+            ->with('microservice:manifests:version', Mockery::type('string'));
 
         $this->repository()->store($manifest);
     }
@@ -130,8 +134,10 @@ class ManifestBuilderTest extends TestCase
             ->once()
             ->withArgs(fn ($key, $value, $ttl) => $key === 'microservice:manifest:pim' && $ttl === 600);
 
+        $this->cache->shouldReceive('get')->with('microservice:manifests', [])->andReturn([]);
         $this->cache->shouldReceive('lock')->once()->andReturn($lock = Mockery::mock());
         $lock->shouldReceive('block')->once();
+        $this->cache->shouldReceive('forever')->once();
 
         $this->repository()->store(['service' => 'pim', 'routes' => []]);
     }
@@ -144,8 +150,10 @@ class ManifestBuilderTest extends TestCase
             ->once()
             ->withArgs(fn ($key, $value, $ttl) => $key === 'microservice:manifest:pim' && $ttl === null);
 
+        $this->cache->shouldReceive('get')->with('microservice:manifests', [])->andReturn([]);
         $this->cache->shouldReceive('lock')->once()->andReturn($lock = Mockery::mock());
         $lock->shouldReceive('block')->once();
+        $this->cache->shouldReceive('forever')->once();
 
         $this->repository()->store(['service' => 'pim', 'routes' => []]);
     }

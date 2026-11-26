@@ -5,13 +5,28 @@ declare(strict_types=1);
 namespace Jurager\Microservice\Gateway;
 
 use Closure;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Routing\Route;
+use Illuminate\Routing\RouteCollection;
+use Illuminate\Routing\Router;
 use Jurager\Microservice\Http\Controllers\ProxyController;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Manifest\ManifestRoute;
+use Psr\Log\LoggerInterface;
+use Throwable;
 
 class Gateway
 {
+    /** @var list<array{group: array<string, mixed>, manifests: ManifestRepository, define: Closure(array<string, array>): list<Route>, version: string|false|null, routes: list<Route>}> */
+    private array $registrations = [];
+
+    public function __construct(
+        private readonly Router $router,
+        private readonly Container $container,
+        private readonly LoggerInterface $logger,
+    ) {
+    }
+
     /**
      * Register manifest routes as Laravel routes pointing to the proxy controller.
      *
@@ -19,23 +34,152 @@ class Gateway
      */
     public static function routes(?Closure $overrides = null, ?array $services = null, ?string $controller = null, ?ManifestRepository $manifests = null): void
     {
-        $manifests ??= app(ManifestRepository::class);
-        $controller ??= ProxyController::class;
-
-        $reservedKeys = array_flip(['method', 'methods', 'uri', 'name']);
-
         $builder = new GatewayRoutes();
 
         if ($overrides) {
             $overrides($builder);
         }
 
+        app(self::class)->register($manifests ?? app(ManifestRepository::class), $builder, $services, $controller ?? ProxyController::class);
+    }
+
+    /**
+     * Register the routes again once their manifests change.
+     */
+    public function refresh(): void
+    {
+        $changed = [];
+
+        foreach ($this->registrations as $index => $registration) {
+            try {
+                $version = $registration['manifests']->version();
+
+                if ($version !== $registration['version']) {
+                    $changed[$index] = [$version, $registration['manifests']->all()];
+                }
+            } catch (Throwable) {
+                // Keep the routes while the cache is down.
+            }
+        }
+
+        if ($changed !== []) {
+            $this->rebuild($changed);
+        }
+    }
+
+    /**
+     * Whether gateway routes are registered or loaded from the route cache.
+     */
+    public function registered(): bool
+    {
+        return $this->registrations !== []
+            || array_any($this->router->getRoutes()->getRoutes(), static fn (Route $route): bool => $route->getAction('_service') !== null);
+    }
+
+    /**
+     * @param  string[]|null  $services
+     */
+    private function register(ManifestRepository $manifests, GatewayRoutes $builder, ?array $services, string $controller): void
+    {
+        $stack = $this->router->getGroupStack();
+        $define = fn (array $stored): array => $this->define($stored, $builder, $services, $controller);
+
+        try {
+            $version = $manifests->version();
+            $stored = $manifests->all();
+        } catch (Throwable $e) {
+            $this->logger->warning('Manifests are unreachable, no gateway routes registered.', ['error' => $e->getMessage()]);
+
+            // Unlike null, matches no stored version.
+            $version = false;
+            $stored = [];
+        }
+
+        $this->registrations[] = [
+            'group' => end($stack) ?: [],
+            'manifests' => $manifests,
+            'define' => $define,
+            'version' => $version,
+            'routes' => $define($stored),
+        ];
+    }
+
+    /**
+     * @param  array<int, array{string|null, array<string, array>}>  $changed
+     */
+    private function rebuild(array $changed): void
+    {
+        $owners = [];
+
+        foreach (array_keys($changed) as $index) {
+            foreach ($this->registrations[$index]['routes'] as $route) {
+                $owners[spl_object_id($route)] = $index;
+            }
+        }
+
+        $current = $this->router->getRoutes();
+
+        // The router adds new routes to this collection.
+        $this->router->setRoutes($routes = new RouteCollection());
+
+        foreach ($current->getRoutes() as $route) {
+            $index = $owners[spl_object_id($route)] ?? null;
+
+            if ($index === null) {
+                $routes->add($route);
+            } elseif (isset($changed[$index])) {
+                $this->redefine($index, ...$changed[$index]);
+
+                unset($changed[$index]);
+            }
+        }
+
+        // Registrations that had no routes go last.
+        foreach ($changed as $index => [$version, $stored]) {
+            $this->redefine($index, $version, $stored);
+        }
+
+        $routes->refreshNameLookups();
+        $routes->refreshActionLookups();
+
+        // For the application Octane clones each request from.
+        $this->container->instance('routes', $routes);
+    }
+
+    /**
+     * @param  array<string, array>  $stored
+     */
+    private function redefine(int $index, ?string $version, array $stored): void
+    {
+        $registration = $this->registrations[$index];
+        $routes = [];
+
+        $this->router->group($registration['group'], function () use ($registration, $stored, &$routes): void {
+            $routes = ($registration['define'])($stored);
+        });
+
+        $this->registrations[$index] = [...$registration, 'version' => $version, 'routes' => $routes];
+    }
+
+    /**
+     * Register the routes of the manifests in the current route group.
+     *
+     * @param  array<string, array>  $stored
+     * @param  string[]|null  $services
+     * @return list<Route>
+     */
+    private function define(array $stored, GatewayRoutes $builder, ?array $services, string $controller): array
+    {
+        $reservedKeys = array_flip(['method', 'methods', 'uri', 'name']);
+
         $overrideMap = $builder->getOverrides();
         $serviceMiddleware = $builder->getServiceMiddleware();
         $routeMiddleware = $builder->getRouteMiddleware();
         $servicePrefixes = $builder->getServicePrefixes();
 
-        foreach ($manifests->all() as $manifest) {
+        $defined = [];
+
+        foreach ($stored as $manifest) {
             $service = $manifest['service'];
 
             if ($services !== null && ! in_array($service, $services, true)) {
@@ -68,7 +212,7 @@ class Gateway
                 $name = empty($routeData['name']) ? null : $service.'.'.$routeData['name'];
 
                 foreach ($groups as $group) {
-                    $route = Route::match($group['methods'], $uri, $group['action']);
+                    $route = $this->router->match($group['methods'], $uri, $group['action']);
 
                     $route->setAction([
                         ...$route->getAction(),
@@ -86,9 +230,13 @@ class Gateway
                     if (! empty($group['middleware'])) {
                         $route->middleware($group['middleware']);
                     }
+
+                    $defined[] = $route;
                 }
             }
         }
+
+        return $defined;
     }
 
     /**

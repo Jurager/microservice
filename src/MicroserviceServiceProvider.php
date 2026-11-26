@@ -13,6 +13,7 @@ use Illuminate\Foundation\Exceptions\Handler;
 use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Events\Routing;
 use Illuminate\Routing\Route;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
@@ -32,6 +33,7 @@ use Jurager\Microservice\Commands\Signing\AuthorityGenerateCommand;
 use Jurager\Microservice\Commands\Signing\CertificateIssueCommand;
 use Jurager\Microservice\Commands\Signing\KeygenCommand;
 use Jurager\Microservice\Commands\SyncCommand;
+use Jurager\Microservice\Gateway\Gateway;
 use Jurager\Microservice\Health\Checks\CacheCheck;
 use Jurager\Microservice\Health\HealthChecker;
 use Jurager\Microservice\Http\Middleware\Idempotency;
@@ -62,6 +64,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         $this->registerCacheStore();
 
         $this->app->singleton(ManifestRepository::class);
+        $this->app->singleton(Gateway::class);
         $this->app->singleton(Signer::class);
         $this->app->singleton(ServiceDiscovery::class);
         $this->app->singleton(CircuitBreaker::class);
@@ -125,6 +128,7 @@ class MicroserviceServiceProvider extends ServiceProvider
         JsonApiPagination::registerLinks();
         $this->registerSchedule();
         $this->registerOptimize();
+        $this->registerGatewayRefresh();
         $this->registerWorkerHeartbeat();
 
         $this->registerAbout();
@@ -275,13 +279,25 @@ class MicroserviceServiceProvider extends ServiceProvider
     }
 
     /**
-     * Sync manifests when the application is optimized, so the routes it caches come from fresh manifests.
+     * Sync manifests when the application is optimized.
      */
     protected function registerOptimize(): void
     {
         if ($this->knownServices() !== []) {
             $this->optimizes(optimize: 'microservice:sync', key: 'manifests');
         }
+    }
+
+    /**
+     * Register gateway routes again before routing, once the manifests change.
+     */
+    protected function registerGatewayRefresh(): void
+    {
+        $this->app['events']->listen(Routing::class, function (): void {
+            if ($this->app->resolved(Gateway::class)) {
+                $this->app->make(Gateway::class)->refresh();
+            }
+        });
     }
 
     /**

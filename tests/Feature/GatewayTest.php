@@ -4,20 +4,34 @@ declare(strict_types=1);
 
 namespace Jurager\Microservice\Tests\Feature;
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Route;
 use Jurager\Microservice\Gateway\Gateway;
 use Jurager\Microservice\Http\Controllers\ProxyController;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
+use RuntimeException;
 
 class GatewayTest extends TestCase
 {
     private function mockManifests(array $manifests): void
     {
         $registry = Mockery::mock(ManifestRepository::class);
+        $registry->shouldReceive('version')->andReturn(null);
         $registry->shouldReceive('all')->andReturn($manifests);
         $this->app->instance(ManifestRepository::class, $registry);
+    }
+
+    /** @param  array<string, string>  $routes */
+    private function storePimRoutes(array $routes): void
+    {
+        $this->app->make(ManifestRepository::class)->store($this->pimManifest(array_map(
+            static fn (string $name, string $uri): array => ['method' => 'GET', 'uri' => $uri, 'name' => $name],
+            array_keys($routes),
+            $routes,
+        )));
     }
 
     private function pimManifest(array $routes = []): array
@@ -398,6 +412,126 @@ class GatewayTest extends TestCase
 
         $this->assertNotNull($route);
     }
+
+    public function test_routes_follow_the_stored_manifests_without_being_registered_again(): void
+    {
+        $this->storePimRoutes(['products.index' => '/api/products', 'categories.index' => '/api/categories']);
+
+        Gateway::routes(controller: GatewayFakeController::class);
+
+        $this->get('/pim/api/brands')->assertNotFound();
+
+        $this->storePimRoutes(['products.index' => '/api/products', 'brands.index' => '/api/brands']);
+
+        $this->get('/pim/api/brands')->assertOk()->assertSeeText('pim.brands.index');
+        $this->get('/pim/api/categories')->assertNotFound();
+    }
+
+    public function test_routes_registered_again_keep_the_group_they_were_registered_in(): void
+    {
+        $this->storePimRoutes(['products.index' => '/api/products']);
+
+        Route::prefix('admin')->middleware(['audit'])->name('admin.')->group(fn () => Gateway::routes());
+
+        $this->storePimRoutes(['products.index' => '/api/products', 'brands.index' => '/api/brands']);
+
+        $this->app->make(Gateway::class)->refresh();
+
+        $route = Route::getRoutes()->getByName('admin.pim.brands.index');
+
+        $this->assertNotNull($route);
+        $this->assertSame('admin/pim/api/brands', $route->uri());
+        $this->assertSame(['audit'], $route->middleware());
+    }
+
+    public function test_routes_registered_again_keep_their_place_among_the_application_routes(): void
+    {
+        $this->storePimRoutes(['products.index' => '/api/products']);
+
+        Route::get('before', fn () => 'before');
+        Gateway::routes();
+        Route::get('after', fn () => 'after');
+
+        $this->storePimRoutes(['products.index' => '/api/products', 'brands.index' => '/api/brands']);
+
+        $this->app->make(Gateway::class)->refresh();
+
+        $expected = ['before', 'pim/api/products', 'pim/api/brands', 'after'];
+        $uris = array_map(static fn (\Illuminate\Routing\Route $route) => $route->uri(), Route::getRoutes()->getRoutes());
+
+        $this->assertSame($expected, array_values(array_intersect($uris, $expected)));
+    }
+
+    public function test_routes_are_left_alone_while_the_manifests_stay_the_same(): void
+    {
+        $this->storePimRoutes(['products.index' => '/api/products']);
+
+        Gateway::routes();
+
+        $routes = Route::getRoutes();
+
+        $this->app->make(Gateway::class)->refresh();
+
+        $this->assertSame($routes, Route::getRoutes());
+    }
+
+    public function test_routes_stay_while_the_manifests_are_unreachable(): void
+    {
+        $manifests = Mockery::mock(ManifestRepository::class);
+        $manifests->shouldReceive('version')->once()->andReturn('first');
+        $manifests->shouldReceive('all')->once()->andReturn(['pim' => $this->pimManifest()]);
+
+        Gateway::routes(manifests: $manifests);
+
+        $manifests->shouldReceive('version')->andThrow(new RuntimeException('Connection refused'));
+
+        $routes = Route::getRoutes();
+
+        $this->app->make(Gateway::class)->refresh();
+
+        $this->assertSame($routes, Route::getRoutes());
+        $this->assertNotNull($this->findRouteByUri('pim/api/products'));
+    }
+
+    public function test_routes_missed_while_the_manifests_were_unreachable_are_registered_once_they_are_back(): void
+    {
+        Log::spy();
+
+        $manifests = Mockery::mock(ManifestRepository::class);
+        $manifests->shouldReceive('version')->once()->andThrow(new RuntimeException('Connection refused'));
+
+        Gateway::routes(manifests: $manifests);
+
+        $this->assertNull($this->findRouteByUri('pim/api/products'));
+
+        $manifests->shouldReceive('version')->andReturn(null);
+        $manifests->shouldReceive('all')->andReturn(['pim' => $this->pimManifest()]);
+
+        $this->app->make(Gateway::class)->refresh();
+
+        $this->assertNotNull($this->findRouteByUri('pim/api/products'));
+
+        Log::shouldHaveReceived('warning')->once()->with('Manifests are unreachable, no gateway routes registered.', ['error' => 'Connection refused']);
+    }
+
+    public function test_routes_registered_again_during_an_octane_request_reach_the_application_it_is_cloned_from(): void
+    {
+        $this->storePimRoutes(['products.index' => '/api/products']);
+
+        Gateway::routes();
+
+        $this->storePimRoutes(['products.index' => '/api/products', 'brands.index' => '/api/brands']);
+
+        // As Octane does for every request.
+        $sandbox = clone $this->app;
+        $sandbox->instance('url', clone $sandbox['url']);
+        $this->app['router']->setContainer($sandbox);
+
+        $this->app->make(Gateway::class)->refresh();
+
+        $this->assertSame(Route::getRoutes(), $this->app['routes']);
+        $this->assertStringEndsWith('/pim/api/brands', $this->app['url']->route('pim.brands.index'));
+    }
 }
 
 class GatewayFakeController
@@ -405,5 +539,10 @@ class GatewayFakeController
     public function index(): string
     {
         return 'ok';
+    }
+
+    public function handle(Request $request): string
+    {
+        return (string) $request->route()->getName();
     }
 }

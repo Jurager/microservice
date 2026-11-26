@@ -13,9 +13,9 @@ use Jurager\Microservice\Client\ServiceDiscovery;
 use Jurager\Microservice\Events\ManifestReceived;
 use Jurager\Microservice\Exceptions\ServiceRequestException;
 use Jurager\Microservice\Exceptions\ServiceUnavailableException;
+use Jurager\Microservice\Gateway\Gateway;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Manifest\ManifestRoute;
-use Laravel\Octane\Commands\ReloadCommand;
 use Throwable;
 
 #[Signature('microservice:sync {services?* : Service names to sync (defaults to all configured)}')]
@@ -39,7 +39,7 @@ class SyncCommand extends Command implements Isolatable
         return gethostname().':'.implode(',', $services);
     }
 
-    public function handle(ServiceClient $client, ManifestRepository $registry, ServiceDiscovery $discovery): void
+    public function handle(ServiceClient $client, ManifestRepository $registry, ServiceDiscovery $discovery, Gateway $gateway): void
     {
         $services = $this->input('services', []) ?: $discovery->services();
 
@@ -71,7 +71,7 @@ class SyncCommand extends Command implements Isolatable
             $this->printRoutes($manifest);
         }
 
-        $this->refreshRoutes($registry->fingerprint());
+        $this->clearCachedGatewayRoutes($gateway);
 
         foreach ($failed as $service) {
             $stale = $registry->has($service) ? ' (stale manifest retained)' : ' (no manifest stored)';
@@ -83,39 +83,11 @@ class SyncCommand extends Command implements Isolatable
         }
     }
 
-    /**
-     * Reload local routes when the stored manifests have changed.
-     */
-    private function refreshRoutes(string $fingerprint): void
+    private function clearCachedGatewayRoutes(Gateway $gateway): void
     {
-        $cached = $this->laravel->routesAreCached();
-        $octane = class_exists(ReloadCommand::class);
-
-        if (! $cached && ! $octane) {
-            return; // Routes are read from the manifests on every request.
+        if (is_file($this->laravel->getCachedRoutesPath()) && $gateway->registered()) {
+            $this->components->task('Clearing cached gateway routes', fn () => $this->callSilently('route:clear') === 0);
         }
-
-        $loaded = $this->laravel->bootstrapPath('cache/microservice-routes.txt');
-
-        if (is_file($loaded) && file_get_contents($loaded) === $fingerprint) {
-            return;
-        }
-
-        if ($cached) {
-            $this->components->task('Refreshing route cache', fn () => $this->callSilently('route:cache') === 0);
-        }
-
-        if ($octane) {
-            $this->components->task('Reloading Octane workers', function () {
-                try {
-                    return $this->callSilently('octane:reload') === 0;
-                } catch (Throwable) {
-                    return false;
-                }
-            });
-        }
-
-        file_put_contents($loaded, $fingerprint);
     }
 
     private function pull(string $service, ServiceClient $client): ?array

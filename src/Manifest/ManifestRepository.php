@@ -7,8 +7,7 @@ namespace Jurager\Microservice\Manifest;
 use Illuminate\Container\Attributes\Config;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository as Cache;
-use Psr\Log\LoggerInterface;
-use Throwable;
+use Illuminate\Support\Str;
 
 /**
  * Store and retrieve service manifests from the shared cache.
@@ -22,13 +21,17 @@ class ManifestRepository
      */
     private const string INDEX = 'microservice:manifests';
 
+    /**
+     * Changes whenever a manifest is stored or removed.
+     */
+    private const string VERSION = 'microservice:manifests:version';
+
     /** @var array<string, string> Compiled URI patterns of resolve(), by pattern — so never stale. */
     private array $patterns = [];
 
     /** @param  int  $ttl  Seconds a stored manifest lives; zero keeps it until it is replaced. */
     public function __construct(
         private readonly Cache $cache,
-        private readonly LoggerInterface $logger,
         #[Config('microservice.manifest.ttl', 0)] private readonly int $ttl = 0,
     ) {
     }
@@ -47,25 +50,19 @@ class ManifestRepository
     }
 
     /**
-     * Get stored manifests by service name, or an empty array if the cache is unavailable.
+     * Get stored manifests by service name.
      *
      * @return array<string, array>
      */
     public function all(): array
     {
-        try {
-            $services = $this->cache->get(self::INDEX, []);
+        $services = $this->cache->get(self::INDEX, []);
 
-            if (! is_array($services) || $services === []) {
-                return [];
-            }
-
-            $stored = $this->cache->many(array_map(static fn (string $service): string => self::PREFIX.$service, $services));
-        } catch (Throwable $e) {
-            $this->logger->warning('Manifests are unreachable, no gateway routes registered.', ['error' => $e->getMessage()]);
-
+        if (! is_array($services) || $services === []) {
             return [];
         }
+
+        $stored = $this->cache->many(array_map(static fn (string $service): string => self::PREFIX.$service, $services));
 
         $manifests = [];
 
@@ -106,14 +103,13 @@ class ManifestRepository
     }
 
     /**
-     * A hash of what gateway routes are built from: the routes of every stored manifest.
+     * The current version of the stored manifests.
      */
-    public function fingerprint(): string
+    public function version(): ?string
     {
-        return md5(json_encode(array_map(
-            static fn (array $manifest): array => $manifest['routes'] ?? [],
-            $this->all(),
-        ), JSON_THROW_ON_ERROR));
+        $version = $this->cache->get(self::VERSION);
+
+        return is_string($version) ? $version : null;
     }
 
     /**
@@ -148,18 +144,26 @@ class ManifestRepository
 
         $this->cache->put(self::PREFIX.$service, [...$manifest, 'synced_at' => now()->toIso8601String()], $this->lifetime());
 
-        $this->updateIndex(static fn (array $services): array => in_array($service, $services, true) ? $services : [...$services, $service]);
+        $this->addToIndex($service);
+
+        $this->renewVersion();
     }
 
     /**
-     * Mark a stored manifest as synced again without replacing it.
+     * Mark a stored manifest as synced again, listing it if the index missed it.
      */
     public function touch(string $service): void
     {
         $manifest = $this->get($service);
 
-        if ($manifest !== null) {
-            $this->cache->put(self::PREFIX.$service, [...$manifest, 'synced_at' => now()->toIso8601String()], $this->lifetime());
+        if ($manifest === null) {
+            return;
+        }
+
+        $this->cache->put(self::PREFIX.$service, [...$manifest, 'synced_at' => now()->toIso8601String()], $this->lifetime());
+
+        if ($this->addToIndex($service)) {
+            $this->renewVersion();
         }
     }
 
@@ -168,18 +172,39 @@ class ManifestRepository
         $this->cache->forget(self::PREFIX.$service);
 
         $this->updateIndex(static fn (array $services): array => array_values(array_diff($services, [$service])));
+
+        $this->renewVersion();
+    }
+
+    private function renewVersion(): void
+    {
+        $this->cache->forever(self::VERSION, (string) Str::uuid());
+    }
+
+    private function addToIndex(string $service): bool
+    {
+        return $this->updateIndex(static fn (array $services): array => in_array($service, $services, true) ? $services : [...$services, $service]);
     }
 
     /** @param  callable(list<string>): list<string>  $change */
-    private function updateIndex(callable $change): void
+    private function updateIndex(callable $change): bool
     {
+        $services = $this->cache->get(self::INDEX, []);
+
+        if ($change($services) === $services) {
+            return false;
+        }
+
         try {
             $this->cache->lock(self::INDEX.'_lock', 10)->block(5, function () use ($change): void {
                 $this->cache->put(self::INDEX, $change($this->cache->get(self::INDEX, [])));
             });
         } catch (LockTimeoutException) {
             // The manifest itself is stored; the index catches up on the next sync.
+            return false;
         }
+
+        return true;
     }
 
     private function lifetime(): ?int

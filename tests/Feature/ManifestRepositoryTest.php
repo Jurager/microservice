@@ -8,14 +8,11 @@ use Illuminate\Contracts\Cache\Repository as Cache;
 use Jurager\Microservice\Manifest\ManifestRepository;
 use Jurager\Microservice\Tests\TestCase;
 use Mockery;
-use Psr\Log\LoggerInterface;
 use RuntimeException;
 
 class ManifestRepositoryTest extends TestCase
 {
     private Cache $cache;
-
-    private LoggerInterface $logger;
 
     private ManifestRepository $registry;
 
@@ -24,8 +21,7 @@ class ManifestRepositoryTest extends TestCase
         parent::setUp();
 
         $this->cache = Mockery::mock(Cache::class);
-        $this->logger = Mockery::mock(LoggerInterface::class);
-        $this->registry = new ManifestRepository($this->cache, $this->logger);
+        $this->registry = new ManifestRepository($this->cache);
     }
 
     public function test_get_all_manifests_returns_manifests_from_redis(): void
@@ -384,21 +380,7 @@ class ManifestRepositoryTest extends TestCase
         $this->assertEmpty($this->registry->all());
     }
 
-    public function test_unreachable_cache_is_treated_as_empty(): void
-    {
-        $this->cache->shouldReceive('get')
-            ->once()
-            ->with('microservice:manifests', [])
-            ->andThrow(new RuntimeException('Connection refused'));
-
-        $this->logger->shouldReceive('warning')
-            ->once()
-            ->with(Mockery::type('string'), ['error' => 'Connection refused']);
-
-        $this->assertEmpty($this->registry->all());
-    }
-
-    public function test_unreachable_cache_while_reading_manifests_is_treated_as_empty(): void
+    public function test_an_unreachable_cache_is_left_to_the_caller(): void
     {
         $this->cache->shouldReceive('get')
             ->once()
@@ -409,8 +391,44 @@ class ManifestRepositoryTest extends TestCase
             ->once()
             ->andThrow(new RuntimeException('Connection refused'));
 
-        $this->logger->shouldReceive('warning')->once();
+        $this->expectExceptionObject(new RuntimeException('Connection refused'));
 
-        $this->assertEmpty($this->registry->all());
+        $this->registry->all();
+    }
+
+    public function test_the_version_changes_when_a_manifest_is_stored_or_removed_but_not_when_touched(): void
+    {
+        $repository = $this->app->make(ManifestRepository::class);
+
+        $this->assertNull($repository->version());
+
+        $repository->store(['service' => 'pim', 'routes' => []]);
+        $stored = $repository->version();
+
+        $this->assertNotNull($stored);
+
+        $repository->touch('pim');
+
+        $this->assertSame($stored, $repository->version());
+
+        $repository->remove('pim');
+
+        $this->assertNotSame($stored, $repository->version());
+    }
+
+    public function test_a_manifest_the_index_missed_is_listed_again_when_touched(): void
+    {
+        $repository = $this->app->make(ManifestRepository::class);
+        $repository->store(['service' => 'pim', 'routes' => []]);
+
+        // As a store that timed out on the index lock leaves it.
+        cache()->put('microservice:manifests', []);
+
+        $version = $repository->version();
+
+        $repository->touch('pim');
+
+        $this->assertArrayHasKey('pim', $repository->all());
+        $this->assertNotSame($version, $repository->version());
     }
 }
